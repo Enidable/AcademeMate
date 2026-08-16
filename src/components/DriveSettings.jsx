@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { parseCSVRaw } from '../utils/csv'
+import { GOOGLE_CLIENT_ID } from '../config'
 
 const TAB_OPTIONS = [
   { key: 'inputLog', title: 'INPUT_LOG', label: 'Study sessions log' },
@@ -116,8 +117,8 @@ export default function DriveSettings({ open, onClose }) {
           <details className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
             <summary className="cursor-pointer font-medium text-slate-600 select-none">OAuth not connecting?</summary>
             <ul className="mt-2 space-y-1.5 list-disc pl-4">
-              <li>The Client ID in <code className="text-slate-700">.env.local</code> (as <code className="text-slate-700">VITE_GOOGLE_CLIENT_ID</code>) must exactly match an <em>OAuth client of type &quot;Web application&quot;</em>. Regenerating credentials in Google Cloud produces a new ID — copy it over and restart <code className="text-slate-700">npm run dev</code>.</li>
-              <li>In that client, the address you are using right now must be in <strong>Authorized JavaScript origins</strong>: <code className="text-slate-700">http://localhost:5173</code> locally, and <code className="text-slate-700">https://&lt;your-username&gt;.github.io</code> on GitHub Pages. An unmatched origin shows as a &quot;wrong client&quot; error.</li>
+              <li>This app is using Client ID <code className="text-slate-700 break-all">{GOOGLE_CLIENT_ID}</code>. Check it matches the one shown in your Google Cloud <em>Credentials</em> page.</li>
+              <li>The page's origin in the address bar (e.g. <code className="text-slate-700">http://localhost:5173</code>) must be under <strong>Authorized JavaScript origins</strong>. The path after it doesn't matter.</li>
               <li>Make sure <em>Google Drive API</em> and <em>Google Sheets API</em> are both enabled, and that your Google account is a <strong>test user</strong> while the consent screen is in &quot;Testing&quot; mode.</li>
             </ul>
           </details>

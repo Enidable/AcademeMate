@@ -30,7 +30,11 @@ async function authedFetch(url, options = {}) {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Google API ${res.status}: ${text.slice(0, 240)}`)
+    let message = `Google API ${res.status}: ${text.slice(0, 240)}`
+    if (res.status === 403 && /has not been used|disabled/i.test(text)) {
+      message += ' Enable the Google Drive and Google Sheets APIs in your Google Cloud project (APIs & Services > Library), then try again.'
+    }
+    throw new Error(message)
   }
   return res.status === 204 ? {} : res.json()
 }

@@ -4,10 +4,11 @@
 import { GOOGLE_CLIENT_ID, SCOPES } from '../config'
 
 const TOKEN_KEY = 'am_gis_token'
-const REQUEST_TIMEOUT_MS = 90_000
+const REQUEST_TIMEOUT_MS = 60_000
 
 let tokenClient = null
 let initPromise = null
+let currentCallback = null
 
 export function isSignedIn() {
   return !!readToken()
@@ -39,10 +40,18 @@ export function initGis() {
   if (initPromise) return initPromise
   initPromise = loadGisScript()
     .then(() => {
+      // Canonical GIS pattern: the callback is declared in initTokenClient() —
+      // requestAccessToken() must NOT receive its own callback. Attaching it
+      // per-request instead is a known cause of the "token never comes back
+      // after the consent pop-up" hang.
       tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
         scope: SCOPES.join(' '),
-        callback: () => {},
+        callback: (resp) => {
+          const cb = currentCallback
+          currentCallback = null
+          if (cb) cb(resp)
+        },
       })
       return tokenClient
     })
@@ -84,13 +93,67 @@ export function clearToken() {
   try { sessionStorage.removeItem(TOKEN_KEY) } catch {}
 }
 
-function withTimeout(promise, ms, message) {
-  let timer = null
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms)
-  })
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer) clearTimeout(timer)
+export async function getAccessToken({ force = false } = {}) {
+  const client = await initGis()
+  const cached = readToken()
+  if (cached && !force) return cached
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let popupOpened = false
+    let noPopupTimer = null
+    let requestTimer = null
+
+    const onBlur = () => { popupOpened = true }
+    const cleanup = () => {
+      window.removeEventListener('blur', onBlur)
+      if (noPopupTimer) clearTimeout(noPopupTimer)
+      if (requestTimer) clearTimeout(requestTimer)
+      if (currentCallback === onGisResponse) currentCallback = null
+    }
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn(value)
+    }
+    const onGisResponse = (resp) => {
+      if (resp?.error) {
+        // Log the raw response for debugging (never holds tokens on errors).
+        console.error('[AcademeMate] Google sign-in error:', resp)
+        finish(reject, new Error(describeGisError(resp)))
+        return
+      }
+      if (resp?.access_token) {
+        finish(resolve, storeToken(resp))
+        return
+      }
+      finish(reject, new Error('Google did not return an access token. Try again.'))
+    }
+
+    window.addEventListener('blur', onBlur)
+
+    // If no pop-up ever takes focus, it was blocked — fail fast and clearly.
+    noPopupTimer = setTimeout(() => {
+      if (!settled && !popupOpened) {
+        finish(reject, new Error('No Google sign-in pop-up appeared. Allow pop-ups for this site, then click Connect again.'))
+      }
+    }, 5000)
+
+    requestTimer = setTimeout(() => {
+      if (settled) return
+      finish(reject, new Error(
+        popupOpened
+          ? 'You approved the Google sign-in, but the token did not reach the app. Click Connect again; if it keeps failing, open the browser console (F12) and share the errors.'
+          : 'The Google sign-in window did not complete in time. If a pop-up was blocked, allow pop-ups for this site and try again.',
+      ))
+    }, REQUEST_TIMEOUT_MS)
+
+    // Wire the outstanding request to the token client's callback and start the
+    // flow. prompt: 'consent' forces the visible pop-up every time, avoiding the
+    // silent hidden-iframe refresh that hangs without a callback.
+    currentCallback = onGisResponse
+    client.requestAccessToken({ prompt: 'consent' })
   })
 }
 
@@ -113,36 +176,6 @@ function describeGisError(resp) {
       }
       return resp?.error_description || resp?.error || 'Google sign-in failed. Try again.'
   }
-}
-
-export async function getAccessToken({ force = false } = {}) {
-  const client = await initGis()
-  const cached = readToken()
-  if (cached && !force) return cached
-  return withTimeout(
-    new Promise((resolve, reject) => {
-      let settled = false
-      const once = (fn) => (value) => {
-        if (!settled) { settled = true; fn(value) }
-      }
-      client.requestAccessToken({
-        prompt: force ? 'consent' : undefined,
-        callback: once((resp) => {
-          if (resp?.error) {
-            reject(new Error(describeGisError(resp)))
-            return
-          }
-          if (resp?.access_token) {
-            resolve(storeToken(resp))
-            return
-          }
-          reject(new Error('Google did not return an access token. Try again.'))
-        }),
-      })
-    }),
-    REQUEST_TIMEOUT_MS,
-    'The Google sign-in window did not complete in time. If a pop-up was blocked, allow pop-ups for this site and try again.',
-  )
 }
 
 export function signOut() {

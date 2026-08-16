@@ -110,7 +110,8 @@ function parseGradeComponents(rawRows) {
   const map = {}
   for (const r of rawRows) {
     const course = (r[1] || '').trim()
-    if (!course) continue
+    // Skip the literal header row a human-filled sheet may carry: `,Course,EC's,...`
+    if (!course || course === 'Course') continue
     if (!map[course]) {
       map[course] = {
         course,

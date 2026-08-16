@@ -51,8 +51,8 @@ The repo includes a workflow (`.github/workflows/deploy.yml`) that builds and de
 ## Data
 
 - **Live data**: the per-user folder + spreadsheet on Drive. A brand-new account is created each time — the app never reuses or touches an existing spreadsheet.
-- **Offline/template data**: the CSV files in `public/data/` (used as a fallback when signed out, and as the seed for brand-new accounts).
-- **Example data**: because the repo is public, `public/data/` contains only *generated, fictional* data. Regenerate it with `node scripts/generate-example-data.mjs` and validate it with `node scripts/verify-example-data.mjs`. Never commit personal records.
+- **Template data**: the CSV files in `public/data/` seed brand-new accounts and power the offline fallback. They carry the programme's **course backbone** — real course IDs, names, quartiles, EC and grading weights — with *all* personal data (grades, study log, deadlines, planner appointments) stripped. Rebuild them from your local `my_data/` sheets with `node scripts/generate-example-data.mjs` (runs on your machine only) and validate with `node scripts/verify-example-data.mjs`.
+- **Your private data**: never committed. `my_data/` (your spreadsheet exports) is gitignored, and personal records only ever live in your own Drive spreadsheet.
 - **Migrating your real data**: in the app, open the *Connect* menu (top-right), connect Drive, then use **Import your own CSV** to replace each tab with an export of your own spreadsheet.
 
 ## Scripts

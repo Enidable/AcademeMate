@@ -1,4 +1,4 @@
-import { parseCSVRaw } from '../utils/csv'
+import { parseCSVRaw } from '../utils/csv.js'
 
 function toFloat(val) {
   if (val == null || val === '' || val === '-') return 0
