@@ -145,14 +145,16 @@ async function sheetMetadata(id) {
   return authedFetch(`${SHEETS_BASE}/spreadsheets/${id}?fields=sheets.properties(sheetId,title)`)
 }
 
-// Ensure the six canonical tabs exist; drop a freshly-created default "Sheet1".
+// Ensure the six canonical tabs exist; drop everything else. Sheets created by
+// the old schema ship extra tabs (INPUT_LOG, Deadlines and Lectures, …) and a
+// freshly-created spreadsheet has a default "Sheet1" — none of them should linger.
 export async function ensureTabs(id) {
   const meta = await sheetMetadata(id)
   const existing = new Set((meta.sheets || []).map(s => s.properties?.title))
   const missing = SHEET_TABS.filter(t => !existing.has(t))
   const toDelete = (meta.sheets || [])
     .map(s => s.properties)
-    .filter(p => p?.title === 'Sheet1' && !SHEET_TABS.includes(p.title))
+    .filter(p => p?.title && !SHEET_TABS.includes(p.title))
 
   const requests = []
   for (const title of missing) {
