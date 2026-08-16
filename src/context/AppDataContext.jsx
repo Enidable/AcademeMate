@@ -8,13 +8,20 @@ import {
   serializeContent,
   serializeDailyPlan,
   serializeWeeklyOverrides,
+  serializeCalendar,
 } from '../data/serialize'
+import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import {
   ensureSpreadsheet,
   ensureTabs,
   readAllTabs,
   writeAllTabs,
   writeTabRows,
+  listIcsFiles,
+  fetchIcsFile,
+  insertCalendarEvent,
+  updateCalendarEvent,
+  toGcalEvent,
 } from '../drive/driveClient'
 import { fetchTemplateRows } from '../drive/template'
 import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn, initGis } from '../drive/gis'
@@ -25,6 +32,7 @@ import {
   TAB_CONTENT,
   TAB_DAILY,
   TAB_HOURS,
+  TAB_CALENDAR,
 } from '../config'
 
 const STORAGE_KEY = 'am_state'
@@ -95,6 +103,7 @@ const TITLE_BY_KEY = {
   content: TAB_CONTENT,
   dailyPlan: TAB_DAILY,
   weeklyTotals: TAB_HOURS,
+  calendarEvents: TAB_CALENDAR,
 }
 
 function serializeTabByTitle(title, data, _planner) {
@@ -105,6 +114,7 @@ function serializeTabByTitle(title, data, _planner) {
     case TAB_CONTENT: return serializeContent(data?.content)
     case TAB_HOURS: return serializeWeeklyOverrides(data?.weeklyOverrides)
     case TAB_DAILY: return serializeDailyPlan(data?.dailyPlan)
+    case TAB_CALENDAR: return serializeCalendar(data?.calendarEvents)
     default: return []
   }
 }
@@ -365,6 +375,75 @@ export function AppDataProvider({ children }) {
     if (!TITLE_BY_KEY[tabKey]) throw new Error(`Unknown tab: ${tabKey}`)
     await writeTabRows(info.fileId, TITLE_BY_KEY[tabKey], rows)
     await refreshFromDrive()
+  }
+
+  // Read every .ics file in the user's Drive "iCal" folder, expand recurrences,
+  // and (re)build the Calendar tab. Events already exported to Google Calendar
+  // keep their cal_id so a re-import never creates duplicates on the next push.
+  async function importCalendarFromDrive() {
+    const info = driveRef.current
+    if (!info) throw new Error('Connect to Drive first')
+    const { folder, files } = await listIcsFiles()
+    if (!folder) throw new Error('No "iCal" folder found on your Drive. Create one and drop your university .ics files into it.')
+    if (files.length === 0) throw new Error('The "iCal" folder is empty. Add your downloaded .ics files there first.')
+
+    const parsed = []
+    for (const f of files) {
+      const text = await fetchIcsFile(f.id)
+      parsed.push(...parseIcs(text, { source: f.name }))
+    }
+    const rows = dedupeCalendarRows(parsed)
+
+    const existing = dataRef.current?.calendarEvents || []
+    const calByKey = new Map()
+    for (const e of existing) calByKey.set(`${e.uid}|${e.date}|${e.startTime}`, e.calId)
+    const merged = rows.map(r => ({
+      ...r,
+      calId: calByKey.get(`${r.uid}|${r.date}|${r.startTime}`) || null,
+    }))
+
+    const d = { ...(dataRef.current || {}), calendarEvents: merged }
+    const planner = plannerRef.current || []
+    setAll(d, planner)
+    await writeTabRows(info.fileId, TAB_CALENDAR, serializeCalendar(merged))
+    return { imported: merged.length, files: files.length }
+  }
+
+  // Export the Calendar tab into the user's real Google Calendar. First-time
+  // events are inserted (their returned id is stored in cal_id), already-exported
+  // events are updated in place, so running it repeatedly is idempotent.
+  async function pushCalendarToGoogle() {
+    const data = dataRef.current || {}
+    const events = data.calendarEvents || []
+    if (events.length === 0) return { inserted: 0, updated: 0 }
+    let inserted = 0
+    let updated = 0
+    const updatedEvents = []
+    for (const ev of events) {
+      const gcal = toGcalEvent(ev)
+      if (ev.calId) {
+        await updateCalendarEvent(ev.calId, gcal)
+        updated += 1
+      } else {
+        const id = await insertCalendarEvent(gcal)
+        updatedEvents.push({ ...ev, calId: id })
+        inserted += 1
+      }
+    }
+    if (updatedEvents.length > 0) {
+      const byKey = new Map(updatedEvents.map(e => [`${e.uid}|${e.date}|${e.startTime}`, e.calId]))
+      const merged = events.map(e => {
+        const id = byKey.get(`${e.uid}|${e.date}|${e.startTime}`)
+        return id ? { ...e, calId: id } : e
+      })
+      const d = { ...data, calendarEvents: merged }
+      dataRef.current = d
+      saveJSON({ data: d, plannerWeeks: plannerRef.current, weeklyHours: weeklyRef.current })
+      setData(d)
+      const info = driveRef.current
+      if (info) await writeTabRows(info.fileId, TAB_CALENDAR, serializeCalendar(merged))
+    }
+    return { inserted, updated }
   }
 
   function addSession(entry) {
@@ -640,6 +719,7 @@ export function AppDataProvider({ children }) {
       weeklyHours,
       plannerWeeks,
       dailyPlan: data?.dailyPlan || [],
+      calendarEvents: data?.calendarEvents || [],
       loading,
       error,
       drive,
@@ -651,6 +731,8 @@ export function AppDataProvider({ children }) {
       refreshFromDrive,
       refreshFromCSVs,
       importCSVToTab,
+      importCalendarFromDrive,
+      pushCalendarToGoogle,
       addSession,
       addCourse,
       addDeadline,

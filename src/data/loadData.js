@@ -7,6 +7,7 @@ import {
   TAB_CONTENT,
   TAB_DAILY,
   TAB_HOURS,
+  TAB_CALENDAR,
   CONTENT_TYPES,
 } from '../config'
 import { toFloat, toInt, parseDateDDMMYYYY } from './normalize.js'
@@ -18,6 +19,7 @@ const CSV_FILES = {
   [TAB_CONTENT]: `${ASSET_BASE}data/AcademeMate - Course Content.csv`,
   [TAB_DAILY]: `${ASSET_BASE}data/AcademeMate - Daily Plan.csv`,
   [TAB_HOURS]: `${ASSET_BASE}data/AcademeMate - Weekly Totals.csv`,
+  [TAB_CALENDAR]: `${ASSET_BASE}data/AcademeMate - Calendar.csv`,
 }
 
 // --- Study Log ------------------------------------------------------------
@@ -206,6 +208,31 @@ function parseWeeklyOverrides(rows) {
   return map
 }
 
+// --- Calendar (flattened timetable events) -------------------------------
+
+function parseCalendar(rows) {
+  return rows
+    .filter(r => (r.date || '').trim() && (r.summary || r.uid || '').trim())
+    .map(r => {
+      const allDay = String(r.all_day || '').trim()
+      return {
+        id: `${(r.uid || '').trim()}|${(r.date || '').trim()}|${(r.start_time || '').trim()}`,
+        date: parseDateDDMMYYYY((r.date || '').trim()),
+        startTime: (r.start_time || '').trim(),
+        endTime: (r.end_time || '').trim(),
+        allDay: allDay === '1' || allDay.toLowerCase() === 'true',
+        summary: (r.summary || '').trim(),
+        course: (r.course_id || '').trim() || null,
+        location: (r.location || '').trim() || null,
+        description: (r.description || '').trim() || null,
+        source: (r.source || '').trim() || null,
+        uid: (r.uid || '').trim() || null,
+        status: (r.status || '').trim() || null,
+        calId: (r.cal_id || '').trim() || null,
+      }
+    })
+}
+
 // --- Aggregation ---------------------------------------------------------
 
 export function attachCourseGrades(courses, gradeComponents) {
@@ -220,15 +247,16 @@ export function attachCourseGrades(courses, gradeComponents) {
 // rowsByTab maps canonical tab title -> 2D array (from Drive or bundled CSVs).
 export function parseAll(rowsByTab) {
   const courses = parseCourses(parseCSVRows(rowsByTab[TAB_COURSES] || []))
-  const gradeComponents = parseGradeComponents(rowsByTab[TAB_GRADES] || [])
+  const gradeComponents = parseGradeComponents(parseCSVRows(rowsByTab[TAB_GRADES] || []))
   attachCourseGrades(courses, gradeComponents)
   return {
     studyLog: parseStudyLog(parseCSVRows(rowsByTab[TAB_STUDY_LOG] || [])),
     courses,
     gradeComponents,
-    content: parseContent(rowsByTab[TAB_CONTENT] || []),
+    content: parseContent(parseCSVRows(rowsByTab[TAB_CONTENT] || [])),
     dailyPlan: parseDailyPlan(parseCSVRows(rowsByTab[TAB_DAILY] || [])),
     weeklyOverrides: parseWeeklyOverrides(parseCSVRows(rowsByTab[TAB_HOURS] || [])),
+    calendarEvents: parseCalendar(parseCSVRows(rowsByTab[TAB_CALENDAR] || [])),
   }
 }
 

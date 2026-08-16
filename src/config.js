@@ -13,11 +13,15 @@ export const GOOGLE_CLIENT_ID =
 export const ASSET_BASE = import.meta.env.BASE_URL
 
 // drive.file keeps the app scoped to spreadsheets it created (per-user isolation).
-// spreadsheets lets us read/write cell values. openid/email/profile only give us
-// the display name/email to greet the signed-in user.
+// spreadsheets lets us read/write cell values. drive.readonly lets the app read
+// the user's "iCal" folder of downloaded university .ics files. calendar.events
+// lets the app push events from the Calendar tab back into the user's real
+// Google Calendar. openid/email/profile only give the display name/email.
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
   'openid',
   'email',
   'profile',
@@ -27,6 +31,8 @@ export const APP_ID = 'academemate'
 export const SPREADSHEET_NAME = 'AcademeMate Data'
 export const DRIVE_FOLDER_NAME = 'AcademeMate - Study Tracking'
 export const APP_PROP_KEY = 'academemate'
+// Folder on the user's Drive where they drop downloaded university .ics files.
+export const ICAL_FOLDER_NAME = 'iCal'
 
 // Canonical tab titles inside the user's spreadsheet. Every tab is a single flat
 // table (one header row), linked to others by course_id — the app's data layer
@@ -37,6 +43,7 @@ export const TAB_GRADES = 'Grade Components'
 export const TAB_CONTENT = 'Course Content'
 export const TAB_DAILY = 'Daily Plan'
 export const TAB_HOURS = 'Weekly Totals'
+export const TAB_CALENDAR = 'Calendar'
 
 // Content item types: lectures/lectorials/tutorials/practicals are *scheduled*
 // (they have a `date`), assessments are *due* (they have a `deadline`).
@@ -66,4 +73,4 @@ export const DEADLINE_TYPES = new Set([
   'presentation',
 ])
 
-export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS]
+export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR]

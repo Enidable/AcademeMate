@@ -4,6 +4,7 @@
 import {
   APP_PROP_KEY,
   DRIVE_FOLDER_NAME,
+  ICAL_FOLDER_NAME,
   SHEET_TABS,
   SPREADSHEET_NAME,
   TAB_STUDY_LOG,
@@ -12,11 +13,13 @@ import {
   TAB_CONTENT,
   TAB_HOURS,
   TAB_DAILY,
+  TAB_CALENDAR,
 } from '../config'
 import { getAccessToken } from './gis'
 
 const DRIVE_BASE = 'https://www.googleapis.com/drive/v3'
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4'
+const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3'
 
 const MAX_RETRIES = 3
 
@@ -139,6 +142,98 @@ export async function getDriveUser() {
   }
 }
 
+// --- Drive: the user's iCal folder ----------------------------------------
+
+// Find the user's "iCal" folder (the one they drop downloaded .ics files into)
+// and list the calendar files inside it. Unlike the app-created spreadsheet,
+// this is the user's own folder — the drive.readonly scope covers it.
+export async function listIcsFiles() {
+  const folderQ =
+    `mimeType='application/vnd.google-apps.folder' and name='${ICAL_FOLDER_NAME.replace(/'/g, "\\'")}' and trashed=false`
+  const folders = await authedFetch(
+    `${DRIVE_BASE}/files?q=${encodeURIComponent(folderQ)}&fields=files(id)&spaces=drive`,
+  )
+  const folderId = folders.files?.[0]?.id
+  if (!folderId) return { folder: null, files: [] }
+
+  const fileQ = `'${folderId}' in parents and trashed=false and (mimeType='text/calendar' or name contains '.ics')`
+  const list = await authedFetch(
+    `${DRIVE_BASE}/files?q=${encodeURIComponent(fileQ)}&fields=files(id,name,mimeType,modifiedTime)&spaces=drive&pageSize=100`,
+  )
+  return { folder: folderId, files: list.files || [] }
+}
+
+// Download one Drive file's raw content as text (.ics downloads as text).
+async function fetchText(url, attempt = 0) {
+  const token = await getAccessToken()
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token.access_token}` } })
+  if (res.status === 429 || res.status === 409 || res.status >= 500) {
+    if (attempt < MAX_RETRIES) {
+      await sleep(400 * 2 ** attempt)
+      return fetchText(url, attempt + 1)
+    }
+  }
+  if (!res.ok) throw new Error(`Google API ${res.status}: ${(await res.text()).slice(0, 240)}`)
+  return res.text()
+}
+
+export async function fetchIcsFile(fileId) {
+  return fetchText(`${DRIVE_BASE}/files/${fileId}?alt=media`)
+}
+
+// --- Google Calendar API --------------------------------------------------
+
+export function toGcalEvent(ev) {
+  const start = ev.allDay
+    ? { date: ev.date }
+    : { dateTime: `${ev.date}T${(ev.startTime || '09:00').padStart(5, '0')}:00` }
+  const end = ev.allDay
+    ? { date: ev.date }
+    : (() => {
+        const [sh, sm] = (ev.startTime || '09:00').split(':')
+        const minutes = (parseInt(sh, 10) * 60 + parseInt(sm, 10)) + 60
+        const h = String(Math.floor(minutes / 60) % 24).padStart(2, '0')
+        const m = String(minutes % 60).padStart(2, '0')
+        return { dateTime: `${ev.date}T${h}:${m}:00` }
+      })()
+  return {
+    summary: ev.summary,
+    location: ev.location || '',
+    description: ev.description || '',
+    start,
+    end,
+  }
+}
+
+// Insert one event into a calendar (default the user's primary calendar).
+// Returns the created event's id. Idempotency is the caller's concern.
+export async function insertCalendarEvent(event, calendarId = 'primary') {
+  const url = `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`
+  const res = await authedFetch(url, {
+    method: 'POST',
+    body: JSON.stringify(event),
+  })
+  return res?.id || null
+}
+
+export async function updateCalendarEvent(eventId, event, calendarId = 'primary') {
+  const url = `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`
+  const res = await authedFetch(url, {
+    method: 'PUT',
+    body: JSON.stringify(event),
+  })
+  return res?.id || eventId
+}
+
+export function deleteCalendarEvent(eventId, calendarId = 'primary') {
+  if (!eventId) return Promise.resolve()
+  return enqueueSpreadsheetWrite(`gcal-${calendarId}`, () =>
+    authedFetch(`${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
+      method: 'DELETE',
+    }).catch(() => {}),
+  )
+}
+
 // --- Sheets API ----------------------------------------------------------
 
 async function sheetMetadata(id) {
@@ -219,6 +314,7 @@ export const TAB_KEY_BY_TITLE = {
   [TAB_CONTENT]: 'content',
   [TAB_DAILY]: 'dailyPlan',
   [TAB_HOURS]: 'weeklyTotals',
+  [TAB_CALENDAR]: 'calendarEvents',
 }
 
 export { SHEET_TABS }
