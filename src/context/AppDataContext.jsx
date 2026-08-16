@@ -21,6 +21,7 @@ import {
   fetchIcsFile,
   insertCalendarEvent,
   updateCalendarEvent,
+  ensureCalendar,
   toGcalEvent,
 } from '../drive/driveClient'
 import { fetchTemplateRows } from '../drive/template'
@@ -377,14 +378,15 @@ export function AppDataProvider({ children }) {
     await refreshFromDrive()
   }
 
-  // Read every .ics file in the user's Drive "iCal" folder, expand recurrences,
-  // and (re)build the Calendar tab. Events already exported to Google Calendar
-  // keep their cal_id so a re-import never creates duplicates on the next push.
+  // Read every .ics file in the "iCal" folder (kept inside the app's Drive
+  // folder), expand recurrences, and (re)build the Calendar tab. Events already
+  // exported to Google Calendar keep their cal_id so a re-import never creates
+  // duplicates on the next push.
   async function importCalendarFromDrive() {
     const info = driveRef.current
     if (!info) throw new Error('Connect to Drive first')
     const { folder, files } = await listIcsFiles()
-    if (!folder) throw new Error('No "iCal" folder found on your Drive. Create one and drop your university .ics files into it.')
+    if (!folder) throw new Error('No "iCal" folder found inside your "AcademeMate - Study Tracking" folder on Drive. Create it and drop your university .ics files there.')
     if (files.length === 0) throw new Error('The "iCal" folder is empty. Add your downloaded .ics files there first.')
 
     const parsed = []
@@ -393,6 +395,21 @@ export function AppDataProvider({ children }) {
       parsed.push(...parseIcs(text, { source: f.name }))
     }
     const rows = dedupeCalendarRows(parsed)
+
+    // Link events to courses so each course keeps its own colour everywhere.
+    const courses = dataRef.current?.courses || []
+    const codeToCourse = new Map()
+    for (const c of courses) if (c.code) codeToCourse.set(c.code, c.course)
+    for (const r of rows) {
+      if (!r.course) {
+        const m = /\.?\s*(\d{6,9})\s*$/.exec(r.summary || '')
+        if (m) r.course = codeToCourse.get(m[1]) || null
+      }
+      if (!r.course) {
+        const match = courses.find(c => (r.summary || '').trim().toLowerCase() === String(c.course || '').toLowerCase())
+        if (match) r.course = match.course
+      }
+    }
 
     const existing = dataRef.current?.calendarEvents || []
     const calByKey = new Map()
@@ -409,23 +426,25 @@ export function AppDataProvider({ children }) {
     return { imported: merged.length, files: files.length }
   }
 
-  // Export the Calendar tab into the user's real Google Calendar. First-time
-  // events are inserted (their returned id is stored in cal_id), already-exported
-  // events are updated in place, so running it repeatedly is idempotent.
+  // Export the Calendar tab into the user's dedicated "AcademeMate" Google
+  // Calendar (never the primary calendar). First-time events are inserted
+  // (their returned id is stored in cal_id), already-exported events are
+  // updated in place, so running it repeatedly is idempotent.
   async function pushCalendarToGoogle() {
     const data = dataRef.current || {}
     const events = data.calendarEvents || []
     if (events.length === 0) return { inserted: 0, updated: 0 }
+    const calendarId = await ensureCalendar('AcademeMate')
     let inserted = 0
     let updated = 0
     const updatedEvents = []
     for (const ev of events) {
       const gcal = toGcalEvent(ev)
       if (ev.calId) {
-        await updateCalendarEvent(ev.calId, gcal)
+        await updateCalendarEvent(ev.calId, gcal, calendarId)
         updated += 1
       } else {
-        const id = await insertCalendarEvent(gcal)
+        const id = await insertCalendarEvent(gcal, calendarId)
         updatedEvents.push({ ...ev, calId: id })
         inserted += 1
       }

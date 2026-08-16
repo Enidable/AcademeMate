@@ -144,12 +144,13 @@ export async function getDriveUser() {
 
 // --- Drive: the user's iCal folder ----------------------------------------
 
-// Find the user's "iCal" folder (the one they drop downloaded .ics files into)
-// and list the calendar files inside it. Unlike the app-created spreadsheet,
-// this is the user's own folder — the drive.readonly scope covers it.
+// Find the "iCal" folder the user keeps inside the app's own Drive folder
+// (DRIVE_FOLDER_NAME) and list the calendar files inside it. Unlike the app
+// spreadsheet, this is the user's own folder — the drive.readonly scope covers it.
 export async function listIcsFiles() {
+  const appFolderId = await ensureFolder()
   const folderQ =
-    `mimeType='application/vnd.google-apps.folder' and name='${ICAL_FOLDER_NAME.replace(/'/g, "\\'")}' and trashed=false`
+    `'${appFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and name='${ICAL_FOLDER_NAME.replace(/'/g, "\\'")}' and trashed=false`
   const folders = await authedFetch(
     `${DRIVE_BASE}/files?q=${encodeURIComponent(folderQ)}&fields=files(id)&spaces=drive`,
   )
@@ -183,6 +184,30 @@ export async function fetchIcsFile(fileId) {
 
 // --- Google Calendar API --------------------------------------------------
 
+// The app never writes to the user's primary calendar — events go into a
+// dedicated "AcademeMate" calendar (created the first time it's needed).
+export async function ensureCalendar(name = 'AcademeMate') {
+  const list = await authedFetch(
+    `${CALENDAR_BASE}/users/me/calendarList?fields=items(id,summary)&maxResults=250`,
+  )
+  const existing = (list.items || []).find(c => c.summary === name)
+  if (existing) return existing.id
+  const created = await authedFetch(`${CALENDAR_BASE}/calendars`, {
+    method: 'POST',
+    body: JSON.stringify({ summary: name, description: 'Imported university timetable via AcademeMate.' }),
+  })
+  return created?.id || 'primary'
+}
+
+// Stable Google Calendar colour (1..11) per course, so each course keeps one
+// colour across all its events. Events without a course stay calendar-default.
+export function courseColorId(course) {
+  if (!course) return null
+  let h = 0
+  for (let i = 0; i < course.length; i++) h = (h * 31 + course.charCodeAt(i)) | 0
+  return String(((h % 11) + 11) % 11 + 1)
+}
+
 export function toGcalEvent(ev) {
   const start = ev.allDay
     ? { date: ev.date }
@@ -196,13 +221,16 @@ export function toGcalEvent(ev) {
         const m = String(minutes % 60).padStart(2, '0')
         return { dateTime: `${ev.date}T${h}:${m}:00` }
       })()
-  return {
+  const body = {
     summary: ev.summary,
     location: ev.location || '',
     description: ev.description || '',
     start,
     end,
   }
+  const colorId = courseColorId(ev.course)
+  if (colorId) body.colorId = colorId
+  return body
 }
 
 // Insert one event into a calendar (default the user's primary calendar).

@@ -99,7 +99,7 @@ export default function Calendar() {
     setMessage('')
     try {
       const res = await pushCalendarToGoogle()
-      setMessage(`Google Calendar: ${res.inserted} inserted, ${res.updated} updated.`)
+      setMessage(`AcademeMate calendar: ${res.inserted} inserted, ${res.updated} updated.`)
     } catch (e) {
       setMessage(`Push failed: ${e.message}`)
     } finally {
@@ -182,7 +182,7 @@ export default function Calendar() {
 
       {hasDrive && calendarEvents.length === 0 && deadlines.length === 0 && mode !== 'year' && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-400 text-sm">
-          No events yet — drop your university .ics files into the “iCal” folder on Drive and press ↧ Import .ics.
+          No events yet — drop your university .ics files into the “iCal” folder inside “AcademeMate - Study Tracking” on Drive, then press ↧ Import .ics.
         </div>
       )}
 
