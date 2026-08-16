@@ -1,8 +1,12 @@
 // Shared configuration for the Google Drive backend.
-// The Client ID comes from .env.local (VITE_GOOGLE_CLIENT_ID) and is NOT a secret —
-// OAuth public client IDs are meant to be shipped in the browser bundle.
+// The Client ID is NOT a secret — OAuth public client IDs are meant to be
+// shipped in the browser bundle (you can read it from the built JS). It's baked
+// in below so the app works on GitHub Pages too (the CI build has no .env.local).
+// Set VITE_GOOGLE_CLIENT_ID in .env.local to override it locally if you change it.
 
-export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+export const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  '455238936121-d13b35keplcp2sb083s91gdod0cibfru.apps.googleusercontent.com'
 
 // Public assets live under the Vite base (/AcademeMate/) both in dev and in
 // production — a root-relative path would break on GitHub Pages.

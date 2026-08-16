@@ -20,7 +20,7 @@ const pages = {
 
 function AppContent() {
   const [active, setActive] = useState('Dashboard')
-  const { inputLog, masterCourses, deadlines, weeklyHours, loading, error, refreshFromCSVs, hasDrive, syncing } = useAppData()
+  const { inputLog, masterCourses, deadlines, weeklyHours, loading, error, refreshFromCSVs, hasDrive, syncing, driveError } = useAppData()
   const [modal, setModal] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -56,6 +56,13 @@ function AppContent() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header title={title} onDrive={() => setSettingsOpen(true)} hasDrive={hasDrive} syncing={syncing} {...headerActions[active]} />
         <main className="flex-1 overflow-y-auto p-6">
+          {driveError && (
+            <button onClick={() => setSettingsOpen(true)}
+              className="mb-4 w-full text-left text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 hover:bg-red-100 cursor-pointer"
+              title="Open Drive settings">
+              <span className="font-semibold">Drive error:</span> {driveError}
+            </button>
+          )}
           <Page {...pageProps[active]} />
         </main>
       </div>

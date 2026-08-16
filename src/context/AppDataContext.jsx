@@ -17,7 +17,7 @@ import {
   writeTabRows,
 } from '../drive/driveClient'
 import { fetchTemplateRows } from '../drive/template'
-import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn } from '../drive/gis'
+import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn, initGis } from '../drive/gis'
 import {
   TAB_DAILY,
   TAB_INPUT_LOG,
@@ -212,6 +212,10 @@ export function AppDataProvider({ children }) {
     }
 
     async function bootstrap() {
+      // Pre-warm the Google sign-in script at app start. Loading it lazily on the
+      // first "Connect" click makes the consent popup open outside the click's
+      // user-gesture window, so browsers can block it (endless sign-in hang).
+      initGis().catch(() => {})
       if (isSignedIn()) {
         try {
           const file = await ensureSpreadsheet()
@@ -261,7 +265,6 @@ export function AppDataProvider({ children }) {
 
   async function connectToDrive() {
     setDriveError(null)
-    setLoading(true)
     try {
       await getAccessToken()
       const file = await ensureSpreadsheet()
@@ -274,8 +277,6 @@ export function AppDataProvider({ children }) {
     } catch (e) {
       setDriveError(e.message)
       throw e
-    } finally {
-      setLoading(false)
     }
   }
 

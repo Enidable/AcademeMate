@@ -30,13 +30,15 @@ npm run dev
    - Add the scopes `.../auth/drive.file`, `.../auth/spreadsheets`, `openid`, `email`, `profile`.
    - Add yourself (and friends) as **Test users**.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID** → *Web application*:
-   - Authorized JavaScript origins: `https://<username>.github.io` and `http://localhost:5173`
-   - Authorized redirect URIs: `https://<username>.github.io/<repo>/` and `http://localhost:5173/`
-5. Copy the Client ID into a local env file:
+   - **Authorized JavaScript origins** (these are the only ones checked by this app's sign-in flow; redirect URIs are not used): `http://localhost:5173` for local dev **and** `https://<username>.github.io` for the deployed GitHub Pages site.
+   - *Authorized redirect URIs* can stay empty for this flow.
+5. Your Client ID is already baked into `src/config.js` as the default, so the **GitHub Pages build works with it automatically** (Client IDs are public identifiers — they're visible in the shipped JS either way).
+   - Only need a local env file if you want to *override* it for a different Client ID:
+     ```bash
+     cp .env.example .env.local   # then paste: VITE_GOOGLE_CLIENT_ID=...
+     ```
 
-```bash
-cp .env.example .env.local   # then paste: VITE_GOOGLE_CLIENT_ID=...
-```
+> **If OAuth seems to "have a wrong Client ID"**: Google reissues a **new** Client ID every time you regenerate credentials — paste the current one into `.env.local` and restart `npm run dev`. And the origin of the page you open must be in *Authorized JavaScript origins* (localhost and github.io are separate origins).
 
 ### 2. Deployment (GitHub Pages)
 

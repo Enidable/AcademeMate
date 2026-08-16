@@ -113,6 +113,15 @@ export default function DriveSettings({ open, onClose }) {
             )}
           </div>
 
+          <details className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+            <summary className="cursor-pointer font-medium text-slate-600 select-none">OAuth not connecting?</summary>
+            <ul className="mt-2 space-y-1.5 list-disc pl-4">
+              <li>The Client ID in <code className="text-slate-700">.env.local</code> (as <code className="text-slate-700">VITE_GOOGLE_CLIENT_ID</code>) must exactly match an <em>OAuth client of type &quot;Web application&quot;</em>. Regenerating credentials in Google Cloud produces a new ID — copy it over and restart <code className="text-slate-700">npm run dev</code>.</li>
+              <li>In that client, the address you are using right now must be in <strong>Authorized JavaScript origins</strong>: <code className="text-slate-700">http://localhost:5173</code> locally, and <code className="text-slate-700">https://&lt;your-username&gt;.github.io</code> on GitHub Pages. An unmatched origin shows as a &quot;wrong client&quot; error.</li>
+              <li>Make sure <em>Google Drive API</em> and <em>Google Sheets API</em> are both enabled, and that your Google account is a <strong>test user</strong> while the consent screen is in &quot;Testing&quot; mode.</li>
+            </ul>
+          </details>
+
           {driveError && (
             <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{driveError}</div>
           )}
