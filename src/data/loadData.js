@@ -25,16 +25,19 @@ const CSV_FILES = {
 function parseStudyLog(rows) {
   return rows
     .filter(r => (r.course_id || '').trim())
-    .map(r => {
+    .map((r, i) => {
       const durationHours = toFloat(r.duration_hours)
       const durationMinutes = toInt(r.duration_minutes)
+      const date = parseDateDDMMYYYY((r.date || '').trim())
+      const course = (r.course_id || '').trim()
       return {
-        date: parseDateDDMMYYYY((r.date || '').trim()),
+        id: `${date}|${course}|${(r.start_time || '').trim()}|${i}`,
+        date,
         startTime: (r.start_time || '').trim(),
         endTime: (r.end_time || '').trim(),
         durationHours: durationHours ?? 0,
         durationMinutes: durationMinutes ?? 0,
-        course: (r.course_id || '').trim(),
+        course,
         category: (r.category || '').trim(),
         project: (r.project || '').trim() || null,
         location: (r.location || '').trim(),

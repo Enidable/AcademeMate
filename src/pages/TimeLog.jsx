@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { formatDate, formatTime, getCourseStyle, getCategoryStyle, getEfficiencyBar, getWellbeingBar, normalizeCategory, truncate } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
+import { AddSessionModal } from '../components/forms/Modals'
 
 const PAGE_SIZE = 25
 
@@ -10,6 +11,9 @@ export default function TimeLog({ entries }) {
   const [filterCourse, setFilterCourse] = useState('All')
   const [filterCategory, setFilterCategory] = useState('All')
   const [page, setPage] = useState(1)
+  const [editing, setEditing] = useState(null)
+
+  const { deleteSession } = useAppData()
 
   const courses = useMemo(() => {
     const set = new Set(entries.map(e => e.course))
@@ -46,8 +50,6 @@ export default function TimeLog({ entries }) {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-
-  const { deleteSession } = useAppData()
 
   const summary = useMemo(() => {
     const total = filtered.length
@@ -147,7 +149,7 @@ export default function TimeLog({ entries }) {
               const effBar = getEfficiencyBar(entry.efficiency)
               const wellBar = getWellbeingBar(entry.wellbeing)
               return (
-                <tr key={`${entry.date}-${entry.startTime}-${i}`} className="hover:bg-slate-50">
+                <tr key={`${entry.date}-${entry.startTime}-${i}`} className="hover:bg-slate-50 group">
                   <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{formatDate(entry.date)}</td>
                   <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{formatTime(entry.startTime)}</td>
                   <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{formatTime(entry.endTime)}</td>
@@ -196,10 +198,11 @@ export default function TimeLog({ entries }) {
                       </span>
                     ) : '—'}
                   </td>
-                  <td className="px-3 py-2.5 text-center">
-                    {entry.id && (
-                      <button onClick={() => deleteSession(entry.id)} className="text-xs text-red-400 hover:text-red-600 cursor-pointer opacity-0 hover:opacity-100 transition-opacity" title="Delete">×</button>
-                    )}
+                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                    <div className="flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => setEditing(entry)} className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer" title="Edit">Edit</button>
+                      <button onClick={() => { if (window.confirm(`Delete this study session (${formatDate(entry.date)} ${entry.course})?`)) deleteSession(entry.id) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer" title="Delete">×</button>
+                    </div>
                   </td>
                 </tr>
               )
@@ -239,6 +242,13 @@ export default function TimeLog({ entries }) {
           Next
         </button>
       </div>
+
+      <AddSessionModal
+        key={editing?.id || 'session-edit'}
+        open={!!editing}
+        initial={editing}
+        onClose={() => setEditing(null)}
+      />
     </div>
   )
 }

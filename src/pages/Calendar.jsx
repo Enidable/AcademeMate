@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
+import { AddDeadlineModal } from '../components/forms/Modals'
 
 const urgencyColors = {
   'Complete': 'bg-green-100 text-green-700 border-green-200',
@@ -10,8 +11,9 @@ const urgencyColors = {
 }
 
 export default function Calendar() {
-  const { deadlines, deleteDeadline } = useAppData()
+  const { deadlines, deleteDeadline, updateDeadline } = useAppData()
   const [filter, setFilter] = useState('all')
+  const [editing, setEditing] = useState(null)
 
   const grouped = useMemo(() => {
     const map = {}
@@ -65,20 +67,29 @@ export default function Calendar() {
               </div>
               <div className="divide-y divide-slate-100">
                 {items.map((d, i) => (
-                  <div key={i} className="px-4 py-2.5 flex items-center justify-between text-sm">
+                  <div key={d.id || i} className="px-4 py-2.5 flex items-center justify-between text-sm group">
                     <div className="flex items-center gap-3 min-w-0">
+                      <input type="checkbox" checked={!!d.done}
+                        onChange={() => updateDeadline(d.id, { done: d.done ? null : 'done' })}
+                        className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0" />
                       <span className={`w-2 h-2 rounded-full shrink-0 ${d.done ? 'bg-green-400' : 'bg-amber-400'}`} />
                       <span className={`text-slate-700 truncate ${d.done ? 'line-through text-slate-400' : ''}`}>
                         {d.description}
                       </span>
                       {d.time > 0 && <span className="text-xs text-slate-400 shrink-0">({d.time}h)</span>}
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ml-3 ${urgencyColors[d.urgency] || 'bg-slate-100 text-slate-500'}`}>
-                      {d.urgency}
-                    </span>
-                    {d.id && (
-                      <button onClick={() => deleteDeadline(d.id)} className="ml-2 text-xs text-red-400 hover:text-red-600 cursor-pointer">×</button>
-                    )}
+                    <div className="flex items-center gap-2 shrink-0 ml-3">
+                      {d.course && <span className="text-[10px] text-slate-400 hidden lg:inline max-w-[120px] truncate">{d.course}</span>}
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${urgencyColors[d.urgency] || 'bg-slate-100 text-slate-500'}`}>
+                        {d.urgency}
+                      </span>
+                      {d.id && (
+                        <>
+                          <button onClick={() => setEditing(d)} className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer opacity-0 group-hover:opacity-100">Edit</button>
+                          <button onClick={() => { if (window.confirm('Delete this deadline?')) deleteDeadline(d.id) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer opacity-0 group-hover:opacity-100">×</button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -86,6 +97,13 @@ export default function Calendar() {
           ))}
         </div>
       )}
+
+      <AddDeadlineModal
+        key={editing?.id || 'deadline-edit'}
+        open={!!editing}
+        initial={editing}
+        onClose={() => setEditing(null)}
+      />
     </div>
   )
 }

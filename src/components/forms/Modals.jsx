@@ -16,14 +16,63 @@ function Modal({ open, onClose, title, children }) {
   )
 }
 
-export function AddSessionModal({ open, onClose }) {
-  const { addSession, masterCourses, gradeComponents } = useAppData()
-  const [form, setForm] = useState({
-    date: '', startTime: '', endTime: '', durationHours: '',
-    course: '', category: '', project: '', location: '',
-    efficiency: '', wellbeing: '', lectureId: '',
-    transportMode: '', commuteTime: '', notes: '',
-  })
+function seedSession(e) {
+  if (!e) {
+    return {
+      date: '', startTime: '', endTime: '', durationHours: '',
+      course: '', category: '', project: '', location: '',
+      efficiency: '', wellbeing: '', lectureId: '',
+      transportMode: '', commuteTime: '', notes: '',
+    }
+  }
+  return {
+    date: e.date || '',
+    startTime: (e.startTime || '').slice(0, 5),
+    endTime: (e.endTime || '').slice(0, 5),
+    durationHours: e.durationHours ? String(e.durationHours) : '',
+    course: e.course || '',
+    category: e.category || '',
+    project: e.project || '',
+    location: e.location || '',
+    efficiency: e.efficiency != null ? String(e.efficiency) : '',
+    wellbeing: e.wellbeing != null ? String(e.wellbeing) : '',
+    lectureId: e.lectureId || '',
+    transportMode: e.transportMode || '',
+    commuteTime: e.commuteTime != null ? String(e.commuteTime) : '',
+    notes: e.notes || '',
+  }
+}
+
+function seedDeadline(d) {
+  if (!d) return { description: '', course: '', type: 'assignment', date: '', time: '', urgency: 'Medium' }
+  return {
+    description: d.topic || d.description || '',
+    course: d.course || '',
+    type: d.type || 'assignment',
+    date: d.deadline || d.date || '',
+    time: d.hoursSpent != null ? String(d.hoursSpent) : '',
+    urgency: d.urgency || 'Medium',
+  }
+}
+
+function seedCourse(c) {
+  if (!c) {
+    return { course: '', abbrev: '', ec: '', start: '', finish: '', comment: '' }
+  }
+  return {
+    course: c.course || '',
+    abbrev: c.abbrev || '',
+    ec: c.ec != null ? String(c.ec) : '',
+    start: c.start || '',
+    finish: c.finish || '',
+    comment: c.comment || '',
+  }
+}
+
+export function AddSessionModal({ open, onClose, initial }) {
+  const { addSession, updateSession, masterCourses, gradeComponents } = useAppData()
+  const [form, setForm] = useState(() => seedSession(initial))
+  const isEdit = !!initial
 
   const assignmentIds = useMemo(() => {
     const ids = []
@@ -51,7 +100,7 @@ export function AddSessionModal({ open, onClose }) {
     const start = form.startTime ? form.startTime + ':00' : ''
     const end = form.endTime ? form.endTime + ':00' : ''
     const dh = parseFloat(form.durationHours) || 0
-    addSession({
+    const payload = {
       date: form.date,
       startTime: start,
       endTime: end,
@@ -67,7 +116,9 @@ export function AddSessionModal({ open, onClose }) {
       transportMode: form.transportMode || null,
       commuteTime: form.commuteTime ? parseFloat(form.commuteTime) : null,
       notes: form.notes || null,
-    })
+    }
+    if (isEdit && initial?.id) updateSession(initial.id, payload)
+    else addSession(payload)
     setForm({ date: '', startTime: '', endTime: '', durationHours: '', course: '', category: '', project: '', location: '', efficiency: '', wellbeing: '', lectureId: '', transportMode: '', commuteTime: '', notes: '' })
     onClose()
   }
@@ -76,7 +127,7 @@ export function AddSessionModal({ open, onClose }) {
   const locations = ['Home', 'University', 'Parents', 'Home Office', 'HomeOffice', 'Elsewhere', 'Other', 'Work (Epe)']
 
   return (
-    <Modal open={open} onClose={onClose} title="Add Study Session">
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Study Session' : 'Add Study Session'}>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="flex gap-2 mb-2">
           <button type="button" onClick={fillNow} className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer">Start Now</button>
@@ -175,40 +226,73 @@ export function AddSessionModal({ open, onClose }) {
 
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="text-sm px-4 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Cancel</button>
-          <button type="submit" className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">Add Session</button>
+          <button type="submit" className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">{isEdit ? 'Save Changes' : 'Add Session'}</button>
         </div>
       </form>
     </Modal>
   )
 }
 
-export function AddDeadlineModal({ open, onClose }) {
-  const { addDeadline } = useAppData()
-  const [form, setForm] = useState({ description: '', date: '', time: '', urgency: 'Medium' })
+export function AddDeadlineModal({ open, onClose, initial }) {
+  const { addDeadline, updateDeadline, masterCourses } = useAppData()
+  const [form, setForm] = useState(() => seedDeadline(initial))
+  const isEdit = !!initial
 
   function handleSubmit(e) {
     e.preventDefault()
-    addDeadline({ description: form.description, date: form.date, time: parseFloat(form.time) || 0, sessions: 1, thisWeek: 0, today: 0, done: 0, urgency: form.urgency })
-    setForm({ description: '', date: '', time: '', urgency: 'Medium' })
+    if (!form.course) {
+      alert('Pick a course for this item first.')
+      return
+    }
+    const payload = {
+      course: form.course,
+      description: form.description,
+      date: form.date,
+      time: parseFloat(form.time) || 0,
+      sessions: 1, thisWeek: 0, today: 0, done: 0,
+      urgency: form.urgency,
+      type: form.type,
+    }
+    if (isEdit && initial?.id) updateDeadline(initial.id, payload)
+    else addDeadline(payload)
+    setForm({ description: '', course: '', type: 'assignment', date: '', time: '', urgency: 'Medium' })
     onClose()
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Add Deadline">
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Deadline' : 'Add Deadline'}>
       <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">Course *</label>
+          <select required value={form.course} onChange={e => setForm(f => ({ ...f, course: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+            <option value="">Select…</option>
+            {masterCourses.map(c => <option key={c.course} value={c.course}>{c.course}</option>)}
+          </select>
+        </div>
         <div>
           <label className="text-xs text-slate-500 block mb-1">Description *</label>
           <input type="text" required value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-slate-500 block mb-1">Date *</label>
-            <input type="date" required value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+            <label className="text-xs text-slate-500 block mb-1">Type</label>
+            <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+              <option value="assignment">Assignment</option>
+              <option value="project">Project</option>
+              <option value="exam">Exam</option>
+              <option value="quiz">Quiz</option>
+              <option value="presentation">Presentation</option>
+              <option value="other">Other</option>
+            </select>
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1">Est. Hours</label>
             <input type="text" inputMode="decimal" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
           </div>
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">Date (due) *</label>
+          <input type="date" required value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
         </div>
         <div>
           <label className="text-xs text-slate-500 block mb-1">Urgency</label>
@@ -221,19 +305,28 @@ export function AddDeadlineModal({ open, onClose }) {
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="text-sm px-4 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Cancel</button>
-          <button type="submit" className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">Add Deadline</button>
+          <button type="submit" className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">{isEdit ? 'Save Changes' : 'Add Deadline'}</button>
         </div>
       </form>
     </Modal>
   )
 }
 
-export function AddCourseModal({ open, onClose }) {
-  const { addCourse } = useAppData()
-  const [form, setForm] = useState({ course: '', abbrev: '', ec: '', start: '', finish: '', comment: '' })
-  const [components, setComponents] = useState([
-    { type: 'assignment', id: '', weight: '', grade: '' },
-  ])
+export function AddCourseModal({ open, onClose, initial }) {
+  const { addCourse, updateCourse, gradeComponents } = useAppData()
+  const existingGroup = initial?.course ? gradeComponents.find(g => g.course === initial.course) : null
+  const [form, setForm] = useState(() => seedCourse(initial))
+  const [components, setComponents] = useState(() =>
+    existingGroup?.components?.map(c => ({
+      type: c.type || 'assignment',
+      id: c.id || '',
+      weight: c.weight != null ? String(c.weight) : '',
+      grade: c.grade != null ? String(c.grade) : '',
+    })) || [
+      { type: 'assignment', id: '', weight: '', grade: '' },
+    ]
+  )
+  const isEdit = !!initial
 
   function addComp() {
     setComponents([...components, { type: 'assignment', id: '', weight: '', grade: '' }])
@@ -252,7 +345,7 @@ export function AddCourseModal({ open, onClose }) {
 
   function handleSubmit(e) {
     e.preventDefault()
-    addCourse({
+    const payload = {
       course: form.course,
       abbrev: form.abbrev || null,
       ec: form.ec ? parseFloat(form.ec) : null,
@@ -270,14 +363,16 @@ export function AddCourseModal({ open, onClose }) {
           weight: parseFloat(c.weight) || null,
           grade: c.grade ? parseFloat(c.grade) : null,
         })),
-    })
+    }
+    if (isEdit && initial?.id) updateCourse(initial.id, payload)
+    else addCourse(payload)
     setForm({ course: '', abbrev: '', ec: '', start: '', finish: '', comment: '' })
     setComponents([{ type: 'assignment', id: '', weight: '', grade: '' }])
     onClose()
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Add Course">
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Course' : 'Add Course'}>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="text-xs text-slate-500 block mb-1">Course Name *</label>
@@ -334,7 +429,7 @@ export function AddCourseModal({ open, onClose }) {
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="text-sm px-4 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Cancel</button>
-          <button type="submit" className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">Add Course</button>
+          <button type="submit" className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">{isEdit ? 'Save Changes' : 'Add Course'}</button>
         </div>
       </form>
     </Modal>

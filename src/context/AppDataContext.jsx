@@ -97,7 +97,7 @@ const TITLE_BY_KEY = {
   weeklyTotals: TAB_HOURS,
 }
 
-function serializeTabByTitle(title, data, planner) {
+function serializeTabByTitle(title, data, _planner) {
   switch (title) {
     case TAB_STUDY_LOG: return serializeStudyLog(data?.studyLog)
     case TAB_COURSES: return serializeCourses(data?.courses)
@@ -393,7 +393,7 @@ export function AppDataProvider({ children }) {
       contentId: deadline.contentId || deadline.id || null,
       type: deadline.type || 'assignment',
       topic: deadline.description || '',
-      date: deadline.date || null,
+      date: null,
       deadline: deadline.date || null,
       start: deadline.start || '',
       end: deadline.end || '',
@@ -410,6 +410,69 @@ export function AppDataProvider({ children }) {
     }
     const updated = { ...prev, content: [...(prev.content || []), item] }
     setAll(updated, plannerRef.current)
+    syncTabs(['content'])
+  }
+
+  function updateSession(id, entry) {
+    const prev = dataRef.current || {}
+    const studyLog = (prev.studyLog || []).map(e => e.id === id ? { ...e, ...entry, id } : e)
+    setAll({ ...prev, studyLog }, plannerRef.current)
+    syncTabs(['studyLog'])
+  }
+
+  function updateCourse(id, course) {
+    const { _gradeComponents, ...courseData } = course
+    const prev = dataRef.current || {}
+    const courses = [...(prev.courses || [])]
+    const idx = courses.findIndex(c => c.id === id)
+    if (idx < 0) return
+    courses[idx] = { ...courses[idx], ...courseData, id: courseData.course, course: courseData.course }
+    const updated = { ...prev, courses }
+    const keys = ['courses']
+    if (_gradeComponents) {
+      const gradeComps = [...(updated.gradeComponents || [])]
+      const gIdx = gradeComps.findIndex(g => g.course === id)
+      const entry = {
+        course: courseData.course,
+        components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.id || null })),
+        totalGrade: calcWeightedGrade(_gradeComponents),
+      }
+      if (gIdx >= 0) gradeComps[gIdx] = entry
+      else gradeComps.push(entry)
+      updated.gradeComponents = gradeComps
+      keys.push('gradeComponents')
+    }
+    setAll(updated, plannerRef.current)
+    syncTabs(keys)
+  }
+
+  function updateContentItem(id, payload) {
+    const prev = dataRef.current || {}
+    const content = (prev.content || []).map(i => {
+      if (i.id !== id) return i
+      const updated = { ...i, id }
+      if (payload.course != null) updated.course = payload.course
+      if (payload.description != null) {
+        updated.topic = payload.description
+        updated.description = payload.description
+      }
+      if (payload.date != null) {
+        updated.deadline = payload.date
+        updated.date = null
+      }
+      if (payload.type != null) updated.type = payload.type
+      if (payload.time != null) {
+        updated.hoursSpent = payload.time
+        updated.time = payload.time
+      }
+      if (payload.urgency != null) {
+        updated.urgency = payload.urgency
+        updated.marker = (payload.urgency === 'High' || payload.urgency === 'Extremely High') ? 'important' : ''
+      }
+      if (payload.done != null) updated.done = payload.done
+      return updated
+    })
+    setAll({ ...prev, content }, plannerRef.current)
     syncTabs(['content'])
   }
 
@@ -524,6 +587,30 @@ export function AppDataProvider({ children }) {
     syncTabs(['dailyPlan'])
   }
 
+  function addPlannerTask(task) {
+    const prev = dataRef.current || {}
+    const row = {
+      id: `${task.date}|${task.course || ''}|${task.task || ''}`,
+      date: task.date,
+      course: task.course || '',
+      task: task.task || '',
+      plannedHours: task.plannedHours ?? 0,
+      actualHours: task.actualHours ?? null,
+      done: task.done || null,
+      notes: task.notes || null,
+    }
+    const updated = { ...prev, dailyPlan: [...(prev.dailyPlan || []), row] }
+    setAll(updated, plannerRef.current)
+    syncTabs(['dailyPlan'])
+  }
+
+  function updatePlannerTask(id, updates) {
+    const prev = dataRef.current || {}
+    const dailyPlan = (prev.dailyPlan || []).map(r => r.id === id ? { ...r, ...updates } : r)
+    setAll({ ...prev, dailyPlan }, plannerRef.current)
+    syncTabs(['dailyPlan'])
+  }
+
   function deletePlannerTask(id) {
     const prev = dataRef.current || {}
     const dailyPlan = (prev.dailyPlan || []).filter(r => r.id !== id)
@@ -559,6 +646,9 @@ export function AppDataProvider({ children }) {
       deleteSession,
       deleteCourse,
       deleteDeadline,
+      updateSession,
+      updateCourse,
+      updateDeadline: updateContentItem,
       updateGradeComponents,
       updatePlannerWeek,
       updatePlannerCell,

@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react'
-import { formatDate, getStatus, truncate, getCourseStyle } from '../utils/helpers'
+import { getStatus, truncate, getCourseStyle } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
+import { AddCourseModal } from '../components/forms/Modals'
 
 export default function Courses({ courses }) {
-  const { inputLog, gradeComponents, deleteCourse, updateGradeComponents } = useAppData()
+  const { inputLog, gradeComponents, deleteCourse } = useAppData()
   const [expanded, setExpanded] = useState(null)
+  const [editing, setEditing] = useState(null)
 
   const allCourses = useMemo(() => {
     const logCourses = new Set(inputLog.map(e => e.course))
@@ -26,13 +28,12 @@ export default function Courses({ courses }) {
     return map
   }, [inputLog])
 
-  const { avgHoursPerEC, totalEC } = useMemo(() => {
+  const { avgHoursPerEC } = useMemo(() => {
     const coursesWithEC = allCourses.filter(c => c.ec != null && c.ec > 0)
     const totalECVal = coursesWithEC.reduce((s, c) => s + c.ec, 0)
     const totalHours = coursesWithEC.reduce((s, c) => s + (loggedHoursMap[c.course] || 0), 0)
     return {
       avgHoursPerEC: totalECVal > 0 ? totalHours / totalECVal : 28,
-      totalEC: totalECVal,
     }
   }, [allCourses, loggedHoursMap])
 
@@ -43,6 +44,7 @@ export default function Courses({ courses }) {
   }, [gradeComponents])
 
   return (
+    <>
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       {allCourses.map((c) => {
         const status = getStatus(c)
@@ -153,9 +155,10 @@ export default function Courses({ courses }) {
                 {isExpanded ? 'Collapse' : 'Edit grade components →'}
               </button>
               {c.id != null && (
-                <button onClick={() => deleteCourse(c.id)} className="text-xs text-red-400 hover:text-red-600 ml-auto cursor-pointer">
-                  Delete
-                </button>
+                <div className="ml-auto flex items-center gap-2">
+                  <button onClick={() => setEditing(c)} className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
+                  <button onClick={() => { if (window.confirm(`Delete course "${c.course}"? This also removes its grade components.`)) deleteCourse(c.id) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">Delete</button>
+                </div>
               )}
             </div>
 
@@ -166,6 +169,14 @@ export default function Courses({ courses }) {
         )
       })}
     </div>
+
+    <AddCourseModal
+      key={editing?.id || 'course-edit'}
+      open={!!editing}
+      initial={editing}
+      onClose={() => setEditing(null)}
+    />
+    </>
   )
 }
 
