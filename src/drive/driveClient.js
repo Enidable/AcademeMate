@@ -6,11 +6,11 @@ import {
   DRIVE_FOLDER_NAME,
   SHEET_TABS,
   SPREADSHEET_NAME,
-  TAB_INPUT_LOG,
+  TAB_STUDY_LOG,
   TAB_COURSES,
   TAB_GRADES,
+  TAB_CONTENT,
   TAB_HOURS,
-  TAB_DEADLINES,
   TAB_DAILY,
 } from '../config'
 import { getAccessToken } from './gis'
@@ -18,17 +18,39 @@ import { getAccessToken } from './gis'
 const DRIVE_BASE = 'https://www.googleapis.com/drive/v3'
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4'
 
-async function authedFetch(url, options = {}) {
+const MAX_RETRIES = 3
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+async function authedFetch(url, options = {}, attempt = 0) {
   const token = await getAccessToken()
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token.access_token}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  })
+  let res
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token.access_token}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    })
+  } catch (e) {
+    // Network blip — retry.
+    if (attempt < MAX_RETRIES) {
+      await sleep(300 * 2 ** attempt)
+      return authedFetch(url, options, attempt + 1)
+    }
+    throw new Error(`Network error: ${e.message}`)
+  }
+
   if (!res.ok) {
+    // 409 = concurrent writes to the same spreadsheet (what used to surface as
+    // "Conflict"), 429 = rate limit, 5xx = transient. All deserve a retry.
+    const lastRetry = attempt >= MAX_RETRIES
+    if (!lastRetry && (res.status === 409 || res.status === 429 || res.status >= 500)) {
+      await sleep(400 * 2 ** attempt)
+      return authedFetch(url, options, attempt + 1)
+    }
     const text = await res.text()
     let message = `Google API ${res.status}: ${text.slice(0, 240)}`
     if (res.status === 403 && /has not been used|disabled/i.test(text)) {
@@ -37,6 +59,18 @@ async function authedFetch(url, options = {}) {
     throw new Error(message)
   }
   return res.status === 204 ? {} : res.json()
+}
+
+// Serialize every write to a given spreadsheet. The Sheets API rejects
+// concurrent mutations of the same file with 409 "Conflict"; queueing all
+// writes per file across tabs sidesteps that entirely.
+const writeQueues = {}
+
+function enqueueSpreadsheetWrite(fileId, task) {
+  const prev = writeQueues[fileId] || Promise.resolve()
+  const next = prev.then(task, task)
+  writeQueues[fileId] = next.catch(() => {})
+  return next
 }
 
 // --- Drive API -----------------------------------------------------------
@@ -143,22 +177,24 @@ export async function readTabRows(id, title) {
 }
 
 // Write a whole tab. Start at A1 and let Sheets extend the range to fit the rows.
-export async function writeTabRows(id, title, rows) {
-  if (!rows || rows.length === 0) {
-    await authedFetch(
-      `${SHEETS_BASE}/spreadsheets/${id}/values/${encodeURIComponent(`'${title}'!A1:ZZ`)}:clear`,
-      { method: 'POST', body: '{}' },
+// Writes to the same spreadsheet are queued so concurrent edits never collide.
+export function writeTabRows(id, title, rows) {
+  return enqueueSpreadsheetWrite(id, () => {
+    if (!rows || rows.length === 0) {
+      return authedFetch(
+        `${SHEETS_BASE}/spreadsheets/${id}/values/${encodeURIComponent(`'${title}'!A1:ZZ`)}:clear`,
+        { method: 'POST', body: '{}' },
+      )
+    }
+    const range = encodeURIComponent(`'${title}'!A1`)
+    return authedFetch(
+      `${SHEETS_BASE}/spreadsheets/${id}/values/${range}?valueInputOption=USER_ENTERED`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ values: rows, majorDimension: 'ROWS' }),
+      },
     )
-    return
-  }
-  const range = encodeURIComponent(`'${title}'!A1`)
-  await authedFetch(
-    `${SHEETS_BASE}/spreadsheets/${id}/values/${range}?valueInputOption=USER_ENTERED`,
-    {
-      method: 'PUT',
-      body: JSON.stringify({ values: rows, majorDimension: 'ROWS' }),
-    },
-  )
+  })
 }
 
 export async function readAllTabs(id) {
@@ -175,12 +211,12 @@ export async function writeAllTabs(id, rowsByTab) {
 // --- Tab keys ------------------------------------------------------------
 
 export const TAB_KEY_BY_TITLE = {
-  [TAB_INPUT_LOG]: 'inputLog',
-  [TAB_COURSES]: 'masterCourses',
+  [TAB_STUDY_LOG]: 'studyLog',
+  [TAB_COURSES]: 'courses',
   [TAB_GRADES]: 'gradeComponents',
-  [TAB_HOURS]: 'weeklyHours',
-  [TAB_DEADLINES]: 'deadlines',
-  [TAB_DAILY]: 'planner',
+  [TAB_CONTENT]: 'content',
+  [TAB_DAILY]: 'dailyPlan',
+  [TAB_HOURS]: 'weeklyTotals',
 }
 
 export { SHEET_TABS }

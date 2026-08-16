@@ -1,82 +1,94 @@
-#!/usr/bin/env node
-// Verifies the bundled template CSVs parse correctly through the app's real
-// parser code AND contain no personal data (grades, study logs, deadlines,
-// personal planner entries). Run: node scripts/verify-example-data.mjs
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { parseCSV, parseCSVRaw } from '../src/utils/csv.js'
-import { parseDailyPlannerRows } from '../src/data/parseDaily.js'
+// Validates that public/data/ is (a) populated enough to exercise the GUI and
+// (b) contains NO personal data. Run after generate-example-data.mjs.
+//
+//   node scripts/verify-example-data.mjs
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = join(__dirname, '..', 'public', 'data')
-const read = name => readFileSync(join(DATA_DIR, name), 'utf8')
+import fs from 'node:fs'
+import path from 'node:path'
+import { parseCSVRaw } from './lib/csv.mjs'
+import { PERSONAL_TASK_RE, DEADLINE_TYPES } from './lib/migrate.mjs'
 
-function assert(cond, msg) {
-  if (!cond) {
-    console.error(`FAIL: ${msg}`)
-    process.exit(1)
+const DIR = path.resolve('public', 'data')
+const FILES = [
+  'AcademeMate - Study Log.csv',
+  'AcademeMate - Courses.csv',
+  'AcademeMate - Grade Components.csv',
+  'AcademeMate - Course Content.csv',
+  'AcademeMate - Daily Plan.csv',
+  'AcademeMate - Weekly Totals.csv',
+]
+
+const errors = []
+const warn = (msg) => errors.push(msg)
+
+function rows(name) {
+  const text = fs.readFileSync(path.join(DIR, name), 'utf8')
+  return parseCSVRaw(text)
+}
+
+// 1. Files exist with headers.
+for (const f of FILES) {
+  const r = rows(f)
+  if (r.length === 0) warn(`${f}: empty or missing`)
+}
+
+// 2. Personal content must never appear anywhere.
+const scanFiles = ['Study Log.csv', 'Courses.csv', 'Grade Components.csv', 'Course Content.csv', 'Daily Plan.csv'].map(n => `AcademeMate - ${n}`)
+const PERSONAL = /therapie|tattoo|schwarzwald|wageningen|urlaub|lukas|tirza|eye\s*test|telefon|ichaela|julia|knie|hond|geburtstag|verwandt/
+for (const f of scanFiles) {
+  const r = rows(f)
+  for (let ri = 0; ri < r.length; ri++) {
+    for (let ci = 0; ci < r[ri].length; ci++) {
+      const cell = r[ri][ci] || ''
+      if (PERSONAL.test(cell)) warn(`${f}: row ${ri + 1} col ${ci + 1} contains personal content: "${cell.slice(0, 60)}"`)
+    }
+  }
+}
+for (const f of ['AcademeMate - Daily Plan.csv']) {
+  const r = rows(f)
+  for (let ri = 0; ri < r.length; ri++) {
+    const course = r[ri][1] || ''
+    if (['ELSE', 'Travel', 'WORK'].includes(course)) warn(`${f}: row ${ri + 1} keeps personal/private category "${course}"`)
+    const task = r[ri][2] || ''
+    if (PERSONAL_TASK_RE.test(task)) warn(`${f}: row ${ri + 1} task looks personal: "${task.slice(0, 60)}"`)
   }
 }
 
-// INPUT_LOG must be empty (only the header) — a fresh user starts with no
-// personal study sessions. The header must carry the keys parseInputLog reads.
-const inputLogRaw = parseCSVRaw(read('Master Tracker - INPUT_LOG.csv'))
-assert(inputLogRaw.length === 1, `INPUT_LOG should contain only the header, found ${inputLogRaw.length} rows`)
-const requiredLogKeys = ['Date', 'Start Time', 'End Time', 'Duration (hours)', 'Duration (minutes)',
-  'Course', 'Category', 'Project', 'Location', 'Efficiency', 'Wellbeing',
-  'Lecture ID', 'Transport Mode', 'Commute Time', 'Notes']
-const logHeader = inputLogRaw[0]
-assert(requiredLogKeys.every(k => logHeader.includes(k)), `INPUT_LOG header missing keys: ${JSON.stringify(logHeader)}`)
-
-// Courses must be the real programme's backbone: headers, course name + course
-// ID (Abbrev.), but NO personal grades and NO time spent.
-const courseObjects = parseCSV(read('Master Tracker - Master Time Management.csv'))
-const requiredCourseKeys = ['', 'Quartile', 'Courses', 'Abbrev.', 'Start', 'Finish', 'Time [min]',
-  'Time [h]', 'Grade', 'Exam', 'Assignment', 'Laboratory', 'EC', 'Comment',
-  'Est. Time [h]', 'Ass. Time [h]', 'Material']
-assert(courseObjects.length >= 20, `Courses parsed only ${courseObjects.length} rows (expected the real programme)`)
-assert(requiredCourseKeys.every(k => k in courseObjects[0]), `Courses missing header key in ${JSON.stringify(Object.keys(courseObjects[0]))}`)
-assert(courseObjects.every(o => o.Courses), 'Course row lost its name')
-assert(courseObjects.every(o => (o['Abbrev.'] || '').trim()), 'Every course must carry its course ID (Abbrev.)')
-assert(courseObjects.every(o => (o.Grade || '').trim() === ''), 'Template must not contain grades')
-assert(courseObjects.every(o => (o['Time [h]'] || '').trim() === '' && (o['Time [min]'] || '').trim() === ''), 'Template must not contain personal time spent')
-
-// Grade Computer: grading weights only — NO grades anywhere (odd columns), no totals.
-const gradeRaw = parseCSVRaw(read('Master Tracker - Grade Computer.csv'))
-assert(gradeRaw.length >= 5, `Grade Computer parsed only ${gradeRaw.length} rows`)
-for (const r of gradeRaw) {
-  if (!(r[1] || '').trim()) continue
-  for (const col of [4, 6, 8, 10, 12, 14, 15, 16]) {
-    assert((r[col] || '').trim() === '', `Grade Computer has a grade in column ${col} for ${r[1]}`)
-  }
+// 3. No grades anywhere in the template.
+const gc = rows('AcademeMate - Grade Components.csv')
+for (let ri = 1; ri < gc.length; ri++) {
+  const grade = gc[ri][4] || ''
+  if (grade !== '') warn(`Grade Components row ${ri + 1}: template must not ship grades (found "${grade}")`)
 }
 
-// Weekly hours: the Year 2026 [h] row must be intact and have 52 week cells.
-const hoursRows = parseCSVRaw(read('Master Tracker - Time structure and hours of study.csv'))
-const yearRow = hoursRows.find(r => (r[0] || '').trim() === 'Year 2026 [h]')
-assert(yearRow && yearRow.length === 53, 'Year 2026 [h] row missing/malformed')
-
-// Deadlines: template must be EMPTY (header only) — no personal commitments.
-const deadlineRows = parseCSVRaw(read('Master Tracker - Deadlines and Lectures.csv'))
-assert(deadlineRows.length === 1, `Deadlines should be header-only, found ${deadlineRows.length}`)
-assert(deadlineRows[0].length >= 8, 'Deadlines header malformed')
-
-// Daily planner must parse into weeks, each incl. SUM, Travel, WORK — but all
-// cells empty (no personal appointments).
-const weeks = parseDailyPlannerRows(parseCSVRaw(read('Master Tracker - Daily.csv')))
-assert(weeks.length >= 6, `Daily parsed only ${weeks.length} weeks`)
-for (const w of weeks) {
-  assert(w.dates.length === 7, `Week ${w.weekNumber} missing dates`)
-  assert(w.rows.some(r => r.course === 'SUM' && r.isTotal), `Week ${w.weekNumber} missing SUM row`)
+// 4. Study Log must not carry private notes; Weekly Totals must be header-only.
+const log = rows('AcademeMate - Study Log.csv')
+for (let ri = 1; ri < log.length; ri++) {
+  if ((log[ri][14] || '') !== '') warn(`Study Log row ${ri + 1}: notes must be stripped in the template`)
 }
-const editable = weeks[0].rows.filter(r => !r.isTotal)
-assert(editable.some(r => r.course === 'Travel'), 'Week missing Travel row')
-assert(editable.some(r => r.course === 'WORK'), 'Week missing WORK row')
-for (const week of weeks) {
-  for (const r of week.rows.filter(r => !r.isTotal && r.course !== 'Travel' && r.course !== 'WORK')) {
-    assert(r.days.every(d => !d.description), `Week ${week.weekNumber}/${r.course} contains personal descriptions`)
-  }
+const wt = rows('AcademeMate - Weekly Totals.csv')
+if (wt.length > 1) warn('Weekly Totals should be header-only in the template (totals are derived)')
+
+// 5. Populated enough to exercise the GUI.
+const courses = rows('AcademeMate - Courses.csv').length - 1
+if (courses < 15) warn(`Courses: expected >= 15, found ${courses}`)
+if (log.length - 1 < 20) warn(`Study Log: expected >= 20 sessions, found ${log.length - 1}`)
+if (rows('AcademeMate - Course Content.csv').length - 1 < 10) warn('Course Content: expected >= 10 rows')
+if (rows('AcademeMate - Daily Plan.csv').length - 1 < 5) warn('Daily Plan: expected >= 5 rows')
+
+// 6. Course Content semantics: assessments carry a deadline, scheduled items a date.
+const cc = rows('AcademeMate - Course Content.csv')
+for (let ri = 1; ri < cc.length; ri++) {
+  const type = (cc[ri][3] || '').trim().toLowerCase()
+  const date = (cc[ri][5] || '').trim()
+  const deadline = (cc[ri][6] || '').trim()
+  if (DEADLINE_TYPES.has(type) && date && !deadline) warn(`Course Content row ${ri + 1}: assessment "${type}" should carry a deadline, not a scheduled date`)
+  if (!DEADLINE_TYPES.has(type) && deadline && !date) warn(`Course Content row ${ri + 1}: scheduled "${type}" item carries a deadline but no date`)
 }
 
-console.log(`Verify OK: ${courseObjects.length} real courses (no grades/time), empty log + deadlines, ${weeks.length} empty planner weeks.`)
+if (errors.length) {
+  console.error('VERIFY FAILED:')
+  for (const e of errors) console.error('  - ' + e)
+  process.exit(1)
+}
+console.log('Verify OK: depersonalised template, populated and personal-data-free.')

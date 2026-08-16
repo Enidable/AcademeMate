@@ -1,0 +1,23 @@
+course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes
+Advanced Software Development for Robotics,Advanced Software Development for Robotics,202200109,,2A,Q3,04/02/2026,16/04/2026,5,completed,140,"C++ course, in teams of two. 100%; Labwork"
+Biomechanics of Human Movement,Biomechanics of Human Movement,201800156,,2A,Q3,03/02/2026,16/04/2026,5,completed,140,Information. 40%; 4 x 15%
+Design Principles for Robotic and Mechatronic Mechanisms,Design Principles for Robotic and Mechatronic Mechanisms,202200107,,2A,Q3,04/02/2026,13/04/2026,5,completed,140,All partial grades > 5.5. 50%; 2 x 25%
+Professional and Personal Development,Professional and Personal Development,202200115,,2A,Q3,02/02/2026,21/04/2026,,in process,,
+System Identification with Parameter Estimation and Machine Learning,System Identification with Parameter Estimation and Machine Learning,202200111,,2B,Q4,20/04/2026,02/07/2026,5,completed,,80%; 20%
+Biomechatronics,Biomechatronics,201200133,,2B,Q4,21/04/2026,24/06/2026,5,completed,,"4 assignments, 40% individual exam, 10% reading test. 40% | 10%; 50%"
+Modelling and Simulation,Modelling and Simulation,191211110,,2B,Q4,20/04/2026,05/07/2026,5,completed,,Assignment each week. 100%
+AI for Autonomous Robots,AI for Autonomous Robots,202200112,,2B,Q4,21/04/2026,30/06/2026,5,completed,,30%; 70%
+Professional and Personal Development,Professional and Personal Development,202200112,,2B,Q4,21/04/2026,28/02/2027,,in process,,
+Systems Engineering,Systems Engineering,202200100,,1A,Q1,31/08/2026,29/10/2026,5,planned,80,"Oral exam, exercises, case study reports. x; xx"
+"Modelling, Dynamics, and Kinematics","Modelling, Dynamics, and Kinematics",202200101,,1A,Q1,31/08/2026,04/11/2026,5,planned,95,Energy based physical modelling for 3D multi-body systems. 80%; 20%
+Machine Learning I,Machine Learning I,202500276,,1A,Q1,31/08/2026,03/11/2026,5,planned,70,Homework is the 40%. 60%; 40%
+Statistics and Probability,Statistics and Probability,191506103,,1A,Q1,31/08/2026,05/11/2026,5,planned,50,"Just math, fun :D. 100%"
+Natural Language Processing,Natural Language Processing,202500277,,1A,Q1,31/08/2026,30/10/2026,5,planned,,"exam, assignment (25%) and project report (30%). 45%; 25%|30%"
+Control System Design for Robotics,Control System Design for Robotics,202200104,,1B,Q2,,,5,planned,70,Two exams and written group report (20%). 40%|40%; 20%
+Robotics Innovation Tournament (mandatory),Robotics Innovation Tournament (mandatory),202200114,,1B,Q2,,,5,planned,,"10% individual, 90% group"
+Modelling of Technical Design Processes,Modelling of Technical Design Processes,201600018,,1B,Q2,31/08/2026,08/11/2026,5,planned,,Online quizzes and group assignment
+Biostatistics,Biostatistics,202500490,,1B,Q2,,,5,planned,30,"Easy points, this will probably only require like 30 h after doing the other statistics course. 100%"
+Advanced Topics in Finite Element Methods,Advanced Topics in Finite Element Methods,201900091,,1B,Q2,,,5,planned,60,just seems super interesting. 100%
+Data Science,Data Science,202500300,,2A,Q3,,,5,planned,,
+Nonlinear control,Nonlinear control,201900085,,2A,Q3,,,5,planned,,Information. Assignment
+Soft Robotics,Soft Robotics,202000248,,2B,Q4,,,5,planned,,Group project and oral examination. 100%

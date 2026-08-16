@@ -1,154 +1,278 @@
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
-import { getCourseStyle } from '../utils/helpers'
+import { isoWeekOf } from '../data/normalize'
+import { getCourseStyle, shortCourseName, formatDateShort } from '../utils/helpers'
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  const parts = dateStr.split('/')
-  if (parts.length === 3) return `${parts[0]}.${parts[1]}`
-  return dateStr
+function pad(n) {
+  return String(n).padStart(2, '0')
+}
+
+function toISO(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+function mondayOf(dateISO) {
+  const d = new Date(dateISO + 'T12:00:00')
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return toISO(d)
+}
+
+function weekDates(mondayISO) {
+  const monday = new Date(mondayISO + 'T12:00:00')
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday.getTime() + i * 86400000)
+    return toISO(d)
+  })
+}
+
+function todayISO() {
+  return toISO(new Date())
 }
 
 export default function DailyPlanner() {
-  const { plannerWeeks, weeklyHours, updatePlannerCell } = useAppData()
-  const [weekIdx, setWeekIdx] = useState(plannerWeeks.length - 1)
-  const [editing, setEditing] = useState(null)
-  const [editDesc, setEditDesc] = useState('')
-  const [editHours, setEditHours] = useState('')
+  const { dailyPlan, weeklyHours, masterCourses, addPlannerTask, updatePlannerTask, deletePlannerTask } = useAppData()
+  const [weekKey, setWeekKey] = useState(() => mondayOf(todayISO()))
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState({ task: '', hours: '', notes: '' })
+  const [adding, setAdding] = useState(null)
+  const [addForm, setAddForm] = useState({ course: '', task: '', hours: '', notes: '' })
+
+  const weeks = useMemo(() => {
+    const set = new Set()
+    for (const r of dailyPlan) {
+      if (r.date) set.add(mondayOf(r.date))
+    }
+    set.add(mondayOf(todayISO()))
+    return [...set].sort()
+  }, [dailyPlan])
+
+  const byDate = useMemo(() => {
+    const map = {}
+    for (const r of dailyPlan) {
+      if (!r.date) continue
+      if (!map[r.date]) map[r.date] = []
+      map[r.date].push(r)
+    }
+    return map
+  }, [dailyPlan])
 
   const avgWeeklyHours = useMemo(() => getAverageWeeklyHours(weeklyHours), [weeklyHours])
 
-  const week = plannerWeeks[weekIdx]
+  const weekIdx = Math.max(0, weeks.indexOf(weekKey))
+  const currentWeekKey = weeks[weekIdx] || weekKey
+  const dates = weekDates(currentWeekKey)
+  const currentIsoWeek = isoWeekOf(currentWeekKey)?.week
+  const today = todayISO()
 
-  if (!plannerWeeks.length) {
-    return <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-400 text-sm">No planner data loaded.</div>
+  const weekTotal = dates.reduce((s, date) => s + (byDate[date] || []).reduce((t, r) => t + (r.plannedHours || r.actualHours || 0), 0), 0)
+  const overCapacity = avgWeeklyHours > 0 && weekTotal > avgWeeklyHours * 1.1
+
+  function startEdit(row) {
+    setEditId(row.id)
+    setEditForm({ task: row.task || '', hours: String(row.plannedHours || row.actualHours || ''), notes: row.notes || '' })
   }
 
-  if (!week) return <div className="text-slate-400 text-sm">Week not found.</div>
-
-  const sumRow = week.rows.find(r => r.isTotal)
-  const editableRows = week.rows.filter(r => !r.isTotal)
-
-  const capacity = avgWeeklyHours > 0 ? editableRows.filter(r => r.course !== 'Travel' && r.course !== 'WORK').reduce((s, r) => s + r.total, 0) : 0
-  const overCapacity = capacity > avgWeeklyHours * 1.1
-
-  function handleCellClick(rowIdx, dayIdx) {
-    if (week.rows[rowIdx]?.isTotal) return
-    const day = week.rows[rowIdx]?.days[dayIdx]
-    setEditing({ rowIdx, dayIdx })
-    setEditDesc(day?.description || '')
-    setEditHours(day?.hours != null && day.hours > 0 ? String(day.hours) : '')
+  function saveEdit(id) {
+    const h = parseFloat(editForm.hours) || 0
+    updatePlannerTask(id, { task: editForm.task, plannedHours: h, actualHours: null, notes: editForm.notes || null })
+    setEditId(null)
   }
 
-  function confirmEdit() {
-    if (!editing) return
-    updatePlannerCell(editing.rowIdx, editing.dayIdx, 'description', editDesc)
-    const h = parseFloat(editHours) || 0
-    updatePlannerCell(editing.rowIdx, editing.dayIdx, 'hours', h)
-    setEditing(null)
+  function cancelEdit() {
+    setEditId(null)
   }
 
-  function handleKeyDown(e) {
-    if (e.key === 'Enter') confirmEdit()
-    if (e.key === 'Escape') { setEditing(null) }
+  function openAdd(date) {
+    setAdding(date)
+    setAddForm({ course: '', task: '', hours: '', notes: '' })
   }
 
-  const rowColors = {}
-  for (const r of editableRows) {
-    if (r.course === 'Travel' || r.course === 'WORK') {
-      rowColors[r.course] = 'bg-slate-50/50'
-    } else {
-      const style = getCourseStyle(r.course)
-      rowColors[r.course] = style.bg.replace('bg-', 'bg-').replace('-100', '-50')
+  function saveAdd(date) {
+    if (!addForm.course) {
+      alert('Pick a course for the task first.')
+      return
     }
+    const h = parseFloat(addForm.hours) || 0
+    addPlannerTask({ date, course: addForm.course, task: addForm.task, plannedHours: h, notes: addForm.notes || null })
+    setAdding(null)
   }
 
-  const studyDayTotals = []
-  for (let d = 0; d < 7; d++) {
-    studyDayTotals.push(editableRows.filter(r => r.course !== 'Travel' && r.course !== 'WORK').reduce((s, r) => s + (r.days[d]?.hours || 0), 0))
+  function handleKeyDown(e, fn) {
+    if (e.key === 'Enter') fn()
+    if (e.key === 'Escape') cancelEdit()
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => setWeekIdx(i => Math.max(0, i - 1))} disabled={weekIdx <= 0} className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 cursor-pointer">← Prev</button>
-          <span className="text-sm font-medium text-slate-700">Week {week.weekNumber} — {formatDate(week.startDate)}</span>
-          <button onClick={() => setWeekIdx(i => Math.min(plannerWeeks.length - 1, i + 1))} disabled={weekIdx >= plannerWeeks.length - 1} className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 cursor-pointer">Next →</button>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <button onClick={() => setWeekKey(weeks[weekIdx - 1])} disabled={weekIdx <= 0}
+            className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 cursor-pointer">← Prev</button>
+          <span className="text-sm font-medium text-slate-700">
+            Week {currentIsoWeek} — {formatDateShort(currentWeekKey)} – {formatDateShort(dates[6])}
+          </span>
+          <button onClick={() => setWeekKey(weeks[weekIdx + 1])} disabled={weekIdx >= weeks.length - 1}
+            className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 cursor-pointer">Next →</button>
+          <button onClick={() => setWeekKey(mondayOf(today))}
+            className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Today</button>
         </div>
         <div className={`text-sm px-3 py-1.5 rounded-full ${overCapacity ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-          Planned: {capacity.toFixed(1)}h / Avg capacity: {avgWeeklyHours.toFixed(1)}h
+          Planned: {weekTotal.toFixed(1)}h / Avg capacity: {avgWeeklyHours.toFixed(1)}h
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2.5 min-w-[100px]">Course</th>
-              {DAYS.map((day, i) => (
-                <th key={day} className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider px-2 py-2.5 min-w-[100px]">
-                  <div>{day}</div>
-                  <div className="text-[10px] text-slate-400">{formatDate(week.dates[i])}</div>
-                </th>
-              ))}
-              <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2.5 min-w-[60px]">Total</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {editableRows.map((row, ri) => (
-              <tr key={row.course} className={rowColors[row.course] || ''}>
-                <td className={`px-3 py-2 text-xs font-medium whitespace-nowrap ${row.course === 'Travel' || row.course === 'WORK' ? 'text-slate-500 italic' : 'text-slate-700'}`}>{row.course}</td>
-                {row.days.map((day, di) => {
-                  const isEditing = editing?.rowIdx === ri && editing?.dayIdx === di
-                  return (
-                    <td key={di} className="px-2 py-1.5 text-center cursor-pointer align-top" onClick={() => !isEditing && handleCellClick(ri, di)}>
-                      {isEditing ? (
-                        <div className="flex flex-col gap-0.5">
-                          <input type="text" value={editDesc} onChange={e => setEditDesc(e.target.value)} onKeyDown={handleKeyDown}
-                            className="w-full text-[11px] px-1 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500"
-                            placeholder="desc" autoFocus
-                          />
-                          <div className="flex items-center gap-1 justify-center">
-                            <input type="text" inputMode="decimal" value={editHours} onChange={e => setEditHours(e.target.value)} onKeyDown={handleKeyDown}
-                              className="w-16 text-[11px] px-1 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500 text-center"
-                              placeholder="0"
-                            />
-                            <button onClick={confirmEdit} className="text-[10px] px-1.5 py-0.5 bg-slate-700 text-white rounded cursor-pointer">✓</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-[11px] leading-tight min-h-[2em]">
-                          {day.description && <div className="text-slate-500 truncate max-w-[90px] mx-auto">{day.description}</div>}
-                          <div className={`font-medium ${day.hours > 0 ? 'text-slate-700' : 'text-slate-300'}`}>
-                            {day.hours > 0 ? `${day.hours.toFixed(2)}h` : ''}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                  )
-                })}
-                <td className="px-3 py-2 text-center font-medium text-slate-700">{row.total.toFixed(1)}</td>
-              </tr>
-            ))}
-
-            {sumRow && (
-              <tr className="bg-slate-50 border-t-2 border-slate-200 font-medium">
-                <td className="px-3 py-2 text-xs text-slate-600">Day Totals</td>
-                {sumRow.days.map((day, di) => (
-                  <td key={di} className="px-2 py-2 text-center text-sm text-slate-700">{studyDayTotals[di] > 0 ? studyDayTotals[di].toFixed(1) : ''}</td>
-                ))}
-                <td className="px-3 py-2 text-center text-sm font-bold text-slate-800">{sumRow.total.toFixed(1)}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+        {dates.map((date, i) => (
+          <DayCard
+            key={date}
+            day={DAYS[i]}
+            date={date}
+            isToday={date === today}
+            courses={masterCourses}
+            tasks={byDate[date] || []}
+            editingId={editId}
+            editForm={editForm}
+            adding={adding === date}
+            addForm={addForm}
+            onEditForm={setEditForm}
+            onAddForm={setAddForm}
+            onStartEdit={startEdit}
+            onSaveEdit={saveEdit}
+            onCancelEdit={cancelEdit}
+            onKeyDown={handleKeyDown}
+            onOpenAdd={openAdd}
+            onSaveAdd={saveAdd}
+            onToggleDone={id => updatePlannerTask(id, { done: (byDate[date] || []).find(r => r.id === id)?.done ? null : 'done' })}
+            onDelete={id => { if (window.confirm('Delete this task?')) deletePlannerTask(id) }}
+          />
+        ))}
       </div>
 
-      <div className="text-xs text-slate-400 italic">Click any cell to edit. Press Enter to confirm, Escape to cancel.</div>
+      <div className="text-xs text-slate-400 italic">Click the pencil to edit a task, the trash to remove it. Add new tasks per day with “+ Add task”. Press Enter to confirm, Escape to cancel.</div>
+    </div>
+  )
+}
+
+function DayCard({
+  day, date, isToday, courses, tasks, editingId, editForm, adding, addForm,
+  onEditForm, onAddForm, onStartEdit, onSaveEdit, onCancelEdit, onKeyDown,
+  onOpenAdd, onSaveAdd, onToggleDone, onDelete,
+}) {
+  const dayTotal = tasks.reduce((s, r) => s + (r.plannedHours || r.actualHours || 0), 0)
+
+  return (
+    <div className={`bg-white rounded-xl border overflow-hidden flex flex-col ${isToday ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-200'}`}>
+      <div className={`px-3 py-2 border-b ${isToday ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-200'}`}>
+        <div className="flex items-center justify-between">
+          <span className={`text-xs font-semibold uppercase tracking-wider ${isToday ? 'text-indigo-700' : 'text-slate-500'}`}>{day}</span>
+          {isToday && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-600 text-white font-medium">TODAY</span>}
+        </div>
+        <div className="flex items-center justify-between mt-0.5">
+          <span className="text-[11px] text-slate-400">{formatDateShort(date)}</span>
+          {dayTotal > 0 && <span className="text-[11px] font-medium text-slate-600">{dayTotal.toFixed(1)}h</span>}
+        </div>
+      </div>
+
+      <div className="p-2 flex-1 flex flex-col gap-1 min-h-[120px]">
+        {tasks.length === 0 && (
+          <p className="text-[11px] text-slate-300 text-center mt-4">No tasks</p>
+        )}
+        {tasks.map(row => {
+          const style = getCourseStyle(row.course)
+          const hours = row.plannedHours || row.actualHours || 0
+          const isEditing = editingId === row.id
+          return (
+            <div key={row.id} className="group">
+              {isEditing ? (
+                <div className="flex flex-col gap-1 border border-slate-200 rounded-lg p-1.5 bg-slate-50">
+                  <input type="text" value={editForm.task} autoFocus
+                    onChange={e => onEditForm(f => ({ ...f, task: e.target.value }))}
+                    onKeyDown={e => onKeyDown(e, () => onSaveEdit(row.id))}
+                    className="w-full text-[11px] px-1.5 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500" placeholder="Task" />
+                  <div className="flex items-center gap-1">
+                    <input type="text" inputMode="decimal" value={editForm.hours}
+                      onChange={e => onEditForm(f => ({ ...f, hours: e.target.value }))}
+                      onKeyDown={e => onKeyDown(e, () => onSaveEdit(row.id))}
+                      className="w-14 text-[11px] px-1.5 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500 text-center" placeholder="0" />
+                    <input type="text" value={editForm.notes}
+                      onChange={e => onEditForm(f => ({ ...f, notes: e.target.value }))}
+                      onKeyDown={e => onKeyDown(e, () => onSaveEdit(row.id))}
+                      className="w-full text-[11px] px-1.5 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500" placeholder="Note" />
+                  </div>
+                  <div className="flex justify-end gap-1">
+                    <button onClick={() => onSaveEdit(row.id)} className="text-[10px] px-2 py-0.5 bg-slate-700 text-white rounded cursor-pointer">✓</button>
+                    <button onClick={onCancelEdit} className="text-[10px] px-2 py-0.5 border border-slate-200 text-slate-500 rounded cursor-pointer">Esc</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-1.5 px-1 py-0.5 rounded hover:bg-slate-50">
+                  <input type="checkbox" checked={!!row.done} onChange={() => onToggleDone(row.id)}
+                    className="mt-0.5 h-3 w-3 accent-indigo-600 cursor-pointer shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      {row.course && (
+                        <span className="flex items-center gap-1 text-[9px] px-1 py-0.5 rounded-full font-medium whitespace-nowrap">
+                          <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+                          <span className={`${style.text}`}>{shortCourseName(row.course)}</span>
+                        </span>
+                      )}
+                      {hours > 0 && <span className="text-[10px] text-slate-400 shrink-0">{hours.toFixed(1)}h</span>}
+                    </div>
+                    <p className={`text-[11px] leading-tight text-slate-700 ${row.done ? 'line-through text-slate-400' : ''}`}>
+                      {row.task || shortCourseName(row.course)}
+                    </p>
+                    {row.notes && <p className="text-[10px] text-slate-400 truncate">{row.notes}</p>}
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
+                    <button onClick={() => onStartEdit(row)} className="text-[10px] px-1 text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
+                    <button onClick={() => onDelete(row.id)} className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {adding ? (
+          <div className="flex flex-col gap-1 border border-slate-200 rounded-lg p-1.5 bg-slate-50 mt-auto">
+            <select value={addForm.course} onChange={e => onAddForm(f => ({ ...f, course: e.target.value }))}
+              className="w-full text-[11px] px-1.5 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500">
+              <option value="">Select course…</option>
+              {courses.map(c => <option key={c.course} value={c.course}>{shortCourseName(c.course)}</option>)}
+              <option>Travel</option>
+              <option>WORK</option>
+            </select>
+            <input type="text" value={addForm.task} autoFocus
+              onChange={e => onAddForm(f => ({ ...f, task: e.target.value }))}
+              onKeyDown={e => onKeyDown(e, () => onSaveAdd(date))}
+              className="w-full text-[11px] px-1.5 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500" placeholder="Task" />
+            <div className="flex items-center gap-1">
+              <input type="text" inputMode="decimal" value={addForm.hours}
+                onChange={e => onAddForm(f => ({ ...f, hours: e.target.value }))}
+                onKeyDown={e => onKeyDown(e, () => onSaveAdd(date))}
+                className="w-14 text-[11px] px-1.5 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500 text-center" placeholder="0" />
+              <input type="text" value={addForm.notes}
+                onChange={e => onAddForm(f => ({ ...f, notes: e.target.value }))}
+                onKeyDown={e => onKeyDown(e, () => onSaveAdd(date))}
+                className="w-full text-[11px] px-1.5 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500" placeholder="Note" />
+            </div>
+            <div className="flex justify-end gap-1">
+              <button onClick={() => onSaveAdd(date)} className="text-[10px] px-2 py-0.5 bg-slate-700 text-white rounded cursor-pointer">✓</button>
+              <button onClick={() => onOpenAdd(null)} className="text-[10px] px-2 py-0.5 border border-slate-200 text-slate-500 rounded cursor-pointer">Esc</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => onOpenAdd(date)}
+            className="mt-auto text-[11px] text-slate-400 hover:text-slate-600 text-left px-1 py-1 rounded hover:bg-slate-50 cursor-pointer">+ Add task</button>
+        )}
+      </div>
+
+      <div className="mt-auto px-3 py-2 border-t border-dashed border-slate-200">
+        <p className="text-[10px] text-slate-300 text-center">Week timetable — university calendar import coming</p>
+      </div>
     </div>
   )
 }

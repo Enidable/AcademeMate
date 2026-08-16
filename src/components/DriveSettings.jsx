@@ -4,12 +4,12 @@ import { parseCSVRaw } from '../utils/csv'
 import { GOOGLE_CLIENT_ID } from '../config'
 
 const TAB_OPTIONS = [
-  { key: 'inputLog', title: 'INPUT_LOG', label: 'Study sessions log' },
-  { key: 'masterCourses', title: 'Master Time Management', label: 'Courses' },
-  { key: 'gradeComponents', title: 'Grade Computer', label: 'Grades' },
-  { key: 'weeklyHours', title: 'Time structure and hours of study', label: 'Weekly hours' },
-  { key: 'deadlines', title: 'Deadlines and Lectures', label: 'Deadlines' },
-  { key: 'daily', title: 'Daily', label: 'Daily planner' },
+  { key: 'studyLog', title: 'Study Log', label: 'Study sessions log' },
+  { key: 'courses', title: 'Courses', label: 'Course registry' },
+  { key: 'gradeComponents', title: 'Grade Components', label: 'Graded components' },
+  { key: 'content', title: 'Course Content', label: 'Schedule & assessments' },
+  { key: 'dailyPlan', title: 'Daily Plan', label: 'Planner rows' },
+  { key: 'weeklyTotals', title: 'Weekly Totals', label: 'Weekly overrides' },
 ]
 
 function StatusRow({ label, value }) {
@@ -29,7 +29,7 @@ export default function DriveSettings({ open, onClose }) {
 
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
-  const [importTab, setImportTab] = useState('inputLog')
+  const [importTab, setImportTab] = useState('studyLog')
   const [importName, setImportName] = useState('')
 
   if (!open) return null

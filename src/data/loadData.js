@@ -1,192 +1,237 @@
-import { parseCSVRows, parseCSVRaw } from '../utils/csv'
+import { parseCSVRows, parseCSVRaw } from '../utils/csv.js'
 import {
   ASSET_BASE,
-  TAB_DAILY,
-  TAB_INPUT_LOG,
+  TAB_STUDY_LOG,
   TAB_COURSES,
   TAB_GRADES,
+  TAB_CONTENT,
+  TAB_DAILY,
   TAB_HOURS,
-  TAB_DEADLINES,
+  CONTENT_TYPES,
 } from '../config'
+import { toFloat, toInt, parseDateDDMMYYYY } from './normalize.js'
 
 const CSV_FILES = {
-  [TAB_INPUT_LOG]: `${ASSET_BASE}data/Master Tracker - INPUT_LOG.csv`,
-  [TAB_COURSES]: `${ASSET_BASE}data/Master Tracker - Master Time Management.csv`,
-  [TAB_GRADES]: `${ASSET_BASE}data/Master Tracker - Grade Computer.csv`,
-  [TAB_HOURS]: `${ASSET_BASE}data/Master Tracker - Time structure and hours of study.csv`,
-  [TAB_DEADLINES]: `${ASSET_BASE}data/Master Tracker - Deadlines and Lectures.csv`,
-  [TAB_DAILY]: `${ASSET_BASE}data/Master Tracker - Daily.csv`,
+  [TAB_STUDY_LOG]: `${ASSET_BASE}data/AcademeMate - Study Log.csv`,
+  [TAB_COURSES]: `${ASSET_BASE}data/AcademeMate - Courses.csv`,
+  [TAB_GRADES]: `${ASSET_BASE}data/AcademeMate - Grade Components.csv`,
+  [TAB_CONTENT]: `${ASSET_BASE}data/AcademeMate - Course Content.csv`,
+  [TAB_DAILY]: `${ASSET_BASE}data/AcademeMate - Daily Plan.csv`,
+  [TAB_HOURS]: `${ASSET_BASE}data/AcademeMate - Weekly Totals.csv`,
 }
 
-function toFloat(val) {
-  if (val == null || val === '' || val === '-') return null
-  const n = parseFloat(String(val).replace(',', '.'))
-  return isNaN(n) ? null : n
-}
+// --- Study Log ------------------------------------------------------------
 
-function toInt(val) {
-  if (val == null || val === '' || val === '-') return null
-  const n = parseInt(String(val), 10)
-  return isNaN(n) ? null : n
-}
-
-function parseDateDDMMYYYY(val) {
-  if (!val) return null
-  const parts = val.split('/')
-  if (parts.length !== 3) return val
-  return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
-}
-
-function parseInputLog(rows) {
+function parseStudyLog(rows) {
   return rows
-    .filter(r => {
-      const c = (r.Course || '').trim()
-      const cat = (r.Category || '').trim().toLowerCase()
-      return c && cat !== 'health'
-    })
+    .filter(r => (r.course_id || '').trim())
     .map(r => {
-      let durHours = toFloat((r['Duration (hours)'] || '').trim())
-      let durMinutes = toInt((r['Duration (minutes)'] || '').trim())
-
-      const minutesRaw = (r['Duration (minutes)'] || '').trim()
-      if (durHours == null && minutesRaw.includes(':')) {
-        const [h, m] = minutesRaw.split(':')
-        durHours = toFloat(h) + (toFloat(m) ?? 0) / 60
-        durMinutes = (toFloat(h) ?? 0) * 60 + (toInt(m) ?? 0)
-      }
-
+      const durationHours = toFloat(r.duration_hours)
+      const durationMinutes = toInt(r.duration_minutes)
       return {
-        date: parseDateDDMMYYYY((r.Date || '').trim()),
-        startTime: (r['Start Time'] || '').trim(),
-        endTime: (r['End Time'] || '').trim(),
-        durationHours: durHours ?? 0,
-        durationMinutes: durMinutes ?? 0,
-        course: (r.Course || '').trim(),
-        category: (r.Category || '').trim(),
-        project: (r.Project || '').trim() || null,
-        location: (r.Location || '').trim(),
-        efficiency: toInt((r.Efficiency || '').trim()),
-        wellbeing: toInt((r.Wellbeing || '').trim()),
-        lectureId: (r['Lecture ID'] || '').trim() || null,
-        transportMode: (r['Transport Mode'] || '').trim() || null,
-        commuteTime: toFloat((r['Commute Time'] || '').trim()),
-        notes: (r.Notes || '').trim() || null,
+        date: parseDateDDMMYYYY((r.date || '').trim()),
+        startTime: (r.start_time || '').trim(),
+        endTime: (r.end_time || '').trim(),
+        durationHours: durationHours ?? 0,
+        durationMinutes: durationMinutes ?? 0,
+        course: (r.course_id || '').trim(),
+        category: (r.category || '').trim(),
+        project: (r.project || '').trim() || null,
+        location: (r.location || '').trim(),
+        efficiency: toInt((r.efficiency || '').trim()),
+        wellbeing: toInt((r.wellbeing || '').trim()),
+        lectureId: (r.lecture_id || '').trim() || null,
+        transportMode: (r.transport_mode || '').trim() || null,
+        commuteTime: toFloat((r.commute_minutes || '').trim()),
+        notes: (r.notes || '').trim() || null,
       }
     })
 }
 
-function parseMasterCourses(rows) {
+// --- Courses --------------------------------------------------------------
+
+function parseCourses(rows) {
   return rows
-    .filter(r => {
-      const course = (r.Courses || '').trim()
-      if (!course) return false
-      const skip = ['General additional time investment', 'Days at University this semester:', 'completed', 'in process', 'activated', 'inactive', 'Start', 'Now', 'Busy for:', 'This week until now:']
-      if (skip.some(x => course.startsWith(x))) return false
-      if (course.match(/^\d+(\.\d+)?$/) || course.match(/^[\d:]+$/)) return false
-      return true
-    })
+    .filter(r => (r.course_id || '').trim())
     .map(r => ({
-      year: (r[''] || '').trim() || null,
-      quartile: (r.Quartile || '').trim() || null,
-      course: (r.Courses || '').trim(),
-      abbrev: (r['Abbrev.'] || '').trim() || null,
-      start: parseDateDDMMYYYY((r.Start || '').trim()),
-      finish: parseDateDDMMYYYY((r.Finish || '').trim()),
-      timeMin: toInt((r['Time [min]'] || '').trim()) ?? 0,
-      timeHours: toFloat((r['Time [h]'] || '').trim()) ?? 0,
-      grade: toFloat((r.Grade || '').trim()),
-      exam: (r.Exam || '').trim() || null,
-      assignment: (r.Assignment || '').trim() || null,
-      laboratory: (r.Laboratory || '').trim() || null,
-      ec: toFloat((r.EC || '').trim()),
-      comment: (r.Comment || '').trim() || null,
-      estTimeHours: toFloat((r['Est. Time [h]'] || '').trim()),
-      assTimeHours: toFloat((r['Ass. Time [h]'] || '').trim()),
-      material: (r.Material || '').trim() || null,
+      id: (r.course_id || '').trim(),
+      course: (r.course_id || '').trim(),
+      code: (r.code || '').trim() || null,
+      abbrev: (r.abbrev || '').trim() || null,
+      year: (r.year || '').trim() || null,
+      quartile: (r.quartile || '').trim() || null,
+      start: parseDateDDMMYYYY((r.start || '').trim()),
+      finish: parseDateDDMMYYYY((r.finish || '').trim()),
+      ec: toFloat((r.ec || '').trim()),
+      status: (r.status || '').trim() || null,
+      estHours: toFloat((r.est_hours || '').trim()),
+      notes: (r.notes || '').trim() || null,
+      comment: (r.notes || '').trim() || null,
+      grade: null,
     }))
 }
 
-function parseGradeComponents(rawRows) {
+// --- Grade Components -----------------------------------------------------
+
+function parseGradeComponents(rows) {
   const map = {}
-  for (const r of rawRows) {
-    const course = (r[1] || '').trim()
-    // Skip the literal header row a human-filled sheet may carry: `,Course,EC's,...`
-    if (!course || course === 'Course') continue
+  for (const r of rows) {
+    const course = (r.course_id || '').trim()
+    if (!course) continue
     if (!map[course]) {
-      map[course] = {
+      map[course] = { course, components: [], totalGrade: null, check: null }
+    }
+    const entry = map[course]
+    const weight = toFloat(r.weight)
+    const grade = toFloat(r.grade)
+    const type = ((r.type || 'other').trim().toLowerCase() || 'other')
+    const name = (r.component || '').trim()
+    const dueDate = parseDateDDMMYYYY((r.due_date || '').trim())
+    const hoursSpent = toFloat(r.hours_spent)
+    const done = (r.done || '').trim()
+    entry.components.push({
+      type,
+      id: name || null,
+      name,
+      weight,
+      grade,
+      dueDate,
+      hoursSpent,
+      done: done === '' ? null : done,
+      notes: (r.notes || '').trim() || null,
+    })
+  }
+  for (const g of Object.values(map)) {
+    const totalWeight = g.components.reduce((s, c) => s + (c.weight || 0), 0)
+    const weighted = g.components.reduce((s, c) => (c.weight && c.grade != null ? s + c.weight * c.grade : s), 0)
+    g.check = totalWeight > 0 ? totalWeight : null
+    g.totalGrade = totalWeight > 0 ? weighted / totalWeight : null
+  }
+  return Object.values(map)
+}
+
+// --- Course Content (schedule + assessments) -----------------------------
+
+const CONTENT_TYPES_SET = new Set(CONTENT_TYPES)
+
+function parseContent(rows) {
+  const urgencyFor = (marker, done) => {
+    const m = (marker || '').trim().toLowerCase()
+    if (done && String(done).toLowerCase() === 'done') return 'Complete'
+    if (m === 'skip') return 'Low'
+    if (m === 'important') return 'High'
+    if (m === 'mandatory') return 'Medium'
+    return 'Medium'
+  }
+  return rows
+    .filter(r => (r.content_id || r.topic || '').trim())
+    .map(r => {
+      const course = (r.course_id || '').trim()
+      const course2 = (r.course_2 || '').trim() || null
+      const type = ((r.type || '').trim().toLowerCase())
+      const topic = (r.topic || '').trim()
+      const contentId = (r.content_id || '').trim()
+      const done = (r.done || '').trim()
+      const hoursSpent = toFloat(r.hours_spent)
+      return {
+        id: `${course}|${course2 || ''}|${contentId}|${(r.date || '').trim()}|${(r.deadline || '').trim()}|${topic}`,
+        description: topic || contentId || type || 'Task',
         course,
-        ec: toFloat(r[2]),
-        totalGrade: toFloat(r[15]),
-        check: toFloat(r[16]),
-        components: [],
+        course2,
+        contentId: contentId || null,
+        type: CONTENT_TYPES_SET.has(type) ? type : 'other',
+        topic,
+        date: parseDateDDMMYYYY((r.date || '').trim()),
+        deadline: parseDateDDMMYYYY((r.deadline || '').trim()),
+        start: (r.start || '').trim(),
+        end: (r.end || '').trim(),
+        marker: (r.marker || '').trim() || null,
+        location: (r.location || '').trim() || null,
+        hoursSpent,
+        materialHours: toFloat(r.material_hours),
+        content: (r.content || '').trim() || null,
+        calId: (r.cal_id || '').trim() || null,
+        done,
+        urgency: urgencyFor(r.marker, done),
+        time: hoursSpent ?? 0,
       }
-    }
-    for (let off = 0; off < 6; off++) {
-      const weight = toFloat(r[3 + off * 2])
-      const grade = toFloat(r[4 + off * 2])
-      if (weight != null || grade != null) {
-        map[course].components.push({ weight, grade })
-      }
-    }
-  }
-  return Object.values(map).map(c => ({
-    ...c,
-    components: c.components.filter(c => c.weight != null),
-  }))
+    })
+    .sort((a, b) => {
+      const da = a.date || a.deadline || '9999'
+      const db = b.date || b.deadline || '9999'
+      return new Date(da) - new Date(db)
+    })
 }
 
-function parseWeeklyHours(rawRows) {
-  const year2026Row = rawRows.find(r => (r[0] || '').trim() === 'Year 2026 [h]')
-  if (!year2026Row) return []
-  const weeks = []
-  for (let w = 1; w <= 52; w++) {
-    const val = year2026Row[w] || ''
-    const total = toFloat(val.trim())
-    if (total != null) weeks.push({ week: w, total })
-  }
-  return weeks
+// --- Daily Plan (flat rows) ----------------------------------------------
+
+function parseDailyPlan(rows) {
+  return rows
+    .filter(r => (r.date || '').trim() && (r.course_id || '').trim())
+    .map(r => {
+      const date = parseDateDDMMYYYY((r.date || '').trim())
+      const course = (r.course_id || '').trim()
+      const task = (r.task || '').trim()
+      return {
+        id: `${date}|${course}|${task}`,
+        date,
+        course,
+        task,
+        plannedHours: toFloat(r.planned_hours) ?? 0,
+        actualHours: toFloat(r.actual_hours) ?? 0,
+        done: (r.done || '').trim() || null,
+        notes: (r.notes || '').trim() || null,
+      }
+    })
 }
 
-function parseDeadlines(rawRows) {
-  const results = []
-  let inIdHours = false
-  for (const r of rawRows) {
-    const desc = (r[0] || '').trim()
-    const urgency = (r[7] || '').trim()
+// --- Weekly Totals (overrides only) --------------------------------------
 
-    if (!desc && r[0] === '' && (r[10] || '').trim() === 'ID') { inIdHours = true; continue }
-    if (inIdHours) continue
-
-    if (desc && ['Complete', 'Extremely High', 'High', 'Medium', 'Low'].includes(urgency)) {
-      results.push({
-        description: desc,
-        sessions: toInt(r[1]) ?? 0,
-        time: toFloat(r[2]) ?? 0,
-        date: parseDateDDMMYYYY(r[3]),
-        thisWeek: toInt(r[4]) ?? 0,
-        today: toInt(r[5]) ?? 0,
-        done: toInt(r[6]) ?? 0,
-        urgency,
-      })
+function parseWeeklyOverrides(rows) {
+  const map = {}
+  for (const r of rows) {
+    const year = toInt(r.year)
+    const week = toInt(r.week)
+    if (year == null || week == null) continue
+    map[`${year}-${week}`] = {
+      year,
+      week,
+      total: toFloat(r.total_hours) ?? 0,
+      notes: (r.notes || '').trim() || null,
     }
   }
-  return results.sort((a, b) => new Date(a.date) - new Date(b.date))
+  return map
+}
+
+// --- Aggregation ---------------------------------------------------------
+
+export function attachCourseGrades(courses, gradeComponents) {
+  const byName = {}
+  for (const g of gradeComponents) byName[g.course] = g.totalGrade
+  for (const c of courses) {
+    if (byName[c.course] != null) c.grade = byName[c.course]
+  }
+  return courses
 }
 
 // rowsByTab maps canonical tab title -> 2D array (from Drive or bundled CSVs).
 export function parseAll(rowsByTab) {
+  const courses = parseCourses(parseCSVRows(rowsByTab[TAB_COURSES] || []))
+  const gradeComponents = parseGradeComponents(rowsByTab[TAB_GRADES] || [])
+  attachCourseGrades(courses, gradeComponents)
   return {
-    inputLog: parseInputLog(parseCSVRows(rowsByTab[TAB_INPUT_LOG] || [])),
-    masterCourses: parseMasterCourses(parseCSVRows(rowsByTab[TAB_COURSES] || [])),
-    gradeComponents: parseGradeComponents(rowsByTab[TAB_GRADES] || []),
-    weeklyHours: parseWeeklyHours(rowsByTab[TAB_HOURS] || []),
-    deadlines: parseDeadlines(rowsByTab[TAB_DEADLINES] || []),
+    studyLog: parseStudyLog(parseCSVRows(rowsByTab[TAB_STUDY_LOG] || [])),
+    courses,
+    gradeComponents,
+    content: parseContent(rowsByTab[TAB_CONTENT] || []),
+    dailyPlan: parseDailyPlan(parseCSVRows(rowsByTab[TAB_DAILY] || [])),
+    weeklyOverrides: parseWeeklyOverrides(parseCSVRows(rowsByTab[TAB_HOURS] || [])),
   }
 }
 
 export async function rowsByTabFromCSVs() {
-  const responses = await Promise.all(Object.entries(CSV_FILES).map(([, url]) => fetch(url).then(r => r.text())))
-  return Object.fromEntries(Object.entries(CSV_FILES).map(([title], i) => [title, parseCSVRaw(responses[i])]))
+  const responses = await Promise.all(Object.values(CSV_FILES).map(url => fetch(url).then(r => r.text())))
+  return Object.fromEntries(Object.keys(CSV_FILES).map((title, i) => [title, parseCSVRaw(responses[i])]))
 }
 
 export async function loadAllData() {

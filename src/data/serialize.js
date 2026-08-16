@@ -1,27 +1,20 @@
-// Serializers: convert parsed app state back into the raw 2D array each tab
-// stores. They mirror the column layout the parsers in loadData.js / parseDaily.js
-// expect, so a read -> edit -> write cycle is lossless (for the app-managed sheet).
+// Serializers: convert the app's in-memory objects back into the flat table
+// rows each spreadsheet tab stores. They mirror the header names the parsers
+// in loadData.js / parseDaily.js expect, so a read -> edit -> write cycle is
+// lossless.
 
-function num(v, max = 2) {
-  if (v == null || v === '') return ''
-  const n = typeof v === 'number' ? v : parseFloat(v)
-  if (isNaN(n)) return ''
-  if (n === 0) return ''
-  return String(Math.round(n * 10 ** max) / 10 ** max)
-}
+import { num, isoDateToDDMMYYYY } from './normalize.js'
 
-function isoDateToDDMMYYYY(val) {
-  if (!val) return ''
-  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-    const [y, m, d] = val.split('-')
-    return `${d}/${m}/${y}`
-  }
-  return val
-}
+export const STUDY_LOG_HEADER = 'date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes'
+export const COURSES_HEADER = 'course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes'
+export const GRADE_COMPONENTS_HEADER = 'course_id,component,type,weight,grade,due_date,hours_spent,done,notes'
+export const CONTENT_HEADER = 'course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id'
+export const DAILY_PLAN_HEADER = 'date,course_id,task,planned_hours,actual_hours,done,notes'
+export const WEEKLY_TOTALS_HEADER = 'year,week,total_hours,notes'
 
-const INPUT_LOG_HEADER = ['Date', 'Start Time', 'End Time', 'Duration (hours)', 'Duration (minutes)', 'Course', 'Category', 'Project', 'Location', 'Efficiency', 'Wellbeing', 'Lecture ID', 'Transport Mode', 'Commute Time', 'Notes']
+const splitHeader = h => h.split(',')
 
-export function serializeInputLog(entries) {
+export function serializeStudyLog(entries) {
   const rows = (entries || []).map(e => [
     isoDateToDDMMYYYY(e.date),
     e.startTime || '',
@@ -39,96 +32,90 @@ export function serializeInputLog(entries) {
     num(e.commuteTime, 1),
     e.notes || '',
   ])
-  return [INPUT_LOG_HEADER, ...rows]
+  return [splitHeader(STUDY_LOG_HEADER), ...rows]
 }
 
-const COURSES_HEADER = ['', 'Quartile', 'Courses', 'Abbrev.', 'Start', 'Finish', 'Time [min]', 'Time [h]', 'Grade', 'Exam', 'Assignment', 'Laboratory', 'EC', 'Comment', 'Est. Time [h]', 'Ass. Time [h]', 'Material']
-
-export function serializeMasterCourses(courses) {
+export function serializeCourses(courses) {
   const rows = (courses || []).map(c => [
+    c.course || '',
+    c.course || '',
+    c.code || '',
+    c.abbrev || '',
     c.year || '',
     c.quartile || '',
-    c.course || '',
-    c.abbrev || '',
     isoDateToDDMMYYYY(c.start),
     isoDateToDDMMYYYY(c.finish),
-    num(c.timeMin),
-    num(c.timeHours, 3),
-    num(c.grade, 2),
-    c.exam || '',
-    c.assignment || '',
-    c.laboratory || '',
     num(c.ec, 2),
-    c.comment || '',
-    num(c.estTimeHours, 2),
-    num(c.assTimeHours, 2),
-    c.material || '',
+    c.status || '',
+    num(c.estHours, 2),
+    c.notes || c.comment || '',
   ])
-  return [COURSES_HEADER, ...rows]
+  return [splitHeader(COURSES_HEADER), ...rows]
 }
 
-export function serializeGradeComponents(components) {
-  return (components || []).map(g => {
-    const row = Array(17).fill('')
-    row[1] = g.course || ''
-    row[2] = num(g.ec, 2)
-    for (let off = 0; off < 6; off++) {
-      const comp = g.components?.[off]
-      if (comp) {
-        row[3 + off * 2] = num(comp.weight, 2)
-        row[4 + off * 2] = num(comp.grade, 2)
-      }
-    }
-    row[15] = num(g.totalGrade, 2)
-    row[16] = num(g.check, 2)
-    return row
-  })
-}
-
-export function serializeWeeklyHours(weeklyHours) {
-  const totals = Array(53).fill('')
-  totals[0] = 'Year 2026 [h]'
-  for (const w of weeklyHours || []) {
-    if (w.week >= 1 && w.week <= 52) totals[w.week] = num(w.total, 2)
-  }
-  return [totals]
-}
-
-export function serializeDeadlines(deadlines) {
-  return (deadlines || []).map(d => [
-    d.description || '',
-    num(d.sessions),
-    num(d.time, 2),
-    isoDateToDDMMYYYY(d.date),
-    num(d.thisWeek),
-    num(d.today),
-    num(d.done),
-    d.urgency || 'Medium',
-  ])
-}
-
-export function serializeDailyPlanner(weeks) {
+export function serializeGradeComponents(groups) {
   const rows = []
-  for (const week of weeks || []) {
-    const header = Array(17).fill('')
-    header[1] = 'Daily plan'
-    for (let d = 0; d < 7; d++) header[2 + d * 2] = week.dates?.[d] || ''
-
-    const label = Array(17).fill('')
-    label[1] = week.weekNumber ? `Week ${week.weekNumber}` : ''
-
-    rows.push(header, label)
-
-    for (const r of week.rows || []) {
-      const row = Array(17).fill('')
-      row[1] = r.course || ''
-      for (let d = 0; d < 7; d++) {
-        row[2 + d * 2] = r.days?.[d]?.description || ''
-        row[3 + d * 2] = num(r.days?.[d]?.hours, 2)
-      }
-      row[16] = num(r.total, 2)
-      rows.push(row)
+  for (const g of groups || []) {
+    for (const c of g.components || []) {
+      const hasData = c.name || c.id || c.weight != null || c.grade != null || c.dueDate || c.hoursSpent != null || c.done
+      if (!hasData) continue
+      rows.push([
+        g.course || '',
+        c.name || c.id || `Component ${(rows.length) + 1}`,
+        (c.type || 'other') === 'other' ? '' : c.type || '',
+        num(c.weight, 2),
+        num(c.grade, 2),
+        isoDateToDDMMYYYY(c.dueDate),
+        num(c.hoursSpent, 2),
+        c.done || '',
+        c.notes || '',
+      ])
     }
   }
-  return rows
+  return [splitHeader(GRADE_COMPONENTS_HEADER), ...rows]
+}
+
+export function serializeContent(items) {
+  const rows = (items || []).map(i => [
+    i.course || '',
+    i.course2 || '',
+    i.contentId || i.lectureId || '',
+    i.type === 'other' ? '' : i.type || '',
+    i.topic || '',
+    isoDateToDDMMYYYY(i.date),
+    isoDateToDDMMYYYY(i.deadline),
+    i.start || '',
+    i.end || '',
+    i.marker || '',
+    i.location || '',
+    num(i.hoursSpent != null ? i.hoursSpent : i.time, 2),
+    num(i.materialHours, 2),
+    i.content || '',
+    i.done || '',
+    i.calId || '',
+  ])
+  return [splitHeader(CONTENT_HEADER), ...rows]
+}
+
+export function serializeDailyPlan(rows) {
+  const out = (rows || []).map(r => [
+    isoDateToDDMMYYYY(r.date),
+    r.course || '',
+    r.task || '',
+    num(r.plannedHours, 2),
+    num(r.actualHours, 2),
+    r.done || '',
+    r.notes || '',
+  ])
+  return [splitHeader(DAILY_PLAN_HEADER), ...out]
+}
+
+export function serializeWeeklyOverrides(overrides) {
+  const rows = Object.values(overrides || {}).map(o => [
+    o.year,
+    o.week,
+    num(o.total, 2),
+    o.notes || '',
+  ])
+  return [splitHeader(WEEKLY_TOTALS_HEADER), ...rows]
 }

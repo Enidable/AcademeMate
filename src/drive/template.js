@@ -1,16 +1,17 @@
-// Seeds a brand-new per-user spreadsheet with the bundled "Master Tracker" CSVs
-// (the skeleton). Reuses the exact same files the offline fallback reads.
+// Seeds a brand-new per-user spreadsheet with the bundled flat-table CSVs
+// (the course backbone skeleton). Reuses the exact same files the offline
+// fallback reads.
 
 import { parseCSVRaw } from '../utils/csv'
-import { ASSET_BASE, TAB_DAILY, TAB_INPUT_LOG, TAB_COURSES, TAB_GRADES, TAB_HOURS, TAB_DEADLINES } from '../config'
+import { ASSET_BASE, TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS } from '../config'
 
 const TEMPLATE_FILES = {
-  [TAB_INPUT_LOG]: `${ASSET_BASE}data/Master Tracker - INPUT_LOG.csv`,
-  [TAB_COURSES]: `${ASSET_BASE}data/Master Tracker - Master Time Management.csv`,
-  [TAB_GRADES]: `${ASSET_BASE}data/Master Tracker - Grade Computer.csv`,
-  [TAB_HOURS]: `${ASSET_BASE}data/Master Tracker - Time structure and hours of study.csv`,
-  [TAB_DEADLINES]: `${ASSET_BASE}data/Master Tracker - Deadlines and Lectures.csv`,
-  [TAB_DAILY]: `${ASSET_BASE}data/Master Tracker - Daily.csv`,
+  [TAB_STUDY_LOG]: `${ASSET_BASE}data/AcademeMate - Study Log.csv`,
+  [TAB_COURSES]: `${ASSET_BASE}data/AcademeMate - Courses.csv`,
+  [TAB_GRADES]: `${ASSET_BASE}data/AcademeMate - Grade Components.csv`,
+  [TAB_CONTENT]: `${ASSET_BASE}data/AcademeMate - Course Content.csv`,
+  [TAB_DAILY]: `${ASSET_BASE}data/AcademeMate - Daily Plan.csv`,
+  [TAB_HOURS]: `${ASSET_BASE}data/AcademeMate - Weekly Totals.csv`,
 }
 
 export async function fetchTemplateRows() {

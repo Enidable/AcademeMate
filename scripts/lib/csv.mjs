@@ -1,8 +1,8 @@
-function parseRows(text) {
-  // Strip a UTF-8 BOM; Excel/GSheets exports often start with one and it would
-  // otherwise corrupt the first header name (e.g. "\uFEFFDate").
-  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
+// Minimal CSV reader/writer for the migration and generation scripts.
+// Mirrors src/utils/csv.js so script output and app parsing always agree.
 
+export function parseCSVRaw(text) {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
   const rows = []
   let row = []
   let field = ''
@@ -10,7 +10,6 @@ function parseRows(text) {
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
-
     if (inQuotes) {
       if (ch === '"') {
         if (text[i + 1] === '"') { field += '"'; i++ }
@@ -35,29 +34,23 @@ function parseRows(text) {
       }
     }
   }
-
   if (field.trim() || row.length > 0) {
     row.push(field.trim())
     if (row.length > 1 || row[0] !== '') rows.push(row)
   }
-
   return rows
 }
 
-export function parseCSVRows(rows) {
-  if (!rows || rows.length === 0) return []
-  const headers = rows[0].map(h => h.replace(/\s+/g, ' ').trim())
-  return rows.slice(1).map(r => {
-    const obj = {}
-    headers.forEach((h, i) => { obj[h] = i < r.length ? r[i] : '' })
-    return obj
-  })
+export function writeCSV(rows) {
+  return rows.map(row =>
+    row.map(cell => {
+      const s = cell == null ? '' : String(cell)
+      if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+      return s
+    }).join(',')
+  ).join('\n') + '\n'
 }
 
-export function parseCSV(text) {
-  return parseCSVRows(parseRows(text))
-}
-
-export function parseCSVRaw(text) {
-  return parseRows(text)
+export function headerToKey(header) {
+  return header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }

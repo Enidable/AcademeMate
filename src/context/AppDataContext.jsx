@@ -1,13 +1,13 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { loadAllData, parseAll } from '../data/loadData'
-import { parseDailyPlannerRows } from '../data/parseDaily'
+import { buildPlannerWeeks, deriveWeeklyTotals } from '../data/parseDaily'
 import {
-  serializeInputLog,
-  serializeMasterCourses,
+  serializeStudyLog,
+  serializeCourses,
   serializeGradeComponents,
-  serializeWeeklyHours,
-  serializeDeadlines,
-  serializeDailyPlanner,
+  serializeContent,
+  serializeDailyPlan,
+  serializeWeeklyOverrides,
 } from '../data/serialize'
 import {
   ensureSpreadsheet,
@@ -19,12 +19,12 @@ import {
 import { fetchTemplateRows } from '../drive/template'
 import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn, initGis } from '../drive/gis'
 import {
-  TAB_DAILY,
-  TAB_INPUT_LOG,
+  TAB_STUDY_LOG,
   TAB_COURSES,
   TAB_GRADES,
+  TAB_CONTENT,
+  TAB_DAILY,
   TAB_HOURS,
-  TAB_DEADLINES,
 } from '../config'
 
 const STORAGE_KEY = 'am_state'
@@ -55,25 +55,26 @@ function clearStorage() {
 function ensureDefaultRows(planner) {
   for (const week of planner) {
     if (!week.rows.find(r => r.course === 'Travel')) {
-      week.rows.splice(week.rows.length - 1, 0, makeTravelRow())
+      week.rows.splice(Math.max(0, week.rows.length - 1), 0, makeTravelRow())
     }
     if (!week.rows.find(r => r.course === 'WORK')) {
-      week.rows.splice(week.rows.length - 1, 0, makeWorkRow())
+      week.rows.splice(Math.max(0, week.rows.length - 1), 0, makeWorkRow())
     }
   }
   return planner
 }
 
 function synthCourses(parsed) {
-  const logCourses = new Set((parsed.inputLog || []).map(e => e.course))
-  const existingNames = new Set((parsed.masterCourses || []).map(c => c.course))
+  const logCourses = new Set((parsed.studyLog || []).map(e => e.course))
+  const existingNames = new Set((parsed.courses || []).map(c => c.course))
   for (const name of logCourses) {
     if (name && !existingNames.has(name)) {
-      parsed.masterCourses.push({
-        course: name, year: null, quartile: null, abbrev: null,
-        start: null, finish: null, timeMin: 0, timeHours: 0, grade: null,
-        exam: null, assignment: null, laboratory: null, ec: null,
-        comment: null, estTimeHours: null, assTimeHours: null, material: null,
+      parsed.courses.push({
+        id: name,
+        course: name,
+        code: null, abbrev: null, year: null, quartile: null,
+        start: null, finish: null, ec: null, status: null,
+        estHours: null, notes: null, grade: null,
       })
     }
   }
@@ -82,27 +83,28 @@ function synthCourses(parsed) {
 function buildState(rowsByTab) {
   const data = parseAll(rowsByTab)
   synthCourses(data)
-  const plannerWeeks = ensureDefaultRows(parseDailyPlannerRows(rowsByTab[TAB_DAILY] || []))
-  return { data, plannerWeeks }
+  const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides)
+  const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
+  return { data, weeklyHours, plannerWeeks }
 }
 
 const TITLE_BY_KEY = {
-  inputLog: TAB_INPUT_LOG,
-  masterCourses: TAB_COURSES,
+  studyLog: TAB_STUDY_LOG,
+  courses: TAB_COURSES,
   gradeComponents: TAB_GRADES,
-  weeklyHours: TAB_HOURS,
-  deadlines: TAB_DEADLINES,
-  daily: TAB_DAILY,
+  content: TAB_CONTENT,
+  dailyPlan: TAB_DAILY,
+  weeklyTotals: TAB_HOURS,
 }
 
 function serializeTabByTitle(title, data, planner) {
   switch (title) {
-    case TAB_INPUT_LOG: return serializeInputLog(data?.inputLog)
-    case TAB_COURSES: return serializeMasterCourses(data?.masterCourses)
+    case TAB_STUDY_LOG: return serializeStudyLog(data?.studyLog)
+    case TAB_COURSES: return serializeCourses(data?.courses)
     case TAB_GRADES: return serializeGradeComponents(data?.gradeComponents)
-    case TAB_HOURS: return serializeWeeklyHours(data?.weeklyHours)
-    case TAB_DEADLINES: return serializeDeadlines(data?.deadlines)
-    case TAB_DAILY: return serializeDailyPlanner(planner)
+    case TAB_CONTENT: return serializeContent(data?.content)
+    case TAB_HOURS: return serializeWeeklyOverrides(data?.weeklyOverrides)
+    case TAB_DAILY: return serializeDailyPlan(data?.dailyPlan)
     default: return []
   }
 }
@@ -139,6 +141,7 @@ function makeWorkRow() {
 export function AppDataProvider({ children }) {
   const [data, setData] = useState(null)
   const [plannerWeeks, setPlannerWeeks] = useState([])
+  const [weeklyHours, setWeeklyHours] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [drive, setDrive] = useState(null)
@@ -147,15 +150,18 @@ export function AppDataProvider({ children }) {
 
   const dataRef = useRef(null)
   const plannerRef = useRef([])
+  const weeklyRef = useRef([])
   const driveRef = useRef(null)
-  const writeQueues = useRef({})
 
   function setAll(d, p) {
+    const wt = deriveWeeklyTotals(d.studyLog, d.weeklyOverrides)
     dataRef.current = d
     plannerRef.current = p
-    saveJSON({ data: d, plannerWeeks: p })
+    weeklyRef.current = wt
+    saveJSON({ data: d, plannerWeeks: p, weeklyHours: wt })
     setData(d)
     setPlannerWeeks(p)
+    setWeeklyHours(wt)
   }
 
   function resolveUser() {
@@ -165,25 +171,17 @@ export function AppDataProvider({ children }) {
     return { email: '', name: 'Google user' }
   }
 
-  function enqueueTabWrite(title, rows) {
-    const info = driveRef.current
-    if (!info) return
-    const prev = writeQueues.current[title] || Promise.resolve()
-    writeQueues.current[title] = prev
-      .then(() => writeTabRows(info.fileId, title, rows))
-      .catch(e => setDriveError(e.message))
-  }
-
   function syncTabs(keys) {
     if (!driveRef.current) return
     setSyncing(true)
     const data = dataRef.current
     const planner = plannerRef.current
-    const titles = keys.map(k => TITLE_BY_KEY[k])
+    const titles = keys.map(k => TITLE_BY_KEY[k]).filter(Boolean)
     for (const title of titles) {
-      enqueueTabWrite(title, serializeTabByTitle(title, data, planner))
+      writeTabRows(driveRef.current.fileId, title, serializeTabByTitle(title, data, planner))
+        .catch(e => setDriveError(e.message))
     }
-    Promise.all(titles.map(t => writeQueues.current[t])).then(() => setSyncing(false))
+    setSyncing(false)
   }
 
   async function loadAndApplyFromDrive(file) {
@@ -191,8 +189,14 @@ export function AppDataProvider({ children }) {
     setDrive(info)
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
-    const { data: d, plannerWeeks: p } = buildState(rowsByTab)
-    setAll(d, p)
+    const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
+    dataRef.current = d
+    plannerRef.current = p
+    weeklyRef.current = wt
+    saveJSON({ data: d, plannerWeeks: p, weeklyHours: wt })
+    setData(d)
+    setPlannerWeeks(p)
+    setWeeklyHours(wt)
     setError(null)
     return info
   }
@@ -206,8 +210,10 @@ export function AppDataProvider({ children }) {
       const planner = ensureDefaultRows(saved.plannerWeeks || [])
       dataRef.current = saved.data
       plannerRef.current = planner
+      weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides)
       setData(saved.data)
       setPlannerWeeks(planner)
+      setWeeklyHours(weeklyRef.current)
       setLoading(false)
     }
 
@@ -229,11 +235,13 @@ export function AppDataProvider({ children }) {
             try {
               const { rowsByTab } = await loadAllData()
               if (cancelled) return
-              const { data: d, plannerWeeks: p } = buildState(rowsByTab)
+              const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
               dataRef.current = d
               plannerRef.current = p
+              weeklyRef.current = wt
               setData(d)
               setPlannerWeeks(p)
+              setWeeklyHours(wt)
             } catch (e2) {
               if (!cancelled) setError(e2.message)
             }
@@ -245,11 +253,13 @@ export function AppDataProvider({ children }) {
         try {
           const { rowsByTab } = await loadAllData()
           if (cancelled) return
-          const { data: d, plannerWeeks: p } = buildState(rowsByTab)
+          const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
           dataRef.current = d
           plannerRef.current = p
+          weeklyRef.current = wt
           setData(d)
           setPlannerWeeks(p)
+          setWeeklyHours(wt)
         } catch (e) {
           if (!cancelled) setError(e.message)
         } finally {
@@ -293,8 +303,14 @@ export function AppDataProvider({ children }) {
     setSyncing(true)
     try {
       const rowsByTab = await readAllTabs(info.fileId)
-      const { data: d, plannerWeeks: p } = buildState(rowsByTab)
-      setAll(d, p)
+      const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
+      dataRef.current = d
+      plannerRef.current = p
+      weeklyRef.current = wt
+      saveJSON({ data: d, plannerWeeks: p, weeklyHours: wt })
+      setData(d)
+      setPlannerWeeks(p)
+      setWeeklyHours(wt)
       setError(null)
     } catch (e) {
       setDriveError(e.message)
@@ -316,8 +332,14 @@ export function AppDataProvider({ children }) {
     } else {
       try {
         const { rowsByTab } = await loadAllData()
-        const { data: d, plannerWeeks: p } = buildState(rowsByTab)
-        setAll(d, p)
+        const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
+        dataRef.current = d
+        plannerRef.current = p
+        weeklyRef.current = wt
+        saveJSON({ data: d, plannerWeeks: p, weeklyHours: wt })
+        setData(d)
+        setPlannerWeeks(p)
+        setWeeklyHours(wt)
       } catch (e) {
         setError(e.message)
       } finally {
@@ -336,21 +358,24 @@ export function AppDataProvider({ children }) {
 
   function addSession(entry) {
     const prev = dataRef.current || {}
-    const updated = { ...prev, inputLog: [{ ...entry, id: Date.now() }, ...(prev.inputLog || [])] }
+    const updated = { ...prev, studyLog: [{ ...entry, id: Date.now() }, ...(prev.studyLog || [])] }
     setAll(updated, plannerRef.current)
-    syncTabs(['inputLog'])
+    syncTabs(['studyLog'])
   }
 
   function addCourse(course) {
     const { _gradeComponents, ...courseData } = course
     const prev = dataRef.current || {}
-    const updated = { ...prev, masterCourses: [...(prev.masterCourses || []), { ...courseData, id: Date.now() }] }
-    const keys = ['masterCourses']
+    const updated = {
+      ...prev,
+      courses: [...(prev.courses || []), { ...courseData, id: courseData.course, course: courseData.course }],
+    }
+    const keys = ['courses']
     if (_gradeComponents && _gradeComponents.length > 0) {
       const gradeComps = [...(updated.gradeComponents || [])]
       gradeComps.push({
         course: courseData.course,
-        components: _gradeComponents,
+        components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.id || null })),
         totalGrade: calcWeightedGrade(_gradeComponents),
       })
       updated.gradeComponents = gradeComps
@@ -362,23 +387,44 @@ export function AppDataProvider({ children }) {
 
   function addDeadline(deadline) {
     const prev = dataRef.current || {}
-    const updated = { ...prev, deadlines: [...(prev.deadlines || []), { ...deadline, id: Date.now() }] }
+    const item = {
+      course: deadline.course || '',
+      course2: null,
+      contentId: deadline.contentId || deadline.id || null,
+      type: deadline.type || 'assignment',
+      topic: deadline.description || '',
+      date: deadline.date || null,
+      deadline: deadline.date || null,
+      start: deadline.start || '',
+      end: deadline.end || '',
+      marker: deadline.urgency === 'High' ? 'Important' : '',
+      location: deadline.location || null,
+      hoursSpent: deadline.time ?? null,
+      materialHours: null,
+      content: deadline.notes || null,
+      calId: null,
+      description: deadline.description || 'Task',
+      urgency: deadline.urgency || 'Medium',
+      done: deadline.done || '',
+      time: deadline.time ?? 0,
+    }
+    const updated = { ...prev, content: [...(prev.content || []), item] }
     setAll(updated, plannerRef.current)
-    syncTabs(['deadlines'])
+    syncTabs(['content'])
   }
 
   function deleteSession(id) {
     const prev = dataRef.current || {}
-    const updated = { ...prev, inputLog: (prev.inputLog || []).filter(e => e.id !== id) }
+    const updated = { ...prev, studyLog: (prev.studyLog || []).filter(e => e.id !== id) }
     setAll(updated, plannerRef.current)
-    syncTabs(['inputLog'])
+    syncTabs(['studyLog'])
   }
 
   function deleteCourse(id) {
     const prev = dataRef.current || {}
-    const course = (prev.masterCourses || []).find(c => c.id === id)
-    const updated = { ...prev, masterCourses: (prev.masterCourses || []).filter(c => c.id !== id) }
-    const keys = ['masterCourses']
+    const course = (prev.courses || []).find(c => c.id === id)
+    const updated = { ...prev, courses: (prev.courses || []).filter(c => c.id !== id) }
+    const keys = ['courses']
     if (course) {
       updated.gradeComponents = (updated.gradeComponents || []).filter(g => g.course !== course.course)
       keys.push('gradeComponents')
@@ -389,9 +435,9 @@ export function AppDataProvider({ children }) {
 
   function deleteDeadline(id) {
     const prev = dataRef.current || {}
-    const updated = { ...prev, deadlines: (prev.deadlines || []).filter(d => d.id !== id) }
+    const updated = { ...prev, content: (prev.content || []).filter(d => d.id !== id) }
     setAll(updated, plannerRef.current)
-    syncTabs(['deadlines'])
+    syncTabs(['content'])
   }
 
   function updateGradeComponents(course, components) {
@@ -401,7 +447,11 @@ export function AppDataProvider({ children }) {
     for (let i = 0; i < gradeComponents.length; i++) {
       if (gradeComponents[i].course === course) { idx = i; break }
     }
-    const entry = { course, components, totalGrade: calcWeightedGrade(components) }
+    const entry = {
+      course,
+      components: components.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || c.type || null })),
+      totalGrade: calcWeightedGrade(components),
+    }
     if (idx >= 0) {
       gradeComponents[idx] = { ...gradeComponents[idx], ...entry }
     } else {
@@ -409,38 +459,89 @@ export function AppDataProvider({ children }) {
     }
     const updated = { ...prev, gradeComponents }
     setAll(updated, plannerRef.current)
-    syncTabs(['gradeComponents'])
+    syncTabs(['gradeComponents', 'courses'])
   }
 
   function updatePlannerWeek(weekIndex, rows) {
-    const prev = [...plannerRef.current]
-    prev[weekIndex] = { ...prev[weekIndex], rows }
-    setAll(dataRef.current, prev)
-    syncTabs(['daily'])
+    const week = plannerRef.current[weekIndex]
+    if (!week) return
+    const prev = dataRef.current || {}
+    const keep = (prev.dailyPlan || []).filter(r => !week.dates.includes(r.date))
+    const flat = []
+    for (const row of rows) {
+      if (row.isTotal || !row.course) continue
+      for (let d = 0; d < 7; d++) {
+        const day = row.days?.[d]
+        if (row.planned?.[d] || day?.description || day?.hours) {
+          flat.push({
+            date: week.dates[d],
+            course: row.course,
+            task: day?.description || '',
+            plannedHours: row.planned?.[d] || 0,
+            actualHours: row.days?.[d]?.hours || 0,
+            done: null,
+            notes: null,
+          })
+        }
+      }
+    }
+    const updated = { ...prev, dailyPlan: [...keep, ...flat] }
+    setAll(updated, plannerRef.current)
+    syncTabs(['dailyPlan'])
   }
 
   function updatePlannerCell(weekIndex, rowIndex, dayIndex, field, value) {
+    const week = plannerRef.current[weekIndex]
+    if (!week) return
+    const row = week.rows[rowIndex]
+    if (!row || row.isTotal) return
+
     const prev = [...plannerRef.current]
     const rows = [...prev[weekIndex].rows]
-    const row = { ...rows[rowIndex] }
-    const days = [...row.days]
+    const current = { ...rows[rowIndex] }
+    const days = [...current.days]
     days[dayIndex] = { ...days[dayIndex], [field]: value }
-    row.days = days
-    row.total = days.reduce((s, d) => s + d.hours, 0)
-    rows[rowIndex] = row
+    current.days = days
+    current.total = days.reduce((s, d) => s + d.hours, 0)
+    rows[rowIndex] = current
     prev[weekIndex] = { ...prev[weekIndex], rows }
-    setAll(dataRef.current, prev)
-    syncTabs(['daily'])
+
+    const date = week.dates[dayIndex]
+    const dataPrev = dataRef.current || {}
+    const keep = (dataPrev.dailyPlan || []).filter(r => !(r.date === date && r.course === row.course))
+    const existing = (dataPrev.dailyPlan || []).find(r => r.date === date && r.course === row.course)
+    const flatRow = {
+      date,
+      course: row.course,
+      task: days[dayIndex].description ?? existing?.task ?? '',
+      plannedHours: existing?.plannedHours ?? row.planned?.[dayIndex] ?? 0,
+      actualHours: days[dayIndex].hours ?? existing?.actualHours ?? 0,
+      done: existing?.done ?? null,
+      notes: existing?.notes ?? null,
+    }
+    const updated = { ...dataPrev, dailyPlan: [...keep, flatRow] }
+    setAll(updated, prev)
+    syncTabs(['dailyPlan'])
+  }
+
+  function deletePlannerTask(id) {
+    const prev = dataRef.current || {}
+    const dailyPlan = (prev.dailyPlan || []).filter(r => r.id !== id)
+    setAll({ ...prev, dailyPlan }, plannerRef.current)
+    syncTabs(['dailyPlan'])
   }
 
   return (
     <AppDataContext.Provider value={{
-      inputLog: data?.inputLog || [],
-      masterCourses: data?.masterCourses || [],
+      inputLog: data?.studyLog || [],
+      masterCourses: data?.courses || [],
       gradeComponents: data?.gradeComponents || [],
-      weeklyHours: data?.weeklyHours || [],
-      deadlines: data?.deadlines || [],
+      lectures: data?.content || [],
+      content: data?.content || [],
+      deadlines: (data?.content || []).filter(i => i.deadline),
+      weeklyHours,
       plannerWeeks,
+      dailyPlan: data?.dailyPlan || [],
       loading,
       error,
       drive,
@@ -461,6 +562,9 @@ export function AppDataProvider({ children }) {
       updateGradeComponents,
       updatePlannerWeek,
       updatePlannerCell,
+      addPlannerTask,
+      updatePlannerTask,
+      deletePlannerTask,
     }}>
       {children}
     </AppDataContext.Provider>

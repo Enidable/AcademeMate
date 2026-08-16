@@ -28,12 +28,42 @@ export const SPREADSHEET_NAME = 'AcademeMate Data'
 export const DRIVE_FOLDER_NAME = 'AcademeMate - Study Tracking'
 export const APP_PROP_KEY = 'academemate'
 
-// Canonical tab titles inside the user's spreadsheet (mirror the bundled CSVs).
-export const TAB_DAILY = 'Daily'
-export const TAB_INPUT_LOG = 'INPUT_LOG'
-export const TAB_COURSES = 'Master Time Management'
-export const TAB_GRADES = 'Grade Computer'
-export const TAB_HOURS = 'Time structure and hours of study'
-export const TAB_DEADLINES = 'Deadlines and Lectures'
+// Canonical tab titles inside the user's spreadsheet. Every tab is a single flat
+// table (one header row), linked to others by course_id — the app's data layer
+// keeps the GUI shapes while the spreadsheet stays database-shaped.
+export const TAB_STUDY_LOG = 'Study Log'
+export const TAB_COURSES = 'Courses'
+export const TAB_GRADES = 'Grade Components'
+export const TAB_CONTENT = 'Course Content'
+export const TAB_DAILY = 'Daily Plan'
+export const TAB_HOURS = 'Weekly Totals'
 
-export const SHEET_TABS = [TAB_INPUT_LOG, TAB_COURSES, TAB_GRADES, TAB_HOURS, TAB_DEADLINES, TAB_DAILY]
+// Content item types: lectures/lectorials/tutorials/practicals are *scheduled*
+// (they have a `date`), assessments are *due* (they have a `deadline`).
+export const CONTENT_TYPES = [
+  'lecture',
+  'lectorial',
+  'tutorial',
+  'practical',
+  'project',
+  'assignment',
+  'exam',
+  'quiz',
+  'presentation',
+  'q&a',
+  'exam review',
+  'self study',
+  'resit',
+  'other',
+]
+
+// Types that carry a due date instead of a scheduled date.
+export const DEADLINE_TYPES = new Set([
+  'project',
+  'assignment',
+  'exam',
+  'quiz',
+  'presentation',
+])
+
+export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS]

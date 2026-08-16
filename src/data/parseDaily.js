@@ -1,93 +1,133 @@
-import { parseCSVRaw } from '../utils/csv.js'
+// Derivation helpers: turn the flat tables into the views the GUI renders.
+//   - weekly totals: summed from Study Log (per ISO week) with manual overrides
+//   - planner grid: flat Daily Plan rows regrouped into the Mon-Sun week grid
+import { isoWeekOf, mondayOfWeek, weekdayIndex } from './normalize.js'
 
-function toFloat(val) {
-  if (val == null || val === '' || val === '-') return 0
-  const n = parseFloat(String(val).replace(',', '.'))
-  return isNaN(n) ? 0 : n
-}
+// Effective weekly totals = Study Log per ISO week, plus manual overrides.
+// Each entry: { year, week, total, study, work, travel, other, notes }.
+export function deriveWeeklyTotals(studyLog, overrides) {
+  const weeks = new Map()
+  const addHours = (key, field, hours) => {
+    if (!weeks.has(key)) {
+      weeks.set(key, { year: key.split('-')[0], week: parseInt(key.split('-')[1], 10), total: 0, study: 0, work: 0, travel: 0, other: 0, notes: '' })
+    }
+    weeks.get(key)[field] += hours || 0
+  }
 
-export function parseDailyPlanner(csvText) {
-  return parseDailyPlannerRows(parseCSVRaw(csvText))
-}
-
-export function parseDailyPlannerRows(raw) {
-  const weeks = []
-  let i = 0
-
-  while (i < raw.length) {
-    const row = raw[i]
-    const label = (row[1] || '').trim()
-
-    if (label === 'Daily plan' && (row[2] || '').trim()) {
-      const headerRow = row
-      const weekLabelRow = raw[i + 1]
-      let weekNumber = 0
-      if (weekLabelRow && (weekLabelRow[1] || '').includes('Week')) {
-        weekNumber = parseInt(weekLabelRow[1].replace('Week ', ''), 10) || 0
-      }
-
-      const dates = []
-      for (let d = 0; d < 7; d++) {
-        dates.push((headerRow[2 + d * 2] || '').trim())
-      }
-
-      const courseRows = []
-      let j = i + 2
-
-      while (j < raw.length) {
-        const courseRow = raw[j]
-        const courseName = (courseRow[1] || '').trim()
-        if (!courseName || courseName === 'Daily plan') break
-
-        if (courseName === 'SUM') {
-          const days = []
-          for (let d = 0; d < 7; d++) {
-            days.push({ description: '', hours: toFloat(courseRow[3 + d * 2]) })
-          }
-          courseRows.push({
-            course: 'SUM',
-            days,
-            total: toFloat(courseRow[16]),
-            isTotal: true,
-          })
-          j++
-          break
-        }
-
-        const days = []
-        for (let d = 0; d < 7; d++) {
-          days.push({
-            description: (courseRow[2 + d * 2] || '').trim(),
-            hours: toFloat(courseRow[3 + d * 2]),
-          })
-        }
-        courseRows.push({
-          course: courseName,
-          days,
-          total: toFloat(courseRow[16]),
-          isTotal: false,
-        })
-        j++
-      }
-
-      weeks.push({
-        weekNumber,
-        startDate: dates[0] || '',
-        dates,
-        rows: courseRows,
-      })
-
-      i = j
-    } else {
-      i++
+  for (const e of studyLog || []) {
+    const wk = isoWeekOf(e.date)
+    if (!wk) continue
+    const key = `${wk.year}-${wk.week}`
+    const duration = e.durationHours || 0
+    const isWork = (e.category || '').toLowerCase() === 'work'
+    addHours(key, 'total', duration)
+    addHours(key, isWork ? 'work' : 'study', duration)
+    if (e.transportMode && e.commuteTime) {
+      addHours(key, 'travel', e.commuteTime / 60)
+      addHours(key, 'total', e.commuteTime / 60)
     }
   }
 
-  return weeks
+  for (const override of Object.values(overrides || {})) {
+    const key = `${override.year}-${override.week}`
+    const entry = weeks.get(key) || { year: override.year, week: override.week, total: 0, study: 0, work: 0, travel: 0, other: 0, notes: '' }
+    if (override.total != null) entry.total = override.total
+    if (override.notes) entry.notes = override.notes
+    weeks.set(key, entry)
+  }
+
+  return Array.from(weeks.values())
+    .map(w => ({ ...w, year: Number(w.year), week: Number(w.week) }))
+    .sort((a, b) => a.year - b.year || a.week - b.week)
 }
 
 export function getAverageWeeklyHours(weeklyHours) {
   if (!weeklyHours || weeklyHours.length === 0) return 0
   const sum = weeklyHours.reduce((s, w) => s + w.total, 0)
   return sum / weeklyHours.length
+}
+
+// Flat daily rows -> the planner week grid the DailyPlanner page renders.
+export function buildPlannerWeeks(dailyPlan) {
+  const byWeek = new Map()
+
+  for (const r of dailyPlan || []) {
+    const wk = isoWeekOf(r.date)
+    if (!wk) continue
+    const key = `${wk.year}-${wk.week}`
+    if (!byWeek.has(key)) {
+      byWeek.set(key, {
+        weekNumber: wk.week,
+        year: wk.year,
+        startDate: mondayOfWeek(wk.year, wk.week),
+        rows: new Map(),
+      })
+    }
+    const week = byWeek.get(key)
+    const dow = weekdayIndex(r.date)
+    if (!week.rows.has(r.course)) {
+      week.rows.set(r.course, {
+        course: r.course,
+        days: Array.from({ length: 7 }, () => ({ description: '', hours: 0 })),
+        total: 0,
+        isTotal: false,
+        tasks: Array.from({ length: 7 }, () => []),
+        planned: Array.from({ length: 7 }, () => 0),
+      })
+    }
+    const row = week.rows.get(r.course)
+    const day = row.days[dow]
+    if (r.task) day.description = day.description ? `${day.description}; ${r.task}` : r.task
+    day.hours += r.plannedHours && !r.actualHours ? r.plannedHours : r.actualHours || 0
+    row.planned[dow] += r.plannedHours || 0
+    if (r.task) row.tasks[dow].push(r.task)
+    row.total = row.days.reduce((s, d) => s + d.hours, 0)
+  }
+
+  const weeks = Array.from(byWeek.entries()).map(([key, week]) => {
+    const rows = []
+    for (const row of week.rows.values()) {
+      if (row.total <= 0 && row.days.every(d => !d.description)) continue
+      rows.push(row)
+    }
+    rows.sort((a, b) => {
+      const aSpecial = a.course === 'Travel' || a.course === 'WORK'
+      const bSpecial = b.course === 'Travel' || b.course === 'WORK'
+      if (aSpecial !== bSpecial) return aSpecial ? 1 : -1
+      return a.course.localeCompare(b.course)
+    })
+
+    // Day totals row, mirroring the old SUM row.
+    const sumDays = Array.from({ length: 7 }, () => 0)
+    for (const row of rows) {
+      for (let d = 0; d < 7; d++) sumDays[d] += row.days[d].hours
+    }
+    const sumRow = {
+      course: 'SUM',
+      days: sumDays.map(h => ({ description: '', hours: h })),
+      total: sumDays.reduce((s, h) => s + h, 0),
+      isTotal: true,
+    }
+
+    return {
+      key,
+      weekNumber: week.weekNumber,
+      year: week.year,
+      startDate: week.startDate,
+      dates: buildWeekDates(week.startDate),
+      rows: [...rows, sumRow],
+    }
+  })
+
+  return weeks.sort((a, b) => new Date(a.startDate) - new Date(b.startDate))
+}
+
+function buildWeekDates(mondayISO) {
+  const dates = []
+  const monday = new Date(mondayISO + 'T12:00:00')
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday.getTime() + i * 86400000)
+    dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+  }
+  return dates
 }
