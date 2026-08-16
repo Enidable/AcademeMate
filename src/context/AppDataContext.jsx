@@ -201,6 +201,18 @@ export function AppDataProvider({ children }) {
     return info
   }
 
+  // A spreadsheet created by the old schema (or one whose tabs were never
+  // filled) comes with the six canonical tabs empty. Seed them from the
+  // bundled template only when EVERY tab is empty, so a sheet already in use
+  // is never overwritten.
+  async function seedEmptyTabs(fileId) {
+    const rowsByTab = await readAllTabs(fileId)
+    const hasData = Object.values(rowsByTab).some(rows => rows.length > 1)
+    if (hasData) return
+    const template = await fetchTemplateRows()
+    await writeAllTabs(fileId, template)
+  }
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -227,6 +239,8 @@ export function AppDataProvider({ children }) {
           const file = await ensureSpreadsheet()
           if (cancelled) return
           await ensureTabs(file.id)
+          if (cancelled) return
+          await seedEmptyTabs(file.id)
           if (cancelled) return
           await loadAndApplyFromDrive(file)
         } catch (e) {
@@ -279,10 +293,7 @@ export function AppDataProvider({ children }) {
       await getAccessToken()
       const file = await ensureSpreadsheet()
       await ensureTabs(file.id)
-      if (file.createdNew) {
-        const template = await fetchTemplateRows()
-        await writeAllTabs(file.id, template)
-      }
+      await seedEmptyTabs(file.id)
       return await loadAndApplyFromDrive(file)
     } catch (e) {
       setDriveError(e.message)
