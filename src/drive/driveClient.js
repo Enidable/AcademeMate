@@ -269,13 +269,21 @@ export async function insertCalendarEvent(event, calendarId = 'primary') {
   return res?.id || null
 }
 
+// Update an event. Returns the event id, or null when the target event no
+// longer exists (404) — e.g. it was deleted from the calendar after a previous
+// push — so callers can fall back to inserting a fresh copy.
 export async function updateCalendarEvent(eventId, event, calendarId = 'primary') {
   const url = `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`
-  const res = await authedFetch(url, {
-    method: 'PUT',
-    body: JSON.stringify(event),
-  })
-  return res?.id || eventId
+  try {
+    const res = await authedFetch(url, {
+      method: 'PUT',
+      body: JSON.stringify(event),
+    })
+    return res?.id || eventId
+  } catch (e) {
+    if (/404/.test(e.message)) return null
+    throw e
+  }
 }
 
 export function deleteCalendarEvent(eventId, calendarId = 'primary') {

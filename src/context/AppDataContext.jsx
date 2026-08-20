@@ -441,8 +441,14 @@ export function AppDataProvider({ children }) {
     for (const ev of events) {
       const gcal = toGcalEvent(ev)
       if (ev.calId) {
-        await updateCalendarEvent(ev.calId, gcal, calendarId)
-        updated += 1
+        const id = await updateCalendarEvent(ev.calId, gcal, calendarId)
+        if (id) {
+          updated += 1
+        } else {
+          const newId = await insertCalendarEvent(gcal, calendarId)
+          updatedEvents.push({ ...ev, calId: newId })
+          inserted += 1
+        }
       } else {
         const id = await insertCalendarEvent(gcal, calendarId)
         updatedEvents.push({ ...ev, calId: id })
