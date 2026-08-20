@@ -23,6 +23,9 @@ import {
   updateCalendarEvent,
   ensureCalendar,
   toGcalEvent,
+  isExamEvent,
+  inferEventType,
+  deriveAbbrev,
 } from '../drive/driveClient'
 import { fetchTemplateRows } from '../drive/template'
 import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn, initGis } from '../drive/gis'
@@ -146,6 +149,47 @@ function makeWorkRow() {
     days: Array.from({ length: 7 }, () => ({ description: '', hours: 0 })),
     total: 0,
     isTotal: false,
+  }
+}
+
+function escapeRe(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Give every scheduled (non-exam) calendar event a stable incremental id in the
+// form {course abbrev}-{NN}. Events that already carry a lecture id keep it, so
+// re-imports never reshuffle the numbering.
+function assignLectureIds(rows, courses) {
+  const courseById = {}
+  for (const c of courses || []) courseById[c.course] = c
+  const groups = {}
+  for (const r of rows) {
+    if (!r.course || isExamEvent(r)) continue
+    if (!groups[r.course]) groups[r.course] = []
+    groups[r.course].push(r)
+  }
+  for (const [courseName, evs] of Object.entries(groups)) {
+    const c = courseById[courseName]
+    const abbrev = c?.abbrev || c?.code || deriveAbbrev(courseName)
+    const pat = new RegExp(`^${escapeRe(abbrev)}[- ]?(\\d+)$`, 'i')
+    const taken = new Set()
+    let maxNum = 0
+    for (const r of evs) {
+      const m = r.lectureId && pat.exec(String(r.lectureId))
+      if (m) {
+        const num = parseInt(m[1], 10)
+        taken.add(num)
+        maxNum = Math.max(maxNum, num)
+      }
+    }
+    evs.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || ''))
+    let next = maxNum + 1
+    for (const r of evs) {
+      if (r.lectureId) continue
+      while (taken.has(next)) next++
+      taken.add(next)
+      r.lectureId = `${abbrev}-${String(next).padStart(2, '0')}`
+    }
   }
 }
 
@@ -413,16 +457,70 @@ export function AppDataProvider({ children }) {
 
     const existing = dataRef.current?.calendarEvents || []
     const calByKey = new Map()
-    for (const e of existing) calByKey.set(`${e.uid}|${e.date}|${e.startTime}`, e.calId)
-    const merged = rows.map(r => ({
-      ...r,
-      calId: calByKey.get(`${r.uid}|${r.date}|${r.startTime}`) || null,
-    }))
+    const lectureByKey = new Map()
+    for (const e of existing) {
+      const k = `${e.uid}|${e.date}|${e.startTime}`
+      if (e.calId) calByKey.set(k, e.calId)
+      if (e.lectureId) lectureByKey.set(k, e.lectureId)
+    }
+    const merged = rows.map(r => {
+      const k = `${r.uid}|${r.date}|${r.startTime}`
+      return { ...r, calId: calByKey.get(k) || null, lectureId: lectureByKey.get(k) || null }
+    })
 
-    const d = { ...(dataRef.current || {}), calendarEvents: merged }
+    assignLectureIds(merged, courses)
+
+    // Log each scheduled lecture/tutorial/practical into the course's syllabus
+    // (Course Content) so every class gets a numbered entry the user only has
+    // to give a description to. Re-imports refresh dates/ids but keep the
+    // manually written description.
+    const existingContent = dataRef.current?.content || []
+    const contentByLecture = new Map()
+    for (const i of existingContent) {
+      if (i.course && i.contentId) contentByLecture.set(`${i.course}|${i.contentId}`, i)
+    }
+    const content = [...existingContent]
+    for (const r of merged) {
+      if (!r.lectureId || !r.course) continue
+      const item = contentByLecture.get(`${r.course}|${r.lectureId}`)
+      if (item) {
+        item.date = r.date
+        item.start = r.startTime || ''
+        item.end = r.endTime || ''
+        item.calId = r.calId
+      } else {
+        const type = inferEventType(r.summary, r.description)
+        const topic = r.summary || r.lectureId
+        content.push({
+          id: `${r.course}||${r.lectureId}|${r.date}||${topic}`,
+          course: r.course,
+          course2: null,
+          contentId: r.lectureId,
+          type,
+          topic,
+          description: topic,
+          date: r.date,
+          deadline: null,
+          start: r.startTime || '',
+          end: r.endTime || '',
+          marker: null,
+          location: r.location || null,
+          hoursSpent: null,
+          materialHours: null,
+          content: null,
+          calId: r.calId,
+          done: '',
+          urgency: 'Medium',
+          time: 0,
+        })
+      }
+    }
+
+    const d = { ...(dataRef.current || {}), calendarEvents: merged, content }
     const planner = plannerRef.current || []
     setAll(d, planner)
     await writeTabRows(info.fileId, TAB_CALENDAR, serializeCalendar(merged))
+    await writeTabRows(info.fileId, TAB_CONTENT, serializeContent(content))
     return { imported: merged.length, files: files.length }
   }
 
@@ -581,11 +679,23 @@ export function AppDataProvider({ children }) {
         updated.topic = payload.description
         updated.description = payload.description
       }
+      if (payload.deadline != null) {
+        updated.deadline = payload.deadline
+        updated.date = null
+      }
       if (payload.date != null) {
         updated.deadline = payload.date
         updated.date = null
       }
+      if (payload.schedDate != null) {
+        updated.date = payload.schedDate
+        updated.deadline = null
+      }
       if (payload.type != null) updated.type = payload.type
+      if (payload.start != null) updated.start = payload.start
+      if (payload.end != null) updated.end = payload.end
+      if (payload.calId != null) updated.calId = payload.calId
+      if (payload.location != null) updated.location = payload.location
       if (payload.time != null) {
         updated.hoursSpent = payload.time
         updated.time = payload.time
@@ -598,6 +708,38 @@ export function AppDataProvider({ children }) {
       return updated
     })
     setAll({ ...prev, content }, plannerRef.current)
+    syncTabs(['content'])
+  }
+
+  // Generic Course Content item (lecture, project, deadline...). Used by the
+  // course syllabus UI. A deadline item becomes a Tomato-red event in the
+  // calendar on the next push.
+  function addContentItem(item) {
+    const prev = dataRef.current || {}
+    const newItem = {
+      course: item.course || '',
+      course2: item.course2 || null,
+      contentId: item.contentId || item.id || null,
+      type: item.type || 'lecture',
+      topic: item.description || item.topic || '',
+      description: item.description || item.topic || '',
+      date: item.date || null,
+      deadline: item.deadline || null,
+      start: item.start || '',
+      end: item.end || '',
+      marker: item.urgency === 'High' ? 'Important' : '',
+      location: item.location || null,
+      hoursSpent: item.time ?? null,
+      materialHours: item.materialHours ?? null,
+      content: item.notes || null,
+      calId: item.calId || null,
+      done: item.done || '',
+      urgency: item.urgency || 'Medium',
+      time: item.time ?? 0,
+    }
+    newItem.id = `${newItem.course}||${newItem.contentId || ''}|${newItem.date || ''}|${newItem.deadline || ''}|${newItem.topic}`
+    const updated = { ...prev, content: [...(prev.content || []), newItem] }
+    setAll(updated, plannerRef.current)
     syncTabs(['content'])
   }
 
@@ -771,9 +913,11 @@ export function AppDataProvider({ children }) {
       addSession,
       addCourse,
       addDeadline,
+      addContentItem,
       deleteSession,
       deleteCourse,
       deleteDeadline,
+      deleteContentItem: deleteDeadline,
       updateSession,
       updateCourse,
       updateDeadline: updateContentItem,

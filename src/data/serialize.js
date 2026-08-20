@@ -11,7 +11,7 @@ export const GRADE_COMPONENTS_HEADER = 'course_id,component,type,weight,grade,du
 export const CONTENT_HEADER = 'course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id'
 export const DAILY_PLAN_HEADER = 'date,course_id,task,planned_hours,actual_hours,done,notes'
 export const WEEKLY_TOTALS_HEADER = 'year,week,total_hours,notes'
-export const CALENDAR_HEADER = 'date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,cal_id'
+export const CALENDAR_HEADER = 'date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id'
 
 const splitHeader = h => h.split(',')
 
@@ -136,6 +136,7 @@ export function serializeCalendar(events) {
     e.source || '',
     e.uid || '',
     e.status || '',
+    e.lectureId || '',
     e.calId || '',
   ])
   return [splitHeader(CALENDAR_HEADER), ...rows]

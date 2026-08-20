@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { getStatus, truncate, getCourseStyle, COLOR_NAMES } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { AddCourseModal } from '../components/forms/Modals'
+import Syllabus from '../components/Syllabus'
 
 const statusColors = {
   'Completed': 'bg-green-100 text-green-700',
@@ -234,6 +235,13 @@ export default function Courses({ courses }) {
                   </div>
 
                   <div>
+                    <div className="text-xs text-slate-500 mb-1 font-medium">Abbreviation</div>
+                    <input type="text" value={c.abbrev || ''} placeholder="e.g. AI4AR"
+                      onChange={e => setCourse(c.id, { abbrev: e.target.value || null })}
+                      className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-full focus:outline-none focus:border-slate-400 bg-white" />
+                  </div>
+
+                  <div>
                     <div className="text-xs text-slate-500 mb-1 font-medium">Colour</div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {COLOR_NAMES.map(name => (
@@ -246,6 +254,7 @@ export default function Courses({ courses }) {
 
                   <CourseTimeline course={c.course} content={content} gradeComponents={gradeComponents} />
                   <GradeEditor course={c.course} />
+                  <Syllabus course={c.course} abbrev={c.abbrev} />
                 </div>
               )}
 

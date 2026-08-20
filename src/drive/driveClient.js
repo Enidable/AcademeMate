@@ -207,6 +207,38 @@ export function isExamEvent(ev) {
   return /exam/i.test(`${ev.summary || ''} ${ev.description || ''}`)
 }
 
+const TYPE_KEYWORDS = [
+  ['lectorial', 'lectorial'],
+  ['tutorial', 'tutorial'],
+  ['practical', 'practical'],
+  ['presentation', 'presentation'],
+  ['lecture', 'lecture'],
+  ['self study', 'selfstudy'],
+  ['seminar', 'seminar'],
+  ['project', 'project'],
+  ['assignment', 'assignment'],
+  ['exam', 'exam'],
+]
+
+// Guess the kind of class from a timetable event's text. Falls back to
+// "lecture" so every scheduled event still lands somewhere in the syllabus.
+export function inferEventType(summary, description = '') {
+  const text = `${summary || ''} ${description || ''}`.toLowerCase()
+  for (const [keyword, type] of TYPE_KEYWORDS) {
+    if (text.includes(keyword)) return type
+  }
+  return 'lecture'
+}
+
+// Short identifier for a course when no abbreviation or code is on file:
+// the initials of the significant words (e.g. "AI for Autonomous Robots" -> "AAR").
+export function deriveAbbrev(name) {
+  if (!name) return 'COURSE'
+  const words = String(name).trim().split(/\s+/).filter(w => w.length > 1)
+  const initials = (words.map(w => w[0]).join('') || String(name).slice(0, 4)).toUpperCase()
+  return initials.slice(0, 8)
+}
+
 // Fallback colour (1-11) for a course name when the push's per-course colour
 // map has no entry (e.g. an event whose course wasn't linked to the course list).
 // The hash is sign-normalised so it never produces a negative colour id.

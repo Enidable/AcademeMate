@@ -230,6 +230,7 @@ function parseCalendar(rows) {
         source: (r.source || '').trim() || null,
         uid: (r.uid || '').trim() || null,
         status: (r.status || '').trim() || null,
+        lectureId: (r.lecture_id || '').trim() || null,
         calId: (r.cal_id || '').trim() || null,
       }
     })
