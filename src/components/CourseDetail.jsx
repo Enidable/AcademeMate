@@ -16,8 +16,6 @@ const colorDot = {
   slate: 'bg-slate-500', orange: 'bg-orange-500', gray: 'bg-gray-500', pink: 'bg-pink-500',
 }
 
-const TYPE_LABELS = { exam: 'Exam', assignment: 'Assignment', presentation: 'Presentation', project: 'Project', quiz: 'Quiz', other: 'Other', lecture: 'Lecture' }
-
 function Field({ label, children }) {
   return (
     <div>
@@ -29,11 +27,12 @@ function Field({ label, children }) {
 
 const inputCls = 'text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 w-full focus:outline-none focus:ring-2 focus:ring-slate-300 bg-white'
 
-// A full-page view of one course: every setting, the timeline, grade
-// components and the syllabus. Opened by double-clicking (or "Open course" on)
-// a course card.
+// A full-page view of one course: every setting, the grade components and the
+// syllabus. Opened by double-clicking (or "Open course" on) a course card.
+// Text fields keep local state so typing never drops focus; values are saved
+// to the sheet when the field loses focus.
 export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClose, onEdit }) {
-  const { gradeComponents, content, deleteCourse, updateCourse } = useAppData()
+  const { gradeComponents, deleteCourse, updateCourse } = useAppData()
   const c = course
   const status = getStatus(c)
   const style = getCourseStyle(c.course, c.color)
@@ -45,8 +44,32 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
       : loggedHours * 2
   const progress = estimatedHours > 0 ? Math.min((loggedHours / estimatedHours) * 100, 100) : null
 
+  const [form, setForm] = useState({
+    abbrev: c.abbrev || '',
+    code: c.code || '',
+    ec: c.ec != null ? String(c.ec) : '',
+    quartile: c.quartile || '',
+    estHours: c.estHours != null ? String(c.estHours) : '',
+    start: c.start || '',
+    finish: c.finish || '',
+    comment: c.comment || '',
+  })
+
   function set(patch) {
     updateCourse(c.course, patch)
+  }
+
+  function commit() {
+    set({
+      abbrev: form.abbrev || null,
+      code: form.code || null,
+      ec: form.ec ? parseFloat(form.ec) : null,
+      quartile: form.quartile || null,
+      estHours: form.estHours ? parseFloat(form.estHours) : null,
+      start: form.start || null,
+      finish: form.finish || null,
+      comment: form.comment || null,
+    })
   }
 
   function confirmDelete() {
@@ -61,7 +84,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
       <div className="max-w-3xl mx-auto p-6">
         <div className={`rounded-xl border ${style.border || 'border-slate-200'} ${style.soft} p-6`} style={{ ...style.softCss, ...style.borderCss }}>
           <div className="flex items-center gap-2 mb-4">
-            <button onClick={onClose} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 bg-white cursor-pointer">← Courses</button>
+            <button onClick={() => { commit(); onClose() }} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 bg-white cursor-pointer">← Courses</button>
             <span className={`w-3 h-3 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
             <h2 className="font-semibold text-slate-800 text-lg leading-tight truncate">{c.course}</h2>
             <div className="ml-auto flex items-center gap-2">
@@ -78,7 +101,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
                 <option value="curriculum">Curriculum</option>
                 <option value="extra">Extra</option>
               </select>
-              <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none cursor-pointer">&times;</button>
+              <button onClick={() => { commit(); onClose() }} className="text-slate-400 hover:text-slate-600 text-2xl leading-none cursor-pointer">&times;</button>
             </div>
           </div>
 
@@ -112,19 +135,16 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
             <Field label="Abbreviation (used for IDs)">
-              <input type="text" value={c.abbrev || ''} placeholder="e.g. ASDfR" onChange={e => set({ abbrev: e.target.value || null })} className={inputCls} />
+              <input type="text" value={form.abbrev} placeholder="e.g. ASDfR" onChange={e => setForm(f => ({ ...f, abbrev: e.target.value }))} onBlur={commit} className={inputCls} />
             </Field>
             <Field label="Course code">
-              <input type="text" value={c.code || ''} placeholder="e.g. 202400250" onChange={e => set({ code: e.target.value || null })} className={inputCls} />
+              <input type="text" value={form.code} placeholder="e.g. 202400250" onChange={e => setForm(f => ({ ...f, code: e.target.value }))} onBlur={commit} className={inputCls} />
             </Field>
             <Field label="EC">
-              <input type="text" inputMode="decimal" value={c.ec != null ? String(c.ec) : ''} onChange={e => set({ ec: e.target.value ? parseFloat(e.target.value) : null })} className={inputCls} />
-            </Field>
-            <Field label="Year">
-              <input type="text" value={c.year || ''} placeholder="e.g. 2025" onChange={e => set({ year: e.target.value || null })} className={inputCls} />
+              <input type="text" inputMode="decimal" value={form.ec} onChange={e => setForm(f => ({ ...f, ec: e.target.value }))} onBlur={commit} className={inputCls} />
             </Field>
             <Field label="Quartile">
-              <select value={c.quartile || ''} onChange={e => set({ quartile: e.target.value || null })} className={inputCls}>
+              <select value={form.quartile} onChange={e => { setForm(f => ({ ...f, quartile: e.target.value })); set({ quartile: e.target.value || null }) }} className={inputCls}>
                 <option value="">—</option>
                 <option value="Q1">Q1</option>
                 <option value="Q2">Q2</option>
@@ -133,14 +153,14 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
               </select>
             </Field>
             <Field label="Estimated hours">
-              <input type="text" inputMode="decimal" value={c.estHours != null ? String(c.estHours) : ''} placeholder="e.g. 160"
-                onChange={e => set({ estHours: e.target.value ? parseFloat(e.target.value) : null })} className={inputCls} />
+              <input type="text" inputMode="decimal" value={form.estHours} placeholder="e.g. 160"
+                onChange={e => setForm(f => ({ ...f, estHours: e.target.value }))} onBlur={commit} className={inputCls} />
             </Field>
             <Field label="Start">
-              <input type="date" value={c.start || ''} onChange={e => set({ start: e.target.value || null })} className={inputCls} />
+              <input type="date" value={form.start} onChange={e => setForm(f => ({ ...f, start: e.target.value }))} onBlur={commit} className={inputCls} />
             </Field>
             <Field label="Finish">
-              <input type="date" value={c.finish || ''} onChange={e => set({ finish: e.target.value || null })} className={inputCls} />
+              <input type="date" value={form.finish} onChange={e => setForm(f => ({ ...f, finish: e.target.value }))} onBlur={commit} className={inputCls} />
             </Field>
             <Field label="Colour">
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -159,22 +179,16 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
             </Field>
           </div>
 
-          {c.comment && (
-            <Field label="Comment">
-              <input type="text" value={c.comment || ''} onChange={e => set({ comment: e.target.value || null })} className={inputCls} />
-            </Field>
-          )}
+          <Field label="Comment">
+            <input type="text" value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} onBlur={commit} className={inputCls} />
+          </Field>
 
           <div className="mb-5">
-            <CourseTimeline course={c.course} content={content} gradeComponents={gradeComponents} />
+            <GradeEditor course={c.course} />
           </div>
 
           <div className="mb-5">
             <Syllabus course={c.course} abbrev={c.abbrev} code={c.code} />
-          </div>
-
-          <div className="mb-5">
-            <GradeEditor course={c.course} />
           </div>
 
           <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
@@ -182,75 +196,6 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
             <button onClick={confirmDelete} className="text-sm px-4 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer">Delete course</button>
           </div>
         </div>
-      </div>
-    </div>
-  )
-}
-
-// Horizontal course timeline: start -> finish with markers for scheduled items
-// (indigo), assessments/deadlines (amber) and grade component due dates (rose).
-function CourseTimeline({ course, content, gradeComponents }) {
-  const items = (content || []).filter(i => i.course === course)
-  const grades = (gradeComponents || []).find(g => g.course === course)
-  const now = new Date()
-  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-
-  const minDate = items.reduce((min, i) => {
-    const d = i.date || i.deadline
-    return d && (!min || d < min) ? d : min
-  }, null)
-  const maxDate = items.reduce((max, i) => {
-    const d = i.date || i.deadline
-    return d && (!max || d > max) ? d : max
-  }, null)
-
-  if (!minDate || !maxDate) {
-    return (
-      <div className="text-xs text-slate-400 italic">No dated items for a timeline yet (import schedule in the Calendar tab).</div>
-    )
-  }
-
-  const start = new Date(minDate + 'T12:00:00').getTime()
-  const end = new Date(maxDate + 'T12:00:00').getTime()
-  const span = Math.max(end - start, 1)
-  const pos = (iso) => {
-    const t = new Date(iso + 'T12:00:00').getTime()
-    return Math.min(100, Math.max(0, ((t - start) / span) * 100))
-  }
-
-  const markers = []
-  for (const i of items) {
-    const iso = i.date || i.deadline
-    if (!iso) continue
-    const isDeadline = !!i.deadline
-    markers.push({ iso, label: i.topic || i.description, isDeadline, course: i.course, type: i.type })
-  }
-  const todayPos = todayIso >= minDate && todayIso <= maxDate ? pos(todayIso) : null
-  for (const comp of grades?.components || []) {
-    if (comp.dueDate) markers.push({ iso: comp.dueDate, label: `${comp.type === 'exam' ? 'Exam' : TYPE_LABELS[comp.type] || 'Assignment'} due`, isDeadline: true, due: true })
-  }
-  markers.sort((a, b) => a.iso.localeCompare(b.iso))
-
-  return (
-    <div>
-      <div className="text-xs text-slate-500 mb-2 font-medium">Timeline</div>
-      <div className="relative h-2 bg-slate-100 rounded-full mb-2">
-        {todayPos != null && (
-          <div className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 bg-slate-700 rounded" style={{ left: `${todayPos}%` }} title="Today" />
-        )}
-      </div>
-      <div className="relative pt-3">
-        {markers.slice(0, 16).map((m, i) => (
-          <div key={i} className="flex items-center gap-2 mb-1.5 absolute" style={{ left: `${pos(m.iso) - 2}%`, top: 0 }}>
-            <span className={`h-2 w-2 rounded-full shrink-0 ${m.isDeadline ? 'bg-amber-400' : m.due ? 'bg-rose-400' : 'bg-indigo-400'}`} />
-            <span className="text-[11px] text-slate-600 whitespace-nowrap overflow-hidden text-ellipsis max-w-[140px]">{m.label}</span>
-          </div>
-        ))}
-        <div className="h-px" />
-      </div>
-      <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-        <span>{minDate}</span>
-        <span>{maxDate}</span>
       </div>
     </div>
   )
@@ -288,19 +233,6 @@ function GradeEditor({ course }) {
   function updateComp(i, field, value) {
     const updated = [...comps]
     updated[i] = { ...updated[i], [field]: value }
-    setComps(updated)
-  }
-
-  function pickProject(i, contentId) {
-    const item = projectOptions.find(o => o.contentId === contentId)
-    const updated = [...comps]
-    updated[i] = {
-      ...updated[i],
-      id: contentId || '',
-      name: contentId ? (item?.description || contentId) : updated[i].name,
-      type: contentId && item?.type ? (item.type === 'lecture' ? 'assignment' : item.type) : updated[i].type,
-      dueDate: contentId && item?.deadline ? item.deadline : updated[i].dueDate,
-    }
     setComps(updated)
   }
 
@@ -346,15 +278,17 @@ function GradeEditor({ course }) {
             <option value="quiz">Quiz</option>
             <option value="other">Other</option>
           </select>
-          <select value={comp.id || ''} onChange={e => pickProject(i, e.target.value)}
-            className="w-28 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white">
-            <option value="">—</option>
-            {projectOptions.map(o => (
-              <option key={o.contentId} value={o.contentId}>
-                {o.contentId} · {o.description || o.type}
-              </option>
-            ))}
-          </select>
+          <div className="relative w-28">
+            <input type="text" list={`project-ids-${course}`} value={comp.id}
+              onChange={e => updateComp(i, 'id', e.target.value)}
+              placeholder="e.g. ASDfR1"
+              className="w-28 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+            <datalist id={`project-ids-${course}`}>
+              {projectOptions.map(o => (
+                <option key={o.contentId} value={o.contentId}>{o.contentId} · {o.description || o.type}</option>
+              ))}
+            </datalist>
+          </div>
           <input type="date" value={comp.dueDate} onChange={e => updateComp(i, 'dueDate', e.target.value)}
             className="w-32 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
           <input type="text" inputMode="decimal" placeholder="0.3" value={comp.weight}

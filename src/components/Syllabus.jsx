@@ -77,7 +77,7 @@ function typeBadge(type) {
 }
 
 export default function Syllabus({ course, abbrev, code }) {
-  const { content, calendarEvents, addContentItem, updateContentItem, deleteContentItem } = useAppData()
+  const { content, addContentItem, updateContentItem, deleteContentItem } = useAppData()
   const [adding, setAdding] = useState(null)
   const [editing, setEditing] = useState(null)
 
@@ -86,14 +86,6 @@ export default function Syllabus({ course, abbrev, code }) {
     .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.start || '').localeCompare(b.start || ''))
   const deadlines = items.filter(i => i.deadline)
     .sort((a, b) => (a.deadline || '').localeCompare(b.deadline || ''))
-
-  const courseEvents = useMemo(() =>
-    (calendarEvents || []).filter(e => e.course === course)
-      .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || '')),
-  [calendarEvents, course])
-
-  const eventKey = e => `${e.date}|${e.startTime}`
-  const eventLabel = e => `${fmtDate(e.date)} ${e.startTime || ''}${e.endTime ? `–${e.endTime}` : ''} · ${e.summary || ''}`
 
   function openAdd(mode) {
     setEditing(null)
@@ -147,7 +139,6 @@ export default function Syllabus({ course, abbrev, code }) {
       date: item.date || item.deadline || '',
       start: item.start || '',
       end: item.end || '',
-      linkKey: item.calId ? '' : (item.date ? `${item.date}|${item.start}` : ''),
     })
   }
 
@@ -164,14 +155,6 @@ export default function Syllabus({ course, abbrev, code }) {
     }
     updateContentItem(e.id, payload)
     setEditing(null)
-  }
-
-  function linkEvent(key) {
-    const ev = courseEvents.find(x => eventKey(x) === key)
-    if (!ev) return
-    const payload = { schedDate: ev.date, start: ev.startTime || '', end: ev.endTime || '', calId: ev.calId || null }
-    updateContentItem(editing.id, payload)
-    setEditing({ ...editing, date: ev.date, start: ev.startTime || '', end: ev.endTime || '', linkKey: key })
   }
 
   function Row({ item, isDeadline }) {
@@ -200,13 +183,6 @@ export default function Syllabus({ course, abbrev, code }) {
               </>
             )}
           </div>
-          {!isDeadline && courseEvents.length > 0 && (
-            <select value={editing.linkKey || ''} onChange={e => e.target.value ? linkEvent(e.target.value) : null}
-              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white w-full">
-              <option value="">— link a calendar event (optional) —</option>
-              {courseEvents.map(ev => <option key={eventKey(ev)} value={eventKey(ev)}>{eventLabel(ev)}</option>)}
-            </select>
-          )}
           <div className="flex items-center gap-1.5">
             <input type="text" value={editing.description} onChange={e => setEditing(s => ({ ...s, description: e.target.value }))}
               className="flex-1 text-[11px] px-2 py-1 border border-slate-200 rounded bg-white" placeholder="Description" />

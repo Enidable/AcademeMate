@@ -345,6 +345,7 @@ export default function Courses({ courses }) {
 
       {viewingCourse && (
         <CourseDetail
+          key={viewingCourse.course}
           course={viewingCourse}
           loggedHours={loggedHoursMap[viewingCourse.course] || 0}
           avgHoursPerEC={avgHoursPerEC}

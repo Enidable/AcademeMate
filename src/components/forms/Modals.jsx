@@ -498,54 +498,9 @@ export function AddDeadlineModal({ open, onClose, initial }) {
 }
 
 export function AddCourseModal({ open, onClose, initial }) {
-  const { addCourse, updateCourse, gradeComponents, content } = useAppData()
-  const existingGroup = initial?.course ? gradeComponents.find(g => g.course === initial.course) : null
+  const { addCourse, updateCourse } = useAppData()
   const [form, setForm] = useState(() => seedCourse(initial))
-  const [components, setComponents] = useState(() =>
-    existingGroup?.components?.map(c => ({
-      type: c.type || 'assignment',
-      id: c.id || '',
-      name: c.name || c.id || '',
-      dueDate: c.dueDate || '',
-      weight: c.weight != null ? String(c.weight) : '',
-      grade: c.grade != null ? String(c.grade) : '',
-    })) || [
-      { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' },
-    ]
-  )
   const isEdit = !!initial
-
-  const projectOptions = (content || []).filter(i =>
-    initial?.course && i.course === initial.course && i.contentId && (i.deadline || DEADLINE_TYPES.has(i.type))
-  )
-
-  function addComp() {
-    setComponents([...components, { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
-  }
-
-  function removeComp(i) {
-    if (components.length <= 1) return
-    setComponents(components.filter((_, idx) => idx !== i))
-  }
-
-  function updateComp(i, field, value) {
-    const updated = [...components]
-    updated[i] = { ...updated[i], [field]: value }
-    setComponents(updated)
-  }
-
-  function pickProject(i, contentId) {
-    const item = projectOptions.find(o => o.contentId === contentId)
-    const updated = [...components]
-    updated[i] = {
-      ...updated[i],
-      id: contentId || '',
-      name: contentId ? (item?.description || contentId) : updated[i].name,
-      type: contentId && item?.type ? (item.type === 'lecture' ? 'assignment' : item.type) : updated[i].type,
-      dueDate: contentId && item?.deadline ? item.deadline : updated[i].dueDate,
-    }
-    setComponents(updated)
-  }
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -556,7 +511,6 @@ export function AddCourseModal({ open, onClose, initial }) {
       ec: form.ec ? parseFloat(form.ec) : null,
       start: form.start || null,
       finish: form.finish || null,
-      year: form.year || null,
       quartile: form.quartile || null,
       status: form.status === 'Completed' ? 'completed' : form.status === 'Planned' ? 'planned' : 'in progress',
       scope: form.scope,
@@ -565,21 +519,10 @@ export function AddCourseModal({ open, onClose, initial }) {
       timeMin: 0, timeHours: 0, grade: null,
       exam: null, assignment: null, laboratory: null,
       estTimeHours: null, assTimeHours: null, material: null,
-      _gradeComponents: components
-        .filter(c => c.weight)
-        .map(c => ({
-          type: c.type,
-          id: c.id || null,
-          name: c.name || c.id || null,
-          weight: parseFloat(c.weight) || null,
-          grade: c.grade ? parseFloat(c.grade) : null,
-          dueDate: c.dueDate || null,
-        })),
     }
     if (isEdit && initial?.id) updateCourse(initial.id, payload)
     else addCourse(payload)
     setForm({ course: '', abbrev: '', code: '', ec: '', start: '', finish: '', year: '', quartile: '', status: 'In Progress', scope: 'curriculum', comment: '', estHours: '' })
-    setComponents([{ type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
     onClose()
   }
 
@@ -602,10 +545,6 @@ export function AddCourseModal({ open, onClose, initial }) {
           <div>
             <label className="text-xs text-slate-500 block mb-1">EC</label>
             <input type="text" inputMode="decimal" value={form.ec} onChange={e => setForm(f => ({ ...f, ec: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 block mb-1">Year</label>
-            <input type="text" value={form.year} placeholder="e.g. 2025" onChange={e => setForm(f => ({ ...f, year: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1">Quartile</label>
@@ -646,52 +585,6 @@ export function AddCourseModal({ open, onClose, initial }) {
             <label className="text-xs text-slate-500 block mb-1">Estimated hours (optional)</label>
             <input type="text" inputMode="decimal" value={form.estHours} placeholder="e.g. 160" onChange={e => setForm(f => ({ ...f, estHours: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
           </div>
-        </div>
-
-        <div className="border-t border-slate-100 pt-3 space-y-2">
-          <p className="text-xs font-medium text-slate-700">Grade Components</p>
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
-            <div className="text-[10px] uppercase tracking-wider text-slate-400">Type</div>
-            <div className="text-[10px] uppercase tracking-wider text-slate-400 w-28">Project ID</div>
-            <div className="text-[10px] uppercase tracking-wider text-slate-400 w-32">Deadline</div>
-            <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Weight</div>
-            <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Grade</div>
-            <div className="w-5" />
-          </div>
-          {components.map((comp, i) => (
-            <div key={i} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
-              <select value={comp.type} onChange={e => updateComp(i, 'type', e.target.value)}
-                className="text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white w-full">
-                <option value="exam">Exam</option>
-                <option value="assignment">Assignment</option>
-                <option value="presentation">Presentation</option>
-                <option value="project">Project</option>
-                <option value="quiz">Quiz</option>
-                <option value="other">Other</option>
-              </select>
-              <select value={comp.id || ''} onChange={e => pickProject(i, e.target.value)}
-                className="w-28 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white">
-                <option value="">—</option>
-                {projectOptions.map(o => (
-                  <option key={o.contentId} value={o.contentId}>
-                    {o.contentId} · {o.description || o.type}
-                  </option>
-                ))}
-              </select>
-              <input type="date" value={comp.dueDate} onChange={e => updateComp(i, 'dueDate', e.target.value)}
-                className="w-32 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-              <input type="text" inputMode="decimal" placeholder="0.3" value={comp.weight}
-                onChange={e => updateComp(i, 'weight', e.target.value)}
-                className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-              <input type="text" inputMode="decimal" placeholder="—" value={comp.grade}
-                onChange={e => updateComp(i, 'grade', e.target.value)}
-                className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-              {components.length > 1
-                ? <button onClick={() => removeComp(i)} className="w-5 text-xs text-red-400 hover:text-red-600 cursor-pointer">×</button>
-                : <div className="w-5" />}
-            </div>
-          ))}
-          <button type="button" onClick={addComp} className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer">+ Add component</button>
         </div>
 
         <div>

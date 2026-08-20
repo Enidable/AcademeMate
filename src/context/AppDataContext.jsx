@@ -733,6 +733,11 @@ export function AppDataProvider({ children }) {
   function addCourse(course) {
     const { _gradeComponents, ...courseData } = course
     const prev = dataRef.current || {}
+    // The year is always derived from the start (or finish) date.
+    const s = String(courseData.start || '')
+    const f = String(courseData.finish || '')
+    const ym = (s || f).match(/^(\d{4})/)
+    if (ym) courseData.year = ym[1]
     const updated = {
       ...prev,
       courses: [...(prev.courses || []), { ...courseData, id: courseData.course, course: courseData.course }],
@@ -787,18 +792,70 @@ export function AppDataProvider({ children }) {
     syncTabs(['studyLog'])
   }
 
+  // Renames an ID like "202400250-01"/"2024002501" to "ASDfR-01"/"ASDfR1"
+  // when the abbreviation (or code) used as its prefix changes.
+  function renameIdPrefix(contentId, oldBase, newBase) {
+    if (!contentId || typeof contentId !== 'string') return contentId
+    const re = new RegExp(`^${oldBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([- ]?(\\d+))$`, 'i')
+    const m = re.exec(contentId)
+    if (!m) return contentId
+    return newBase + m[1]
+  }
+
   function updateCourse(id, course) {
     const { _gradeComponents, ...courseData } = course
     const prev = dataRef.current || {}
     const courses = [...(prev.courses || [])]
     const idx = courses.findIndex(c => c.id === id)
     if (idx < 0) return
-    const name = courseData.course || courses[idx].course || id
-    courses[idx] = { ...courses[idx], ...courseData, id: name, course: name }
-    const updated = { ...prev, courses }
+    const current = courses[idx]
+    const name = courseData.course || current.course || id
+    const updated = { ...current, ...courseData, id: name, course: name }
+    // The year is always derived from the start (or finish) date, so it is
+    // never entered by hand.
+    if (courseData.start != null || courseData.finish != null) {
+      const s = String(courseData.start != null ? courseData.start : updated.start || '')
+      const f = String(courseData.finish != null ? courseData.finish : updated.finish || '')
+      const ym = (s || f).match(/^(\d{4})/)
+      updated.year = ym ? ym[1] : null
+    }
+    courses[idx] = updated
+    const updated2 = { ...prev, courses }
     const keys = ['courses']
+
+    // When the abbreviation (or code) changes, re-derive every lecture/project
+    // ID of this course so IDs switch from coursecode-** to abbreviation-**.
+    const oldBase = (current.abbrev || current.code || deriveAbbrev(current.course)).replace(/\s+/g, '-')
+    const newBase = (updated.abbrev || updated.code || deriveAbbrev(updated.course)).replace(/\s+/g, '-')
+    if (newBase && oldBase && newBase !== oldBase) {
+      let content = (prev.content || []).map(item => {
+        if (item.course !== name) return item
+        const renamed = renameIdPrefix(item.contentId, oldBase, newBase)
+        if (renamed === item.contentId) return item
+        return {
+          ...item,
+          contentId: renamed,
+          id: `${item.course}|${item.course2 || ''}|${renamed}|${item.date || ''}|${item.deadline || ''}|${item.topic || ''}`,
+        }
+      })
+      const gradeComponents = (prev.gradeComponents || []).map(g => {
+        if (g.course !== name) return g
+        return {
+          ...g,
+          components: g.components.map(c => ({
+            ...c,
+            id: renameIdPrefix(c.id, oldBase, newBase),
+            name: renameIdPrefix(c.name, oldBase, newBase) || c.name,
+          })),
+        }
+      })
+      updated2.content = content
+      updated2.gradeComponents = gradeComponents
+      keys.push('content', 'gradeComponents')
+    }
+
     if (_gradeComponents) {
-      const gradeComps = [...(updated.gradeComponents || [])]
+      const gradeComps = [...(updated2.gradeComponents || [])]
       const gIdx = gradeComps.findIndex(g => g.course === id)
       const entry = {
         course: courseData.course,
@@ -807,10 +864,10 @@ export function AppDataProvider({ children }) {
       }
       if (gIdx >= 0) gradeComps[gIdx] = entry
       else gradeComps.push(entry)
-      updated.gradeComponents = gradeComps
+      updated2.gradeComponents = gradeComps
       keys.push('gradeComponents')
     }
-    setAll(updated, plannerRef.current)
+    setAll(updated2, plannerRef.current)
     syncTabs(keys)
   }
 
