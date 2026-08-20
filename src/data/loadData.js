@@ -55,8 +55,40 @@ function parseStudyLog(rows) {
 
 // --- Courses --------------------------------------------------------------
 
+// Some courses (e.g. Professional and Personal Development) span the whole
+// degree and end up with one row per quartile. Merge rows that share a name
+// into a single course: latest year, widest date range, highest ECTS, summed
+// estimated hours. Saving later collapses them to one row in the sheet.
+function mergeCourses(list) {
+  const byName = new Map()
+  const merged = []
+  for (const c of list) {
+    const existing = byName.get(c.course)
+    if (!existing) {
+      byName.set(c.course, c)
+      merged.push(c)
+      continue
+    }
+    if ((c.year || '') > (existing.year || '')) existing.year = c.year
+    if (c.quartile && existing.quartile && c.quartile !== existing.quartile) existing.quartile = null
+    else if (c.quartile && !existing.quartile) existing.quartile = c.quartile
+    existing.start = existing.start && c.start ? (existing.start < c.start ? existing.start : c.start) : (existing.start || c.start)
+    existing.finish = existing.finish && c.finish ? (existing.finish > c.finish ? existing.finish : c.finish) : (existing.finish || c.finish)
+    existing.ec = Math.max(existing.ec || 0, c.ec || 0)
+    existing.estHours = (existing.estHours || 0) + (c.estHours || 0)
+    existing.status = existing.status || c.status
+    existing.code = existing.code || c.code
+    existing.abbrev = existing.abbrev || c.abbrev
+    existing.notes = existing.notes || c.notes
+    existing.comment = existing.comment || c.comment
+    existing.scope = existing.scope || c.scope
+    existing.color = existing.color || c.color
+  }
+  return merged
+}
+
 function parseCourses(rows) {
-  return rows
+  return mergeCourses(rows
     .filter(r => (r.course_id || '').trim())
     .map(r => ({
       id: (r.course_id || '').trim(),
@@ -75,7 +107,7 @@ function parseCourses(rows) {
       scope: (r.scope || '').trim() || null,
       color: (r.color || '').trim() || null,
       grade: null,
-    }))
+    })))
 }
 
 // --- Grade Components -----------------------------------------------------

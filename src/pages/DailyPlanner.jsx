@@ -3,6 +3,7 @@ import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
 import { getCourseStyle, shortCourseName, formatDateShort } from '../utils/helpers'
+import WeekGrid from '../components/WeekGrid'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -33,13 +34,7 @@ function todayISO() {
 }
 
 export default function DailyPlanner() {
-  const { dailyPlan, weeklyHours, masterCourses, addPlannerTask, updatePlannerTask, deletePlannerTask } = useAppData()
-
-  const colorByCourse = useMemo(() => {
-    const m = {}
-    for (const c of masterCourses || []) m[c.course] = c.color
-    return m
-  }, [masterCourses])
+  const { dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, addPlannerTask, updatePlannerTask, deletePlannerTask } = useAppData()
   const [weekKey, setWeekKey] = useState(() => mondayOf(todayISO()))
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({ task: '', hours: '', notes: '' })
@@ -67,9 +62,27 @@ export default function DailyPlanner() {
 
   const avgWeeklyHours = useMemo(() => getAverageWeeklyHours(weeklyHours), [weeklyHours])
 
+  // Timetable events + deadlines for the week grid shown below the plan.
+  const calByDay = useMemo(() => {
+    const map = {}
+    for (const e of calendarEvents) {
+      if (!e.date) continue
+      if (!map[e.date]) map[e.date] = []
+      map[e.date].push(e)
+    }
+    for (const d of deadlines) {
+      const date = d.date || d.deadline
+      if (!date) continue
+      if (!map[date]) map[date] = []
+      map[date].push({ ...d, isDeadline: true })
+    }
+    return map
+  }, [calendarEvents, deadlines])
+
   const weekIdx = Math.max(0, weeks.indexOf(weekKey))
   const currentWeekKey = weeks[weekIdx] || weekKey
   const dates = weekDates(currentWeekKey)
+  const weekDatesObj = useMemo(() => dates.map(ds => new Date(ds + 'T12:00:00')), [dates])
   const currentIsoWeek = isoWeekOf(currentWeekKey)?.week
   const today = todayISO()
 
@@ -157,7 +170,17 @@ export default function DailyPlanner() {
         ))}
       </div>
 
-      <div className="text-xs text-slate-400 italic">Click the pencil to edit a task, the trash to remove it. Add new tasks per day with “+ Add task”. Press Enter to confirm, Escape to cancel.</div>
+      <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-slate-700">Week timetable</h3>
+          <span className="text-xs text-slate-400">Classes and deadlines for this week (06:00–22:00)</span>
+        </div>
+        <div className="min-w-[720px]">
+          <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} />
+        </div>
+      </div>
+
+      <div className="text-xs text-slate-400 italic">Click the pencil to edit a task, the trash to remove it. Add new tasks per day with “+ Add task”. Press Enter to confirm, Escape to cancel. Plan a day first with estimated hours, then update the hours with what you actually did.</div>
     </div>
   )
 }
@@ -167,6 +190,11 @@ function DayCard({
   onEditForm, onAddForm, onStartEdit, onSaveEdit, onCancelEdit, onKeyDown,
   onOpenAdd, onSaveAdd, onToggleDone, onDelete,
 }) {
+  const colorByCourse = useMemo(() => {
+    const m = {}
+    for (const c of courses || []) m[c.course] = c.color
+    return m
+  }, [courses])
   const dayTotal = tasks.reduce((s, r) => s + (r.plannedHours || r.actualHours || 0), 0)
 
   return (
@@ -274,10 +302,6 @@ function DayCard({
           <button onClick={() => onOpenAdd(date)}
             className="mt-auto text-[11px] text-slate-400 hover:text-slate-600 text-left px-1 py-1 rounded hover:bg-slate-50 cursor-pointer">+ Add task</button>
         )}
-      </div>
-
-      <div className="mt-auto px-3 py-2 border-t border-dashed border-slate-200">
-        <p className="text-[10px] text-slate-300 text-center">Week timetable — university calendar import coming</p>
       </div>
     </div>
   )

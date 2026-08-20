@@ -138,7 +138,9 @@ export default function Calendar() {
     setMessage('')
     try {
       const res = await pushCalendarToGoogle(colorOverrides)
-      setMessage(`AcademeMate calendar: ${res.inserted} inserted, ${res.updated} updated.`)
+      const parts = [`${res.inserted} inserted`, `${res.updated} updated`]
+      if (res.deadlinesInserted) parts.push(`${res.deadlinesInserted} deadline${res.deadlinesInserted > 1 ? 's' : ''} added`)
+      setMessage(`AcademeMate calendar: ${parts.join(', ')}.`)
     } catch (e) {
       setMessage(`Push failed: ${e.message}`)
     } finally {

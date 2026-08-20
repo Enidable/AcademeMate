@@ -562,20 +562,56 @@ export function AppDataProvider({ children }) {
         inserted += 1
       }
     }
-    if (updatedEvents.length > 0) {
+
+    // Course deadlines (syllabus projects/assignments/exams) are pushed as
+    // Tomato all-day events. Lectures logged to content are not re-pushed —
+    // they're already exported from the Calendar tab.
+    let deadlinesInserted = 0
+    const updatedDeadlines = []
+    const deadlines = (data.content || []).filter(i => i.deadline && i.course)
+    for (const item of deadlines) {
+      const summary = item.description || item.topic || item.contentId
+      const gcal = {
+        summary: `Due: ${summary}`,
+        location: '',
+        description: summary,
+        start: { date: item.deadline },
+        end: { date: item.deadline },
+        colorId: '11',
+      }
+      if (item.calId) {
+        const id = await updateCalendarEvent(item.calId, gcal, calendarId)
+        if (!id) {
+          const newId = await insertCalendarEvent(gcal, calendarId)
+          updatedDeadlines.push({ ...item, calId: newId })
+          deadlinesInserted += 1
+        }
+      } else {
+        const id = await insertCalendarEvent(gcal, calendarId)
+        updatedDeadlines.push({ ...item, calId: id })
+        deadlinesInserted += 1
+      }
+    }
+
+    if (updatedEvents.length > 0 || updatedDeadlines.length > 0) {
       const byKey = new Map(updatedEvents.map(e => [`${e.uid}|${e.date}|${e.startTime}`, e.calId]))
       const merged = events.map(e => {
         const id = byKey.get(`${e.uid}|${e.date}|${e.startTime}`)
         return id ? { ...e, calId: id } : e
       })
-      const d = { ...data, calendarEvents: merged }
+      const calById = new Map(updatedDeadlines.map(i => [i.id, i.calId]))
+      const content = (data.content || []).map(i => (calById.has(i.id) ? { ...i, calId: calById.get(i.id) } : i))
+      const d = { ...data, calendarEvents: merged, content }
       dataRef.current = d
       saveJSON({ data: d, plannerWeeks: plannerRef.current, weeklyHours: weeklyRef.current })
       setData(d)
       const info = driveRef.current
-      if (info) await writeTabRows(info.fileId, TAB_CALENDAR, serializeCalendar(merged))
+      if (info) {
+        await writeTabRows(info.fileId, TAB_CALENDAR, serializeCalendar(merged))
+        await writeTabRows(info.fileId, TAB_CONTENT, serializeContent(content))
+      }
     }
-    return { inserted, updated }
+    return { inserted, updated, deadlinesInserted }
   }
 
   function addSession(entry) {
