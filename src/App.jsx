@@ -20,9 +20,10 @@ const pages = {
 
 function AppContent() {
   const [active, setActive] = useState('Dashboard')
-  const { inputLog, masterCourses, deadlines, weeklyHours, loading, error, refreshFromCSVs, hasDrive, syncing, driveError } = useAppData()
+  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, driveError } = useAppData()
   const [modal, setModal] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sessionPreset, setSessionPreset] = useState(null)
 
   if (loading) {
     return <div className="flex h-screen bg-slate-50 items-center justify-center"><p className="text-slate-400 text-sm">Loading data…</p></div>
@@ -37,17 +38,17 @@ function AppContent() {
   const headerActions = {
     Dashboard: { onRefresh: refreshFromCSVs },
     'Daily Planner': {},
-    'Time Log': { onAddSession: () => setModal('session') },
+    'Time Log': { onAddSession: () => { setSessionPreset(null); setModal('session') } },
     Courses: { onAddCourse: () => setModal('course') },
     Calendar: { onAddDeadline: () => setModal('deadline') },
   }
 
   const pageProps = {
-    Dashboard: { inputLog, courses: masterCourses, deadlines, weeklyHours },
+    Dashboard: { inputLog, courses: masterCourses, deadlines, weeklyHours, gradeComponents },
     'Time Log': { entries: inputLog },
     Courses: { courses: masterCourses },
     Calendar: {},
-    'Daily Planner': {},
+    'Daily Planner': { onLogTask: t => { setSessionPreset(t); setModal('session') } },
   }
 
   return (
@@ -67,13 +68,13 @@ function AppContent() {
         </main>
       </div>
 
-      <AddSessionModal open={modal === 'session'} onClose={() => setModal(null)} />
+      <AddSessionModal open={modal === 'session'} onClose={() => { setModal(null); setSessionPreset(null) }} preset={sessionPreset} />
       <AddDeadlineModal open={modal === 'deadline'} onClose={() => setModal(null)} />
       <AddCourseModal open={modal === 'course'} onClose={() => setModal(null)} />
       <DriveSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       <button
-        onClick={() => setModal('session')}
+        onClick={() => { setSessionPreset(null); setModal('session') }}
         className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-slate-800 text-white text-2xl shadow-lg hover:bg-slate-700 active:scale-95 cursor-pointer flex items-center justify-center"
         title="Add study session">+</button>
     </div>

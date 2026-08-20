@@ -20,25 +20,28 @@ function splitByScope(courses) {
   return { curriculum, extra }
 }
 
-function gradeStats(list) {
-  const completed = list.filter(c => c.grade != null)
+function gradeStats(list, gradeMap) {
+  const gradeOf = c => (c.grade != null ? c.grade : gradeMap?.[c.course]?.totalGrade ?? null)
+  const completed = list.filter(c => gradeOf(c) != null)
   const avg = completed.length
-    ? completed.reduce((s, c) => s + c.grade, 0) / completed.length
+    ? completed.reduce((s, c) => s + gradeOf(c), 0) / completed.length
     : null
   return {
     completed: completed.length,
-    inProgress: list.filter(c => c.grade == null && c.start != null).length,
+    inProgress: list.filter(c => gradeOf(c) == null && c.start != null).length,
     ecEarned: completed.reduce((sum, c) => sum + (c.ec || 0), 0),
     ecPlanned: list.reduce((sum, c) => sum + (c.ec || 0), 0),
     avgGrade: avg,
   }
 }
 
-export default function Dashboard({ inputLog, courses, deadlines, weeklyHours }) {
+export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, gradeComponents }) {
   const stats = useMemo(() => {
     const { curriculum, extra } = splitByScope(courses)
-    const cur = gradeStats(curriculum)
-    const ext = gradeStats(extra)
+    const gradeMap = {}
+    for (const g of gradeComponents || []) gradeMap[g.course] = g
+    const cur = gradeStats(curriculum, gradeMap)
+    const ext = gradeStats(extra, gradeMap)
     const weekTotal = getLatestWeekTotal(weeklyHours)
 
     const recent = [...inputLog].sort((a, b) => b.date.localeCompare(a.date) || b.startTime.localeCompare(a.startTime)).slice(0, 5)
@@ -68,11 +71,11 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours })
     return {
       curriculum: cur,
       extra: ext,
-      both: gradeStats(courses),
+      both: gradeStats(courses, gradeMap),
       weekTotal, recent, upcoming, totalHours, avgEfficiency, avgWellbeing, totalEntries: inputLog.length,
       totalXp, xpSeries,
     }
-  }, [inputLog, courses, deadlines, weeklyHours])
+  }, [inputLog, courses, deadlines, weeklyHours, gradeComponents])
 
   const urgencyColors = {
     'Complete': 'bg-green-100 text-green-700',

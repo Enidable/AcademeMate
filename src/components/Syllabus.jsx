@@ -78,6 +78,7 @@ export default function Syllabus({ course, abbrev }) {
     setEditing(null)
     setAdding({
       mode,
+      contentId: '',
       description: '',
       date: '',
       start: '',
@@ -88,7 +89,7 @@ export default function Syllabus({ course, abbrev }) {
 
   function submitAdd() {
     const a = adding
-    const id = nextContentId(course, abbrev, content)
+    const id = a.contentId || nextContentId(course, abbrev, content)
     if (a.mode === 'lecture') {
       addContentItem({
         course,
@@ -116,6 +117,7 @@ export default function Syllabus({ course, abbrev }) {
     setAdding(null)
     setEditing({
       id: item.id,
+      contentId: item.contentId || '',
       description: item.description || item.topic || '',
       type: item.type || 'other',
       date: item.date || item.deadline || '',
@@ -128,7 +130,7 @@ export default function Syllabus({ course, abbrev }) {
   function saveEdit() {
     const e = editing
     const isScheduled = scheduled.some(s => s.id === e.id)
-    const payload = { description: e.description, type: e.type }
+    const payload = { description: e.description, type: e.type, contentId: e.contentId || null }
     if (isScheduled) {
       payload.schedDate = e.date || null
       payload.start = e.start
@@ -156,7 +158,9 @@ export default function Syllabus({ course, abbrev }) {
       return (
         <div className="flex flex-col gap-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">{id}</span>
+            <input type="text" value={editing.contentId} onChange={e => setEditing(s => ({ ...s, contentId: e.target.value }))}
+              placeholder="ID (e.g. AI4AR-03)"
+              className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
             <select value={editing.type} onChange={e => setEditing(s => ({ ...s, type: e.target.value }))}
               className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">
               {Object.entries(TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -209,7 +213,9 @@ export default function Syllabus({ course, abbrev }) {
     return (
       <div className="flex flex-col gap-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50 mt-2">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">{nextContentId(course, abbrev, content)}</span>
+          <input type="text" value={adding.contentId} onChange={e => setAdding(a => ({ ...a, contentId: e.target.value }))}
+            placeholder={nextContentId(course, abbrev, content)}
+            className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
           {adding.mode === 'lecture' ? (
             <select value={adding.type} onChange={e => setAdding(a => ({ ...a, type: e.target.value }))}
               className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">

@@ -48,13 +48,15 @@ async function authedFetch(url, options = {}, attempt = 0) {
 
   if (!res.ok) {
     // 409 = concurrent writes to the same spreadsheet (what used to surface as
-    // "Conflict"), 429 = rate limit, 5xx = transient. All deserve a retry.
+    // "Conflict"), 429 and 403/rateLimitExceeded = rate limit, 5xx = transient.
+    // All deserve a retry with backoff.
+    const text = await res.text()
+    const rateLimited = res.status === 429 || (res.status === 403 && /rateLimit|quota|userRateLimit/i.test(text))
     const lastRetry = attempt >= MAX_RETRIES
-    if (!lastRetry && (res.status === 409 || res.status === 429 || res.status >= 500)) {
+    if (!lastRetry && (rateLimited || res.status === 409 || res.status >= 500)) {
       await sleep(400 * 2 ** attempt)
       return authedFetch(url, options, attempt + 1)
     }
-    const text = await res.text()
     let message = `Google API ${res.status}: ${text.slice(0, 240)}`
     if (res.status === 403 && /has not been used|disabled/i.test(text)) {
       message += ' Enable the Google Drive and Google Sheets APIs in your Google Cloud project (APIs & Services > Library), then try again.'
@@ -265,6 +267,25 @@ export function courseColorId(course) {
   return String(((h % 10) + 10) % 10 + 1)
 }
 
+// The UI course colours (helpers.getCourseStyle) mapped to a Google Calendar
+// colour id, so picking a course colour in Courses also changes how that
+// course renders in Google Calendar. 11 (Tomato) is never used — it's reserved
+// for exams.
+export const UI_TO_GCAL = {
+  indigo: '9',
+  emerald: '10',
+  blue: '1',
+  purple: '3',
+  amber: '5',
+  rose: '4',
+  cyan: '7',
+  teal: '2',
+  slate: '8',
+  orange: '6',
+  gray: '8',
+  pink: '4',
+}
+
 function addMinutes(time, minutes) {
   const [sh, sm] = (time || '09:00').split(':')
   const total = (parseInt(sh, 10) * 60 + parseInt(sm, 10)) + minutes
@@ -330,6 +351,92 @@ export function deleteCalendarEvent(eventId, calendarId = 'primary') {
       method: 'DELETE',
     }).catch(() => {}),
   )
+}
+
+// --- Google Calendar batch writes ----------------------------------------
+//
+// Calendar inserts/updates are sent in one multipart request per ~50 events.
+// A single batch counts as one HTTP request, which keeps us comfortably inside
+// the per-user rate limit (60 requests/min) even for a full-semester import.
+
+const BATCH_BASE = 'https://www.googleapis.com/batch/calendar/v3'
+
+function buildBatchBody(ops, calendarId, boundary) {
+  const parts = ops.map((op, i) => {
+    const path = `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events${op.eventId ? `/${encodeURIComponent(op.eventId)}` : ''}`
+    return [
+      `--${boundary}`,
+      'Content-Type: application/http',
+      `Content-ID: <item${i}>`,
+      '',
+      `${op.method} ${path} HTTP/1.1`,
+      'Content-Type: application/json',
+      'accept: application/json',
+      '',
+      JSON.stringify(op.body),
+    ].join('\r\n')
+  })
+  return parts.join('\r\n') + `\r\n--${boundary}--\r\n`
+}
+
+function parseBatchBody(text, boundary) {
+  const out = {}
+  for (const seg of text.split(`--${boundary}`)) {
+    const idm = /Content-ID:\s*<item(\d+)>/i.exec(seg)
+    if (!idm) continue
+    const idx = parseInt(idm[1], 10)
+    const statusm = /HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(seg)
+    let data = null
+    const jsonm = /\{[\s\S]*\}/.exec(seg)
+    if (jsonm) {
+      try { data = JSON.parse(jsonm[0]) } catch { /* not json */ }
+    }
+    out[idx] = { status: statusm ? parseInt(statusm[1], 10) : 0, data }
+  }
+  return out
+}
+
+// Write a list of calendar operations in batches. Each operation is
+// { method: 'POST' | 'PUT', eventId?, body }. Returns an array aligned with
+// `ops` of { status, data } per operation. Throws if an entire batch request
+// fails (after retrying transient/rate-limit responses).
+export async function batchCalendarEvents(ops, calendarId) {
+  const token = await getAccessToken()
+  const CHUNK = 50
+  const results = []
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    const chunk = ops.slice(i, i + CHUNK)
+    const boundary = `am_batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const payload = buildBatchBody(chunk, calendarId, boundary)
+    let text = ''
+    let status = 0
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const res = await fetch(BATCH_BASE, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token.access_token}`,
+          'Content-Type': `multipart/mixed; boundary=${boundary}`,
+        },
+        body: payload,
+      })
+      text = await res.text()
+      status = res.status
+      if (res.ok) break
+      const rateLimited = status === 429 || (status === 403 && /rateLimit|quota|userRateLimit/i.test(text))
+      if (attempt < MAX_RETRIES && (rateLimited || status === 409 || status >= 500)) {
+        await sleep(500 * 2 ** attempt)
+        continue
+      }
+      break
+    }
+    if (status < 200 || status >= 300) {
+      throw new Error(`Google API ${status}: ${text.slice(0, 240)}`)
+    }
+    const parsed = parseBatchBody(text, boundary)
+    chunk.forEach((op, j) => results.push(parsed[j] || { status: 0, data: null }))
+    if (i + CHUNK < ops.length) await sleep(200)
+  }
+  return results
 }
 
 // --- Sheets API ----------------------------------------------------------

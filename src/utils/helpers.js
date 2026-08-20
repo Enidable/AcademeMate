@@ -13,18 +13,18 @@ const courseColors = [
 ]
 
 const colorMap = {
-  indigo: { bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500' },
-  emerald: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
-  blue: { bg: 'bg-blue-100', text: 'text-blue-700', dot: 'bg-blue-500' },
-  purple: { bg: 'bg-purple-100', text: 'text-purple-700', dot: 'bg-purple-500' },
-  amber: { bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-500' },
-  rose: { bg: 'bg-rose-100', text: 'text-rose-700', dot: 'bg-rose-500' },
-  cyan: { bg: 'bg-cyan-100', text: 'text-cyan-700', dot: 'bg-cyan-500' },
-  teal: { bg: 'bg-teal-100', text: 'text-teal-700', dot: 'bg-teal-500' },
-  slate: { bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500' },
-  orange: { bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
-  gray: { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-500' },
-  pink: { bg: 'bg-pink-100', text: 'text-pink-700', dot: 'bg-pink-500' },
+  indigo: { bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500', soft: 'bg-indigo-50/50' },
+  emerald: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', soft: 'bg-emerald-50/50' },
+  blue: { bg: 'bg-blue-100', text: 'text-blue-700', dot: 'bg-blue-500', soft: 'bg-blue-50/50' },
+  purple: { bg: 'bg-purple-100', text: 'text-purple-700', dot: 'bg-purple-500', soft: 'bg-purple-50/50' },
+  amber: { bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-500', soft: 'bg-amber-50/50' },
+  rose: { bg: 'bg-rose-100', text: 'text-rose-700', dot: 'bg-rose-500', soft: 'bg-rose-50/50' },
+  cyan: { bg: 'bg-cyan-100', text: 'text-cyan-700', dot: 'bg-cyan-500', soft: 'bg-cyan-50/50' },
+  teal: { bg: 'bg-teal-100', text: 'text-teal-700', dot: 'bg-teal-500', soft: 'bg-teal-50/50' },
+  slate: { bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500', soft: 'bg-slate-50/50' },
+  orange: { bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500', soft: 'bg-orange-50/50' },
+  gray: { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-500', soft: 'bg-gray-50/50' },
+  pink: { bg: 'bg-pink-100', text: 'text-pink-700', dot: 'bg-pink-500', soft: 'bg-pink-50/50' },
 }
 
 export function getCourseStyle(courseName, colorOverride) {

@@ -19,13 +19,14 @@ import {
   writeTabRows,
   listIcsFiles,
   fetchIcsFile,
-  insertCalendarEvent,
-  updateCalendarEvent,
   ensureCalendar,
   toGcalEvent,
   isExamEvent,
   inferEventType,
   deriveAbbrev,
+  courseColorId,
+  UI_TO_GCAL,
+  batchCalendarEvents,
 } from '../drive/driveClient'
 import { fetchTemplateRows } from '../drive/template'
 import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn, initGis } from '../drive/gis'
@@ -40,6 +41,7 @@ import {
 } from '../config'
 
 const STORAGE_KEY = 'am_state'
+const CAL_FP_KEY = 'am_cal_fp'
 
 const AppDataContext = createContext(null)
 
@@ -58,6 +60,17 @@ function saveJSON(state) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   } catch { /* quota exceeded */ }
+}
+
+// Track what was last written to Google Calendar so a re-push can skip events
+// whose payload hasn't changed — the push only touches events that actually
+// need an update. Keyed by "{calendarId}::{eventId}".
+function loadCalFp() {
+  try { return JSON.parse(localStorage.getItem(CAL_FP_KEY)) || {} } catch { return {} }
+}
+
+function saveCalFp(fp) {
+  try { localStorage.setItem(CAL_FP_KEY, JSON.stringify(fp)) } catch { /* ignore */ }
 }
 
 function clearStorage() {
@@ -525,50 +538,51 @@ export function AppDataProvider({ children }) {
   }
 
   // Export the Calendar tab into the user's dedicated "AcademeMate" Google
-  // Calendar (never the primary calendar). First-time events are inserted
-  // (their returned id is stored in cal_id), already-exported events are
-  // updated in place, so running it repeatedly is idempotent.
+  // Calendar (never the primary calendar). Writes are batched (up to 50 events
+  // per HTTP request) so the whole sync stays within the Calendar API rate
+  // limit, and events whose payload didn't change since the last push are
+  // skipped entirely. First-time events are inserted (their returned id is
+  // stored in cal_id), already-exported events are updated in place, so running
+  // it repeatedly is idempotent.
   async function pushCalendarToGoogle(colorOverrides = null) {
     const data = dataRef.current || {}
     const events = data.calendarEvents || []
-    if (events.length === 0) return { inserted: 0, updated: 0 }
+    const deadlines = (data.content || []).filter(i => i.deadline && i.course)
+    if (events.length === 0 && deadlines.length === 0) return { inserted: 0, updated: 0, deadlinesInserted: 0 }
     const calendarId = await ensureCalendar('AcademeMate')
-    // Every course gets a distinct colour (cycled 1-10; 11/Tomato is reserved
-    // for exams, enforced in toGcalEvent). Overrides from the pre-push colour
-    // dialog win when present.
+
+    // Course colour: the pre-push dialog override wins; otherwise the course's
+    // UI colour (Courses tab) is mapped to a Google colour; otherwise the stable
+    // course hash. 11/Tomato is reserved for exams, enforced in toGcalEvent.
+    const ov = colorOverrides instanceof Map ? colorOverrides : new Map(Object.entries(colorOverrides || {}))
     const courseColorMap = new Map()
     ;(data.courses || []).forEach((c, i) => {
       if (!c?.course || courseColorMap.has(c.course)) return
-      const override = colorOverrides?.get?.(c.course)
-      courseColorMap.set(c.course, override && /^(10|[1-9])$/.test(override) ? override : String((i % 10) + 1))
+      const override = ov.get(c.course)
+      const ui = c.color && UI_TO_GCAL[c.color]
+      const fallback = courseColorId(c.course) || String((i % 10) + 1)
+      const base = ui && /^(10|[1-9])$/.test(ui) ? ui : /^(10|[1-9])$/.test(fallback) ? fallback : String((i % 10) + 1)
+      courseColorMap.set(c.course, override && /^(10|[1-9])$/.test(override) ? override : base)
     })
-    let inserted = 0
-    let updated = 0
-    const updatedEvents = []
+
+    const fp = loadCalFp()
+    const fpKey = id => `${calendarId}::${id}`
+    const ops = []
+    const plan = []
+
     for (const ev of events) {
       const gcal = toGcalEvent(ev, courseColorMap)
       if (ev.calId) {
-        const id = await updateCalendarEvent(ev.calId, gcal, calendarId)
-        if (id) {
-          updated += 1
-        } else {
-          const newId = await insertCalendarEvent(gcal, calendarId)
-          updatedEvents.push({ ...ev, calId: newId })
-          inserted += 1
-        }
+        const f = JSON.stringify(gcal)
+        if (fp[fpKey(ev.calId)] === f) continue
+        plan.push({ kind: 'event', ref: ev, gcal })
+        ops.push({ method: 'PUT', eventId: ev.calId, body: gcal })
       } else {
-        const id = await insertCalendarEvent(gcal, calendarId)
-        updatedEvents.push({ ...ev, calId: id })
-        inserted += 1
+        plan.push({ kind: 'event', ref: ev, gcal })
+        ops.push({ method: 'POST', body: gcal })
       }
     }
 
-    // Course deadlines (syllabus projects/assignments/exams) are pushed as
-    // Tomato all-day events. Lectures logged to content are not re-pushed —
-    // they're already exported from the Calendar tab.
-    let deadlinesInserted = 0
-    const updatedDeadlines = []
-    const deadlines = (data.content || []).filter(i => i.deadline && i.course)
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
     for (const item of deadlines) {
       const summary = item.description || item.topic || item.contentId
@@ -586,18 +600,71 @@ export function AppDataProvider({ children }) {
         colorId: '11',
       }
       if (item.calId) {
-        const id = await updateCalendarEvent(item.calId, gcal, calendarId)
-        if (!id) {
-          const newId = await insertCalendarEvent(gcal, calendarId)
-          updatedDeadlines.push({ ...item, calId: newId })
-          deadlinesInserted += 1
-        }
+        const f = JSON.stringify(gcal)
+        if (fp[fpKey(item.calId)] === f) continue
+        plan.push({ kind: 'deadline', ref: item, gcal })
+        ops.push({ method: 'PUT', eventId: item.calId, body: gcal })
       } else {
-        const id = await insertCalendarEvent(gcal, calendarId)
-        updatedDeadlines.push({ ...item, calId: id })
-        deadlinesInserted += 1
+        plan.push({ kind: 'deadline', ref: item, gcal })
+        ops.push({ method: 'POST', body: gcal })
       }
     }
+
+    let inserted = 0
+    let updated = 0
+    const updatedEvents = []
+    const updatedDeadlines = []
+    const errors = []
+    const retryList = []
+
+    if (ops.length > 0) {
+      const results = await batchCalendarEvents(ops, calendarId)
+      results.forEach((res, i) => {
+        const p = plan[i]
+        if (!p) return
+        const ok = res?.data?.id && res.status >= 200 && res.status < 300
+        if (ok) {
+          const id = res.data.id
+          fp[fpKey(id)] = JSON.stringify(p.gcal)
+          if (p.kind === 'event') {
+            updatedEvents.push({ ...p.ref, calId: id })
+            if (ops[i].method === 'POST') inserted += 1
+            else updated += 1
+          } else {
+            updatedDeadlines.push({ ...p.ref, calId: id })
+          }
+        } else if (ops[i].method === 'PUT' && res?.status === 404) {
+          // Event was deleted on the calendar since the last push — re-insert.
+          retryList.push(p)
+        } else {
+          errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${res?.status || 'error'}`)
+        }
+      })
+    }
+
+    // Events that 404'd on update were deleted on the calendar — re-insert them.
+    if (retryList.length > 0) {
+      const retryOps = retryList.map(p => ({ method: 'POST', body: p.gcal }))
+      const retryResults = await batchCalendarEvents(retryOps, calendarId)
+      retryResults.forEach((res, i) => {
+        const p = retryList[i]
+        if (!p) return
+        if (res?.data?.id) {
+          const id = res.data.id
+          fp[fpKey(id)] = JSON.stringify(p.gcal)
+          if (p.kind === 'event') {
+            updatedEvents.push({ ...p.ref, calId: id })
+            updated += 1
+          } else {
+            updatedDeadlines.push({ ...p.ref, calId: id })
+          }
+        } else {
+          errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${res?.status || 'error'}`)
+        }
+      })
+    }
+
+    saveCalFp(fp)
 
     if (updatedEvents.length > 0 || updatedDeadlines.length > 0) {
       const byKey = new Map(updatedEvents.map(e => [`${e.uid}|${e.date}|${e.startTime}`, e.calId]))
@@ -617,7 +684,11 @@ export function AppDataProvider({ children }) {
         await writeTabRows(info.fileId, TAB_CONTENT, serializeContent(content))
       }
     }
-    return { inserted, updated, deadlinesInserted }
+
+    if (errors.length > 0) {
+      throw new Error(`Some events failed to push (${errors.length}): ${errors.slice(0, 3).join('; ')}`)
+    }
+    return { inserted, updated, deadlinesInserted: updatedDeadlines.length }
   }
 
   function addSession(entry) {
@@ -733,6 +804,7 @@ export function AppDataProvider({ children }) {
         updated.date = payload.schedDate
         updated.deadline = null
       }
+      if (payload.contentId != null) updated.contentId = payload.contentId
       if (payload.type != null) updated.type = payload.type
       if (payload.start != null) updated.start = payload.start
       if (payload.end != null) updated.end = payload.end

@@ -29,6 +29,7 @@ export default function Courses({ courses }) {
   const [editing, setEditing] = useState(null)
   const [sortBy, setSortBy] = useState('status')
   const [scopeFilter, setScopeFilter] = useState('all')
+  const [colorMenu, setColorMenu] = useState(null)
 
   const allCourses = useMemo(() => {
     const logCourses = new Set(inputLog.map(e => e.course))
@@ -134,7 +135,20 @@ export default function Courses({ courses }) {
               <div className="flex items-start justify-between mb-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${style.dot}`} />
+                    <span className="relative">
+                      <button onClick={() => setColorMenu(colorMenu === c.course ? null : c.course)}
+                        title="Change colour"
+                        className={`w-2.5 h-2.5 rounded-full shrink-0 cursor-pointer ${style.dot}`} />
+                      {colorMenu === c.course && (
+                        <div className="absolute left-0 top-4 z-30 bg-white border border-slate-200 rounded-lg shadow-lg p-2 flex items-center gap-1.5 flex-wrap w-48">
+                          {COLOR_NAMES.map(name => (
+                            <button key={name} onClick={() => { setCourse(c.id, { color: name }); setColorMenu(null) }}
+                              className={`w-5 h-5 rounded-full cursor-pointer transition-transform hover:scale-110 ${colorDot[name]} ${c.color === name ? 'ring-2 ring-slate-700 ring-offset-1' : ''}`}
+                              title={name} />
+                          ))}
+                        </div>
+                      )}
+                    </span>
                     <h3 className="font-semibold text-slate-800 text-sm leading-tight" title={c.course}>
                       {truncate(c.course, 45)}
                     </h3>

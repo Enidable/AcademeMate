@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useAppData } from '../../context/AppDataContext'
 import CourseSelect from '../CourseSelect'
 import { DEFAULT_CATEGORIES, DEFAULT_LOCATIONS, DEFAULT_TRANSPORT, META_OPTIONS_KEY } from '../../config'
@@ -119,7 +119,7 @@ function ListEditor({ label, items, onAdd, onRemove }) {
   )
 }
 
-export function AddSessionModal({ open, onClose, initial }) {
+export function AddSessionModal({ open, onClose, initial, preset }) {
   const { addSession, updateSession, masterCourses, gradeComponents, content } = useAppData()
   const [form, setForm] = useState(() => seedSession(initial))
   const [manageOpen, setManageOpen] = useState(false)
@@ -127,6 +127,24 @@ export function AddSessionModal({ open, onClose, initial }) {
     try { return JSON.parse(localStorage.getItem(META_OPTIONS_KEY)) || {} } catch { return {} }
   })
   const isEdit = !!initial
+
+  // Re-seed the form every time the dialog opens. A preset (from checking off a
+  // to-do in the planner) pre-fills the course and notes; an `initial` entry
+  // seeds an edit; otherwise the form starts blank.
+  useEffect(() => {
+    if (!open) return
+    if (preset) {
+      setForm({
+        ...seedSession(null),
+        course: preset.course || '',
+        notes: preset.task || preset.notes || '',
+        date: new Date().toISOString().slice(0, 10),
+      })
+    } else {
+      setForm(seedSession(initial))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const categories = meta.categories?.length ? meta.categories : DEFAULT_CATEGORIES
   const locations = meta.locations?.length ? meta.locations : DEFAULT_LOCATIONS

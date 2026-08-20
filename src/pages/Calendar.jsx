@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getCourseStyle } from '../utils/helpers'
+import { UI_TO_GCAL } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -79,7 +80,8 @@ export default function Calendar() {
   function openColors() {
     const map = { ...courseColors }
     ;(masterCourses || []).forEach((c, i) => {
-      if (c?.course && !map[c.course]) map[c.course] = autoColor(i)
+      if (!c?.course || map[c.course]) return
+      map[c.course] = c.color && UI_TO_GCAL[c.color] ? UI_TO_GCAL[c.color] : autoColor(i)
     })
     setCourseColors(map)
     setColorOpen(true)
