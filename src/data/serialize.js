@@ -64,7 +64,7 @@ export function serializeGradeComponents(groups) {
       if (!hasData) continue
       rows.push([
         g.course || '',
-        c.name || c.id || `Component ${(rows.length) + 1}`,
+        c.name || c.id || (c.type && c.type !== 'other' ? c.type.charAt(0).toUpperCase() + c.type.slice(1) : ''),
         (c.type || 'other') === 'other' ? '' : c.type || '',
         num(c.weight, 2),
         num(c.grade, 2),

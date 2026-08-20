@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react'
-import { getStatus, truncate, getCourseStyle, COLOR_NAMES } from '../utils/helpers'
+import { getStatus, truncate, getCourseStyle, isCourseActive, COLOR_NAMES } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { AddCourseModal } from '../components/forms/Modals'
 import Syllabus from '../components/Syllabus'
+import { DEADLINE_TYPES } from '../config'
 
 const statusColors = {
   'Completed': 'bg-green-100 text-green-700',
@@ -48,11 +49,16 @@ export default function Courses({ courses }) {
 
     const order = { 'Completed': 0, 'In Progress': 1, 'Planned': 2 }
     const qOrder = { 'Q1': 0, 'Q2': 1, 'Q3': 2, 'Q4': 3 }
+    const today = new Date().toISOString().slice(0, 10)
     const copy = [...merged]
     copy.sort((a, b) => {
+      // Active courses are always listed first, whatever the chosen sort.
+      const activeDiff = isCourseActive(b, today) - isCourseActive(a, today)
+      if (activeDiff !== 0) return activeDiff
       switch (sortBy) {
         case 'status': return order[getStatus(a)] - order[getStatus(b)] || a.course.localeCompare(b.course)
-        case 'quartile': return (qOrder[a.quartile] ?? 9) - (qOrder[b.quartile] ?? 9) || order[getStatus(a)] - order[getStatus(b)]
+        // Quartiles repeat each year, so group by year first, then quarter.
+        case 'quartile': return (a.year || '~').localeCompare(b.year || '~') || (qOrder[a.quartile] ?? 9) - (qOrder[b.quartile] ?? 9) || order[getStatus(a)] - order[getStatus(b)]
         case 'scope': return (a.scope || 'z').localeCompare(b.scope || 'z') || a.course.localeCompare(b.course)
         case 'ec': return (b.ec || 0) - (a.ec || 0)
         case 'name': return a.course.localeCompare(b.course)
@@ -131,7 +137,7 @@ export default function Courses({ courses }) {
           const isExpanded = expanded === c.course
 
           return (
-            <div key={c.course} className={`bg-white rounded-xl border border-slate-200 p-5 flex flex-col ${isExpanded ? 'md:col-span-2 xl:col-span-3' : ''}`}>
+            <div key={c.course} className={`rounded-xl border ${style.border || 'border-slate-200'} ${style.soft} p-5 flex flex-col ${isExpanded ? 'md:col-span-2 xl:col-span-3' : ''}`} style={{ ...style.softCss, ...style.borderCss }}>
               <div className="flex items-start justify-between mb-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
@@ -165,16 +171,29 @@ export default function Courses({ courses }) {
                     {c.abbrev && <span>{c.abbrev}</span>}
                     {c.ec != null && <span>{c.ec} EC</span>}
                     {c.year && !c.quartile && <span>{c.year}</span>}
-                    {scope && (
-                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${scope === 'extra' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'}`}>
-                        {scope === 'extra' ? 'Extra' : 'Curriculum'}
-                      </span>
-                    )}
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0 ml-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[status]}`}>{status}</span>
-                  {c.quartile && <span className={`text-xs px-2 py-0.5 rounded-full ${quartileColors[c.quartile] || 'bg-slate-100 text-slate-600'}`}>{c.quartile}</span>}
+                  <select value={status}
+                    onChange={e => setCourse(c.id, { status: e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed' })}
+                    title="Mark as planned, active (in progress) or completed"
+                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${statusColors[status]}`}>
+                    <option value="Planned">Planned</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                  <select value={scope.toLowerCase() || 'curriculum'}
+                    onChange={e => setCourse(c.id, { scope: e.target.value })}
+                    title="Curriculum or extra course"
+                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${scope === 'extra' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'}`}>
+                    <option value="curriculum">Curriculum</option>
+                    <option value="extra">Extra</option>
+                  </select>
+                  {c.quartile && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${quartileColors[c.quartile] || 'bg-slate-100 text-slate-600'}`}>
+                      {c.quartile}{c.year ? ` · ${c.year}` : ''}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -206,8 +225,8 @@ export default function Courses({ courses }) {
                     <span>{loggedHours.toFixed(0)} / {estimatedHours.toFixed(0)}h</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div className={`h-2 rounded-full transition-all ${status === 'Completed' ? 'bg-green-500' : 'bg-slate-700'}`}
-                      style={{ width: `${Math.min(progress, 100)}%` }} />
+                    <div className={`h-2 rounded-full transition-all ${style.progress || 'bg-slate-700'}`}
+                      style={{ width: `${Math.min(progress, 100)}%`, ...style.progressCss }} />
                   </div>
                 </div>
               )}
@@ -234,37 +253,21 @@ export default function Courses({ courses }) {
 
               {c.comment && <p className="mt-2 text-xs text-slate-400 italic">{c.comment}</p>}
 
-              <div className="mt-4">
-                <Syllabus course={c.course} abbrev={c.abbrev} />
-              </div>
-
               {isExpanded && (
                 <div className="mt-4 space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <div className="text-xs text-slate-500 mb-1 font-medium">Status</div>
-                      <select value={status} onChange={e => setCourse(c.id, { status: e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed' })}
-                        className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-full focus:outline-none focus:border-slate-400 bg-white">
-                        <option value="Completed">Completed</option>
-                        <option value="In Progress">In Progress</option>
-                        <option value="Planned">Planned</option>
-                      </select>
+                      <div className="text-xs text-slate-500 mb-1 font-medium">Abbreviation</div>
+                      <input type="text" value={c.abbrev || ''} placeholder="e.g. AI4AR"
+                        onChange={e => setCourse(c.id, { abbrev: e.target.value || null })}
+                        className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-full focus:outline-none focus:border-slate-400 bg-white" />
                     </div>
                     <div>
-                      <div className="text-xs text-slate-500 mb-1 font-medium">Scope</div>
-                      <select value={scope.toLowerCase() || 'curriculum'} onChange={e => setCourse(c.id, { scope: e.target.value })}
-                        className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-full focus:outline-none focus:border-slate-400 bg-white">
-                        <option value="curriculum">Curriculum (counts toward degree)</option>
-                        <option value="extra">Extra (excluded from average/ECTS)</option>
-                      </select>
+                      <div className="text-xs text-slate-500 mb-1 font-medium">Course code</div>
+                      <input type="text" value={c.code || ''} placeholder="e.g. ASDM-2024"
+                        onChange={e => setCourse(c.id, { code: e.target.value || null })}
+                        className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-full focus:outline-none focus:border-slate-400 bg-white" />
                     </div>
-                  </div>
-
-                  <div>
-                    <div className="text-xs text-slate-500 mb-1 font-medium">Abbreviation</div>
-                    <input type="text" value={c.abbrev || ''} placeholder="e.g. AI4AR"
-                      onChange={e => setCourse(c.id, { abbrev: e.target.value || null })}
-                      className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-full focus:outline-none focus:border-slate-400 bg-white" />
                   </div>
 
                   <div>
@@ -285,6 +288,7 @@ export default function Courses({ courses }) {
                   </div>
 
                   <CourseTimeline course={c.course} content={content} gradeComponents={gradeComponents} />
+                  <Syllabus course={c.course} abbrev={c.abbrev} code={c.code} />
                   <GradeEditor course={c.course} />
                 </div>
               )}
@@ -299,7 +303,7 @@ export default function Courses({ courses }) {
                 {c.id != null && (
                   <div className="ml-auto flex items-center gap-2">
                     <button onClick={() => setEditing(c)} className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
-                    <button onClick={() => { if (window.confirm(`Delete course "${c.course}"? This also removes its grade components.`)) deleteCourse(c.id) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">Delete</button>
+                    <button onClick={() => { if (window.confirm(`Delete course "${c.course}"? This also removes its grade components and syllabus items.`)) deleteCourse(c.id) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">Delete</button>
                   </div>
                 )}
               </div>
@@ -388,22 +392,30 @@ function CourseTimeline({ course, content, gradeComponents }) {
 }
 
 function GradeEditor({ course }) {
-  const { gradeComponents, updateGradeComponents } = useAppData()
+  const { gradeComponents, updateGradeComponents, content } = useAppData()
   const existing = gradeComponents.find(g => g.course === course)
   const [comps, setComps] = useState(
     existing?.components?.map(c => ({
       type: c.type || 'assignment',
       id: c.id || '',
+      name: c.name || c.id || '',
+      dueDate: c.dueDate || '',
       weight: c.weight != null ? String(c.weight) : '',
       grade: c.grade != null ? String(c.grade) : '',
     })) || [
-      { type: 'assignment', id: '', weight: '', grade: '' },
-      { type: 'assignment', id: '', weight: '', grade: '' },
+      { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' },
+      { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' },
     ]
   )
 
+  // Projects, assignments, exams, presentations… of this course that carry a
+  // content id — these are what a grade component links to.
+  const projectOptions = (content || []).filter(i =>
+    i.course === course && i.contentId && (i.deadline || DEADLINE_TYPES.has(i.type))
+  )
+
   function addComp() {
-    setComps([...comps, { type: 'assignment', id: '', weight: '', grade: '' }])
+    setComps([...comps, { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
   }
 
   function removeComp(i) {
@@ -417,12 +429,29 @@ function GradeEditor({ course }) {
     setComps(updated)
   }
 
+  // Picking a project from the syllabus links the component to it: the id, the
+  // type, and the deadline are all taken from the syllabus item.
+  function pickProject(i, contentId) {
+    const item = projectOptions.find(o => o.contentId === contentId)
+    const updated = [...comps]
+    updated[i] = {
+      ...updated[i],
+      id: contentId || '',
+      name: contentId ? (item?.description || contentId) : updated[i].name,
+      type: contentId && item?.type ? (item.type === 'lecture' ? 'assignment' : item.type) : updated[i].type,
+      dueDate: contentId && item?.deadline ? item.deadline : updated[i].dueDate,
+    }
+    setComps(updated)
+  }
+
   function save() {
     const parsed = comps.map(c => ({
       type: c.type,
       id: c.id || null,
+      name: c.name || c.id || null,
       weight: parseFloat(c.weight) || null,
       grade: c.grade ? parseFloat(c.grade) : null,
+      dueDate: c.dueDate || null,
     })).filter(c => c.weight != null)
     updateGradeComponents(course, parsed)
   }
@@ -438,23 +467,45 @@ function GradeEditor({ course }) {
   return (
     <div className="border-t border-slate-100 pt-3 space-y-2">
       <p className="text-xs font-medium text-slate-700">Grade Components for {course}</p>
+      <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
+        <div className="text-[10px] uppercase tracking-wider text-slate-400">Type</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-28">Project ID</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-32">Deadline</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Weight</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Grade</div>
+        <div className="w-5" />
+      </div>
       {comps.map((comp, i) => (
-        <div key={i} className="flex items-center gap-1.5 flex-wrap">
+        <div key={i} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
           <select value={comp.type} onChange={e => updateComp(i, 'type', e.target.value)}
-            className="text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400">
+            className="text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white w-full">
             <option value="exam">Exam</option>
             <option value="assignment">Assignment</option>
+            <option value="presentation">Presentation</option>
+            <option value="project">Project</option>
+            <option value="quiz">Quiz</option>
+            <option value="other">Other</option>
           </select>
-          <input type="text" placeholder="ID" value={comp.id}
-            onChange={e => updateComp(i, 'id', e.target.value)}
-            className="w-20 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-          <input type="text" inputMode="decimal" placeholder="Weight (0-1)" value={comp.weight}
+          <select value={comp.id || ''} onChange={e => pickProject(i, e.target.value)}
+            className="w-28 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white">
+            <option value="">—</option>
+            {projectOptions.map(o => (
+              <option key={o.contentId} value={o.contentId}>
+                {o.contentId} · {o.description || o.type}
+              </option>
+            ))}
+          </select>
+          <input type="date" value={comp.dueDate} onChange={e => updateComp(i, 'dueDate', e.target.value)}
+            className="w-32 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+          <input type="text" inputMode="decimal" placeholder="0.3" value={comp.weight}
             onChange={e => updateComp(i, 'weight', e.target.value)}
-            className="w-20 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-          <input type="text" inputMode="decimal" placeholder="Grade" value={comp.grade}
+            className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+          <input type="text" inputMode="decimal" placeholder="—" value={comp.grade}
             onChange={e => updateComp(i, 'grade', e.target.value)}
-            className="w-20 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-          {comps.length > 1 && <button onClick={() => removeComp(i)} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">×</button>}
+            className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+          {comps.length > 1
+            ? <button onClick={() => removeComp(i)} className="w-5 text-xs text-red-400 hover:text-red-600 cursor-pointer">×</button>
+            : <div className="w-5" />}
         </div>
       ))}
       <div className="flex items-center gap-2 text-xs text-slate-500">

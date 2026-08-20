@@ -460,15 +460,15 @@ export async function readTabRows(id, title) {
 }
 
 // Write a whole tab. Start at A1 and let Sheets extend the range to fit the rows.
+// The whole tab is cleared first so deleted rows never linger below the new data.
 // Writes to the same spreadsheet are queued so concurrent edits never collide.
 export function writeTabRows(id, title, rows) {
-  return enqueueSpreadsheetWrite(id, () => {
+  return enqueueSpreadsheetWrite(id, async () => {
+    const clearUrl = `${SHEETS_BASE}/spreadsheets/${id}/values/${encodeURIComponent(`'${title}'!A1:ZZ`)}:clear`
     if (!rows || rows.length === 0) {
-      return authedFetch(
-        `${SHEETS_BASE}/spreadsheets/${id}/values/${encodeURIComponent(`'${title}'!A1:ZZ`)}:clear`,
-        { method: 'POST', body: '{}' },
-      )
+      return authedFetch(clearUrl, { method: 'POST', body: '{}' })
     }
+    await authedFetch(clearUrl, { method: 'POST', body: '{}' })
     const range = encodeURIComponent(`'${title}'!A1`)
     return authedFetch(
       `${SHEETS_BASE}/spreadsheets/${id}/values/${range}?valueInputOption=USER_ENTERED`,

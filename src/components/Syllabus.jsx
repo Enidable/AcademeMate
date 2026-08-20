@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
+import { deriveAbbrev } from '../drive/driveClient'
 
 const TYPE_LABELS = {
   lecture: 'Lecture',
@@ -22,8 +23,15 @@ function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function nextContentId(course, abbrev, items) {
-  const a = abbrev || 'COURSE'
+// The prefix used to build IDs: the course's abbreviation when set, else the
+// course code, else a derived abbreviation (never the full course name).
+function idBase(course, abbrev, code) {
+  return (abbrev || code || deriveAbbrev(course)).replace(/\s+/g, '-')
+}
+
+// Lecture IDs are {abbrev}-NN (e.g. ASDfR-01).
+function nextContentId(course, abbrev, code, items) {
+  const a = idBase(course, abbrev, code)
   const pat = new RegExp(`^${escapeRe(a)}[- ]?(\\d+)$`, 'i')
   let max = 0
   for (const i of items || []) {
@@ -32,6 +40,19 @@ function nextContentId(course, abbrev, items) {
     if (m) max = Math.max(max, parseInt(m[1], 10))
   }
   return `${a}-${String(max + 1).padStart(2, '0')}`
+}
+
+// Project/deadline IDs are {abbrev}{n} without padding (e.g. ASDfR1).
+function nextProjectId(course, abbrev, code, items) {
+  const a = idBase(course, abbrev, code)
+  const pat = new RegExp(`^${escapeRe(a)}[- ]?(\\d+)$`, 'i')
+  let max = 0
+  for (const i of items || []) {
+    if (i.course !== course) continue
+    const m = i.contentId && pat.exec(String(i.contentId))
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `${a}${max + 1}`
 }
 
 function fmtDate(d) {
@@ -55,7 +76,7 @@ function typeBadge(type) {
   return colors[type] || 'bg-indigo-100 text-indigo-700'
 }
 
-export default function Syllabus({ course, abbrev }) {
+export default function Syllabus({ course, abbrev, code }) {
   const { content, calendarEvents, addContentItem, updateContentItem, deleteContentItem } = useAppData()
   const [adding, setAdding] = useState(null)
   const [editing, setEditing] = useState(null)
@@ -89,8 +110,11 @@ export default function Syllabus({ course, abbrev }) {
 
   function submitAdd() {
     const a = adding
-    const id = a.contentId || nextContentId(course, abbrev, content)
-    if (a.mode === 'lecture') {
+    const isLecture = a.mode === 'lecture'
+    const id = a.contentId || (isLecture
+      ? nextContentId(course, abbrev, code, content)
+      : nextProjectId(course, abbrev, code, content))
+    if (isLecture) {
       addContentItem({
         course,
         contentId: id,
@@ -214,7 +238,9 @@ export default function Syllabus({ course, abbrev }) {
       <div className="flex flex-col gap-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50 mt-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           <input type="text" value={adding.contentId} onChange={e => setAdding(a => ({ ...a, contentId: e.target.value }))}
-            placeholder={nextContentId(course, abbrev, content)}
+            placeholder={adding.mode === 'lecture'
+              ? nextContentId(course, abbrev, code, content)
+              : nextProjectId(course, abbrev, code, content)}
             className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
           {adding.mode === 'lecture' ? (
             <select value={adding.type} onChange={e => setAdding(a => ({ ...a, type: e.target.value }))}
@@ -264,7 +290,7 @@ export default function Syllabus({ course, abbrev }) {
         <div className="flex items-center gap-1.5">
           <button onClick={() => openAdd('lecture')} className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">+ Lecture</button>
           <button onClick={() => openAdd('project')} className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">+ Project</button>
-          <button onClick={() => openAdd('deadline')} className="text-[11px] px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer">+ Deadline (tomato)</button>
+          <button onClick={() => openAdd('deadline')} className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">+ Deadline</button>
         </div>
       </div>
 

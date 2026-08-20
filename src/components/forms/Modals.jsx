@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAppData } from '../../context/AppDataContext'
 import CourseSelect from '../CourseSelect'
-import { DEFAULT_CATEGORIES, DEFAULT_LOCATIONS, DEFAULT_TRANSPORT, META_OPTIONS_KEY } from '../../config'
+import { isCourseActive } from '../../utils/helpers'
+import { DEFAULT_CATEGORIES, DEFAULT_LOCATIONS, DEFAULT_TRANSPORT, META_OPTIONS_KEY, DEADLINE_TYPES } from '../../config'
 
 function Modal({ open, onClose, title, children }) {
   if (!open) return null
@@ -60,14 +61,20 @@ function seedDeadline(d) {
 
 function seedCourse(c) {
   if (!c) {
-    return { course: '', abbrev: '', ec: '', start: '', finish: '', comment: '' }
+    return { course: '', abbrev: '', code: '', ec: '', start: '', finish: '', year: '', quartile: '', status: 'In Progress', scope: 'curriculum', comment: '' }
   }
+  const st = (c.status || '').toLowerCase()
   return {
     course: c.course || '',
     abbrev: c.abbrev || '',
+    code: c.code || '',
     ec: c.ec != null ? String(c.ec) : '',
     start: c.start || '',
     finish: c.finish || '',
+    year: c.year || '',
+    quartile: c.quartile || '',
+    status: st === 'completed' ? 'Completed' : st === 'planned' ? 'Planned' : 'In Progress',
+    scope: (c.scope || '').toLowerCase() || 'curriculum',
     comment: c.comment || '',
   }
 }
@@ -162,6 +169,24 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     }
     return ids
   }, [gradeComponents, content])
+
+  // Only projects and lectures from active courses are offered (or, once a
+  // course is picked, only the ones belonging to that course).
+  const allowedCourses = useMemo(() => {
+    if (form.course) return new Set([form.course])
+    const today = new Date().toISOString().slice(0, 10)
+    return new Set((masterCourses || []).filter(c => isCourseActive(c, today)).map(c => c.course))
+  }, [form.course, masterCourses])
+
+  const projectOptions = useMemo(() =>
+    (content || []).filter(i =>
+      allowedCourses.has(i.course) && i.contentId && (i.deadline || DEADLINE_TYPES.has(i.type))
+    ),
+  [content, allowedCourses])
+
+  const filteredLectureIds = useMemo(() =>
+    lectureIds.filter(a => allowedCourses.has(a.course)),
+  [lectureIds, allowedCourses])
 
   function now() {
     const d = new Date()
@@ -315,14 +340,19 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
 
         <div>
           <label className="text-xs text-slate-500 block mb-1">Project</label>
-          <input type="text" value={form.project} onChange={e => setForm(f => ({ ...f, project: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" placeholder="e.g. ASDfR 3" />
+          <select value={form.project || ''} onChange={e => setForm(f => ({ ...f, project: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+            <option value="">None</option>
+            {projectOptions.map(p => (
+              <option key={p.contentId} value={p.contentId}>{p.contentId} · {p.description || p.type}</option>
+            ))}
+          </select>
         </div>
 
         <div>
           <label className="text-xs text-slate-500 block mb-1">Assignment / Exam ID</label>
-          <select value={form.lectureId} onChange={e => setForm(f => ({ ...f, lectureId: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+          <select value={form.lectureId || ''} onChange={e => setForm(f => ({ ...f, lectureId: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
             <option value="">None</option>
-            {lectureIds.map(a => <option key={a.id} value={a.id}>{a.id} — {a.course} ({a.type})</option>)}
+            {filteredLectureIds.map(a => <option key={a.id} value={a.id}>{a.id} — {a.course} ({a.type})</option>)}
           </select>
         </div>
 
@@ -467,23 +497,29 @@ export function AddDeadlineModal({ open, onClose, initial }) {
 }
 
 export function AddCourseModal({ open, onClose, initial }) {
-  const { addCourse, updateCourse, gradeComponents } = useAppData()
+  const { addCourse, updateCourse, gradeComponents, content } = useAppData()
   const existingGroup = initial?.course ? gradeComponents.find(g => g.course === initial.course) : null
   const [form, setForm] = useState(() => seedCourse(initial))
   const [components, setComponents] = useState(() =>
     existingGroup?.components?.map(c => ({
       type: c.type || 'assignment',
       id: c.id || '',
+      name: c.name || c.id || '',
+      dueDate: c.dueDate || '',
       weight: c.weight != null ? String(c.weight) : '',
       grade: c.grade != null ? String(c.grade) : '',
     })) || [
-      { type: 'assignment', id: '', weight: '', grade: '' },
+      { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' },
     ]
   )
   const isEdit = !!initial
 
+  const projectOptions = (content || []).filter(i =>
+    initial?.course && i.course === initial.course && i.contentId && (i.deadline || DEADLINE_TYPES.has(i.type))
+  )
+
   function addComp() {
-    setComponents([...components, { type: 'assignment', id: '', weight: '', grade: '' }])
+    setComponents([...components, { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
   }
 
   function removeComp(i) {
@@ -497,16 +533,34 @@ export function AddCourseModal({ open, onClose, initial }) {
     setComponents(updated)
   }
 
+  function pickProject(i, contentId) {
+    const item = projectOptions.find(o => o.contentId === contentId)
+    const updated = [...components]
+    updated[i] = {
+      ...updated[i],
+      id: contentId || '',
+      name: contentId ? (item?.description || contentId) : updated[i].name,
+      type: contentId && item?.type ? (item.type === 'lecture' ? 'assignment' : item.type) : updated[i].type,
+      dueDate: contentId && item?.deadline ? item.deadline : updated[i].dueDate,
+    }
+    setComponents(updated)
+  }
+
   function handleSubmit(e) {
     e.preventDefault()
     const payload = {
       course: form.course,
       abbrev: form.abbrev || null,
+      code: form.code || null,
       ec: form.ec ? parseFloat(form.ec) : null,
       start: form.start || null,
       finish: form.finish || null,
+      year: form.year || null,
+      quartile: form.quartile || null,
+      status: form.status === 'Completed' ? 'completed' : form.status === 'Planned' ? 'planned' : 'in progress',
+      scope: form.scope,
       comment: form.comment || null,
-      year: null, quartile: null, timeMin: 0, timeHours: 0, grade: null,
+      timeMin: 0, timeHours: 0, grade: null,
       exam: null, assignment: null, laboratory: null,
       estTimeHours: null, assTimeHours: null, material: null,
       _gradeComponents: components
@@ -514,14 +568,16 @@ export function AddCourseModal({ open, onClose, initial }) {
         .map(c => ({
           type: c.type,
           id: c.id || null,
+          name: c.name || c.id || null,
           weight: parseFloat(c.weight) || null,
           grade: c.grade ? parseFloat(c.grade) : null,
+          dueDate: c.dueDate || null,
         })),
     }
     if (isEdit && initial?.id) updateCourse(initial.id, payload)
     else addCourse(payload)
-    setForm({ course: '', abbrev: '', ec: '', start: '', finish: '', comment: '' })
-    setComponents([{ type: 'assignment', id: '', weight: '', grade: '' }])
+    setForm({ course: '', abbrev: '', code: '', ec: '', start: '', finish: '', year: '', quartile: '', status: 'In Progress', scope: 'curriculum', comment: '' })
+    setComponents([{ type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
     onClose()
   }
 
@@ -534,12 +590,45 @@ export function AddCourseModal({ open, onClose, initial }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-slate-500 block mb-1">Abbrev.</label>
-            <input type="text" value={form.abbrev} onChange={e => setForm(f => ({ ...f, abbrev: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+            <label className="text-xs text-slate-500 block mb-1">Abbrev. (used for IDs)</label>
+            <input type="text" value={form.abbrev} placeholder="e.g. ASDfR" onChange={e => setForm(f => ({ ...f, abbrev: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Course code</label>
+            <input type="text" value={form.code} placeholder="e.g. 202400250" onChange={e => setForm(f => ({ ...f, code: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1">EC</label>
             <input type="text" inputMode="decimal" value={form.ec} onChange={e => setForm(f => ({ ...f, ec: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Year</label>
+            <input type="text" value={form.year} placeholder="e.g. 2025" onChange={e => setForm(f => ({ ...f, year: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Quartile</label>
+            <select value={form.quartile} onChange={e => setForm(f => ({ ...f, quartile: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+              <option value="">—</option>
+              <option value="Q1">Q1</option>
+              <option value="Q2">Q2</option>
+              <option value="Q3">Q3</option>
+              <option value="Q4">Q4</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Status</label>
+            <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+              <option value="In Progress">In Progress (active)</option>
+              <option value="Planned">Planned</option>
+              <option value="Completed">Completed</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Scope</label>
+            <select value={form.scope} onChange={e => setForm(f => ({ ...f, scope: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+              <option value="curriculum">Curriculum (counts toward degree)</option>
+              <option value="extra">Extra (excluded from average/ECTS)</option>
+            </select>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -554,24 +643,46 @@ export function AddCourseModal({ open, onClose, initial }) {
         </div>
 
         <div className="border-t border-slate-100 pt-3 space-y-2">
-          <p className="text-xs font-medium text-slate-700">Exams / Assignments</p>
+          <p className="text-xs font-medium text-slate-700">Grade Components</p>
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
+            <div className="text-[10px] uppercase tracking-wider text-slate-400">Type</div>
+            <div className="text-[10px] uppercase tracking-wider text-slate-400 w-28">Project ID</div>
+            <div className="text-[10px] uppercase tracking-wider text-slate-400 w-32">Deadline</div>
+            <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Weight</div>
+            <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Grade</div>
+            <div className="w-5" />
+          </div>
           {components.map((comp, i) => (
-            <div key={i} className="flex items-center gap-1.5 flex-wrap">
+            <div key={i} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
               <select value={comp.type} onChange={e => updateComp(i, 'type', e.target.value)}
-                className="text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400">
+                className="text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white w-full">
                 <option value="exam">Exam</option>
                 <option value="assignment">Assignment</option>
+                <option value="presentation">Presentation</option>
+                <option value="project">Project</option>
+                <option value="quiz">Quiz</option>
+                <option value="other">Other</option>
               </select>
-              <input type="text" placeholder="ID" value={comp.id}
-                onChange={e => updateComp(i, 'id', e.target.value)}
-                className="w-20 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-              <input type="text" inputMode="decimal" placeholder="Weight (0-1)" value={comp.weight}
+              <select value={comp.id || ''} onChange={e => pickProject(i, e.target.value)}
+                className="w-28 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white">
+                <option value="">—</option>
+                {projectOptions.map(o => (
+                  <option key={o.contentId} value={o.contentId}>
+                    {o.contentId} · {o.description || o.type}
+                  </option>
+                ))}
+              </select>
+              <input type="date" value={comp.dueDate} onChange={e => updateComp(i, 'dueDate', e.target.value)}
+                className="w-32 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+              <input type="text" inputMode="decimal" placeholder="0.3" value={comp.weight}
                 onChange={e => updateComp(i, 'weight', e.target.value)}
-                className="w-20 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-              <input type="text" inputMode="decimal" placeholder="Grade" value={comp.grade}
+                className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+              <input type="text" inputMode="decimal" placeholder="—" value={comp.grade}
                 onChange={e => updateComp(i, 'grade', e.target.value)}
-                className="w-20 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
-              {components.length > 1 && <button onClick={() => removeComp(i)} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">×</button>}
+                className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+              {components.length > 1
+                ? <button onClick={() => removeComp(i)} className="w-5 text-xs text-red-400 hover:text-red-600 cursor-pointer">×</button>
+                : <div className="w-5" />}
             </div>
           ))}
           <button type="button" onClick={addComp} className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer">+ Add component</button>

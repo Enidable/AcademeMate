@@ -737,7 +737,7 @@ export function AppDataProvider({ children }) {
       const gradeComps = [...(updated.gradeComponents || [])]
       gradeComps.push({
         course: courseData.course,
-        components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.id || null })),
+        components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || null })),
         totalGrade: calcWeightedGrade(_gradeComponents),
       })
       updated.gradeComponents = gradeComps
@@ -797,7 +797,7 @@ export function AppDataProvider({ children }) {
       const gIdx = gradeComps.findIndex(g => g.course === id)
       const entry = {
         course: courseData.course,
-        components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.id || null })),
+        components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || null })),
         totalGrade: calcWeightedGrade(_gradeComponents),
       }
       if (gIdx >= 0) gradeComps[gIdx] = entry
@@ -919,6 +919,9 @@ export function AppDataProvider({ children }) {
     if (course) {
       updated.gradeComponents = (updated.gradeComponents || []).filter(g => g.course !== course.course)
       keys.push('gradeComponents')
+      const before = (prev.content || []).length
+      updated.content = (prev.content || []).filter(i => i.course !== course.course)
+      if (updated.content.length !== before) keys.push('content')
     }
     setAll(updated, plannerRef.current)
     syncTabs(keys)
