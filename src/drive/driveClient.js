@@ -201,10 +201,9 @@ export async function ensureCalendar(name = 'AcademeMate') {
   return created?.id || 'primary'
 }
 
-// Stable Google Calendar colour (1..11) per course, so each course keeps one
-// Google Calendar event colors (1-11). Known courses map to a distinct, stable
-// color that mirrors the app's own palette (helpers.js `courseColors`); unknown
-// courses fall back to a deterministic hash.
+// Fallback colour (1-11) for a course name when the push's per-course colour
+// map has no entry (e.g. an event whose course wasn't linked to the course list).
+// The hash is sign-normalised so it never produces a negative colour id.
 const COURSE_COLOR_ID = {
   'Advanced Software Development for Robotics': '9',
   'Biomechanics of Human Movement': '10',
@@ -236,7 +235,7 @@ function addMinutes(time, minutes) {
   return `${h}:${m}`
 }
 
-export function toGcalEvent(ev) {
+export function toGcalEvent(ev, courseColorMap = null) {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const startTime = (ev.startTime || '09:00').padStart(5, '0')
   const endTime = (ev.endTime || addMinutes(startTime, 60)).padStart(5, '0')
@@ -253,7 +252,7 @@ export function toGcalEvent(ev) {
     start,
     end,
   }
-  const colorId = courseColorId(ev.course)
+  const colorId = courseColorMap?.get(ev.course) || courseColorId(ev.course)
   if (colorId) body.colorId = colorId
   return body
 }

@@ -435,11 +435,18 @@ export function AppDataProvider({ children }) {
     const events = data.calendarEvents || []
     if (events.length === 0) return { inserted: 0, updated: 0 }
     const calendarId = await ensureCalendar('AcademeMate')
+    // Give every course a distinct Google Calendar color (cycled 1-11), keyed by
+    // its position in the user's actual course list — not a hardcoded palette,
+    // which only covers the bundled template courses.
+    const courseColorMap = new Map()
+    ;(data.courses || []).forEach((c, i) => {
+      if (c?.course && !courseColorMap.has(c.course)) courseColorMap.set(c.course, String((i % 11) + 1))
+    })
     let inserted = 0
     let updated = 0
     const updatedEvents = []
     for (const ev of events) {
-      const gcal = toGcalEvent(ev)
+      const gcal = toGcalEvent(ev, courseColorMap)
       if (ev.calId) {
         const id = await updateCalendarEvent(ev.calId, gcal, calendarId)
         if (id) {
