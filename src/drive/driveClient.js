@@ -225,7 +225,7 @@ export function courseColorId(course) {
   if (COURSE_COLOR_ID[course]) return COURSE_COLOR_ID[course]
   let h = 0
   for (let i = 0; i < course.length; i++) h = (h * 31 + course.charCodeAt(i)) | 0
-  return String((h % 10) + 1)
+  return String(((h % 10) + 10) % 10 + 1)
 }
 
 function addMinutes(time, minutes) {
