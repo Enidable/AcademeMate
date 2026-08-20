@@ -61,7 +61,7 @@ function seedDeadline(d) {
 
 function seedCourse(c) {
   if (!c) {
-    return { course: '', abbrev: '', code: '', ec: '', start: '', finish: '', year: '', quartile: '', status: 'In Progress', scope: 'curriculum', comment: '' }
+    return { course: '', abbrev: '', code: '', ec: '', start: '', finish: '', year: '', quartile: '', status: 'In Progress', scope: 'curriculum', comment: '', estHours: '' }
   }
   const st = (c.status || '').toLowerCase()
   return {
@@ -76,6 +76,7 @@ function seedCourse(c) {
     status: st === 'completed' ? 'Completed' : st === 'planned' ? 'Planned' : 'In Progress',
     scope: (c.scope || '').toLowerCase() || 'curriculum',
     comment: c.comment || '',
+    estHours: c.estHours != null ? String(c.estHours) : '',
   }
 }
 
@@ -560,6 +561,7 @@ export function AddCourseModal({ open, onClose, initial }) {
       status: form.status === 'Completed' ? 'completed' : form.status === 'Planned' ? 'planned' : 'in progress',
       scope: form.scope,
       comment: form.comment || null,
+      estHours: form.estHours ? parseFloat(form.estHours) : null,
       timeMin: 0, timeHours: 0, grade: null,
       exam: null, assignment: null, laboratory: null,
       estTimeHours: null, assTimeHours: null, material: null,
@@ -576,7 +578,7 @@ export function AddCourseModal({ open, onClose, initial }) {
     }
     if (isEdit && initial?.id) updateCourse(initial.id, payload)
     else addCourse(payload)
-    setForm({ course: '', abbrev: '', code: '', ec: '', start: '', finish: '', year: '', quartile: '', status: 'In Progress', scope: 'curriculum', comment: '' })
+    setForm({ course: '', abbrev: '', code: '', ec: '', start: '', finish: '', year: '', quartile: '', status: 'In Progress', scope: 'curriculum', comment: '', estHours: '' })
     setComponents([{ type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
     onClose()
   }
@@ -639,6 +641,10 @@ export function AddCourseModal({ open, onClose, initial }) {
           <div>
             <label className="text-xs text-slate-500 block mb-1">Finish</label>
             <input type="date" value={form.finish} onChange={e => setForm(f => ({ ...f, finish: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Estimated hours (optional)</label>
+            <input type="text" inputMode="decimal" value={form.estHours} placeholder="e.g. 160" onChange={e => setForm(f => ({ ...f, estHours: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
           </div>
         </div>
 
