@@ -106,6 +106,7 @@ export default function Syllabus({ course, abbrev }) {
         type: a.type || 'assignment',
         description: a.description || (a.type || 'assignment'),
         deadline: a.date || null,
+        end: a.end || '',
       })
     }
     setAdding(null)
@@ -227,13 +228,16 @@ export default function Syllabus({ course, abbrev }) {
           )}
           <input type="date" value={adding.date} onChange={e => setAdding(a => ({ ...a, date: e.target.value }))}
             className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
-          {adding.mode === 'lecture' && (
+          {adding.mode === 'lecture' ? (
             <>
               <input type="time" value={adding.start} onChange={e => setAdding(a => ({ ...a, start: e.target.value }))}
                 className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
               <input type="time" value={adding.end} onChange={e => setAdding(a => ({ ...a, end: e.target.value }))}
                 className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
             </>
+          ) : (
+            <input type="time" value={adding.end} onChange={e => setAdding(a => ({ ...a, end: e.target.value }))}
+              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" title="Due time (e.g. 17:00)" />
           )}
         </div>
         <div className="flex items-center gap-1.5">

@@ -153,3 +153,17 @@ export function shortCourseName(name) {
   }
   return map[name] || name
 }
+
+// A course is "active" when it is currently being studied: marked in progress,
+// or (no status yet and) today falls inside its start/finish window.
+export function isCourseActive(course, todayISO) {
+  const status = normalizeStatus(course?.status)
+  if (status === 'completed') return false
+  if (status === 'in progress') return true
+  if (status === 'planned') return false
+  const t = todayISO || new Date().toISOString().slice(0, 10)
+  if (!course.start && !course.finish) return true
+  if (course.start && t < course.start) return false
+  if (course.finish && t > course.finish) return false
+  return true
+}

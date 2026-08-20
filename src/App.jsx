@@ -71,6 +71,11 @@ function AppContent() {
       <AddDeadlineModal open={modal === 'deadline'} onClose={() => setModal(null)} />
       <AddCourseModal open={modal === 'course'} onClose={() => setModal(null)} />
       <DriveSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      <button
+        onClick={() => setModal('session')}
+        className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-slate-800 text-white text-2xl shadow-lg hover:bg-slate-700 active:scale-95 cursor-pointer flex items-center justify-center"
+        title="Add study session">+</button>
     </div>
   )
 }

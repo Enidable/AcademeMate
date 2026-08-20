@@ -4,6 +4,7 @@ import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
 import { getCourseStyle, shortCourseName, formatDateShort } from '../utils/helpers'
 import WeekGrid from '../components/WeekGrid'
+import CourseSelect from '../components/CourseSelect'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -272,13 +273,12 @@ function DayCard({
 
         {adding ? (
           <div className="flex flex-col gap-1 border border-slate-200 rounded-lg p-1.5 bg-slate-50 mt-auto">
-            <select value={addForm.course} onChange={e => onAddForm(f => ({ ...f, course: e.target.value }))}
-              className="w-full text-[11px] px-1.5 py-0.5 border border-slate-300 rounded text-slate-700 outline-none focus:border-slate-500">
-              <option value="">Select course…</option>
-              {courses.map(c => <option key={c.course} value={c.course}>{shortCourseName(c.course)}</option>)}
-              <option>Travel</option>
-              <option>WORK</option>
-            </select>
+            <CourseSelect size="sm" value={addForm.course} onChange={v => onAddForm(f => ({ ...f, course: v }))}
+              courses={courses} onlyActive placeholder="Active course…"
+              extraOptions={[
+                { value: 'Travel', label: 'Travel', dot: 'bg-slate-400' },
+                { value: 'WORK', label: 'WORK', dot: 'bg-gray-500' },
+              ]} />
             <input type="text" value={addForm.task} autoFocus
               onChange={e => onAddForm(f => ({ ...f, task: e.target.value }))}
               onKeyDown={e => onKeyDown(e, () => onSaveAdd(date))}

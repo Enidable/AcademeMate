@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { formatDate, formatTime, getCourseStyle, getCategoryStyle, getEfficiencyBar, getWellbeingBar, normalizeCategory, truncate } from '../utils/helpers'
+import { formatDate, formatTime, getCourseStyle, getCategoryStyle, getEfficiencyBar, getWellbeingBar, normalizeCategory, truncate, isCourseActive } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { AddSessionModal } from '../components/forms/Modals'
 
@@ -21,10 +21,20 @@ export default function TimeLog({ entries }) {
     return m
   }, [masterCourses])
 
+  const masterMap = useMemo(() => {
+    const m = {}
+    for (const c of masterCourses || []) m[c.course] = c
+    return m
+  }, [masterCourses])
+
   const courses = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
     const set = new Set(entries.map(e => e.course))
-    return ['All', ...Array.from(set).sort()]
-  }, [entries])
+    const names = Array.from(set).sort()
+    const active = names.filter(n => isCourseActive(masterMap[n], today))
+    const inactive = names.filter(n => !active.includes(n))
+    return ['All', ...active, ...inactive]
+  }, [entries, masterMap])
 
   const categories = useMemo(() => {
     const set = new Set(entries.map(e => normalizeCategory(e.category)))
@@ -117,7 +127,10 @@ export default function TimeLog({ entries }) {
           onChange={e => { setFilterCourse(e.target.value); setPage(1) }}
           className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
         >
-          {courses.map(c => <option key={c} value={c}>{c === 'All' ? 'All Courses' : truncate(c, 50)}</option>)}
+          {courses.map((c, i) => {
+            const isActive = i > 0 && isCourseActive(masterMap[c])
+            return <option key={c} value={c}>{c === 'All' ? 'All Courses' : `${isActive ? '● ' : ''}${truncate(c, 50)}`}</option>
+          })}
         </select>
         <select
           value={filterCategory}

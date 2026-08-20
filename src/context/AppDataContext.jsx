@@ -569,14 +569,20 @@ export function AppDataProvider({ children }) {
     let deadlinesInserted = 0
     const updatedDeadlines = []
     const deadlines = (data.content || []).filter(i => i.deadline && i.course)
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
     for (const item of deadlines) {
       const summary = item.description || item.topic || item.contentId
+      // Deadlines usually carry a due time (e.g. 17:00, 09:00) in the item's
+      // start/end columns — push them as timed events, all-day only as fallback.
+      const dueTime = (item.end || item.start || '').trim()
+      const timed = /^\d{1,2}:\d{2}$/.test(dueTime)
+      const start = timed ? { dateTime: `${item.deadline}T${dueTime}:00`, timeZone } : { date: item.deadline }
       const gcal = {
         summary: `Due: ${summary}`,
-        location: '',
+        location: item.location || '',
         description: summary,
-        start: { date: item.deadline },
-        end: { date: item.deadline },
+        start,
+        end: { ...start },
         colorId: '11',
       }
       if (item.calId) {

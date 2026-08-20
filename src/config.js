@@ -76,3 +76,11 @@ export const DEADLINE_TYPES = new Set([
 ])
 
 export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR]
+
+// Default pick-lists for the session logger. Users can extend/customise these
+// in the "Manage options" panel of the session modal; overrides are kept in
+// localStorage under the key below (see Modals.jsx).
+export const DEFAULT_CATEGORIES = ['Studying', 'Lecture', 'Project Work', 'Group Work', 'Practical', 'Exam', 'Exam Prep', 'Exercise', 'Meeting', 'Presentation', 'Work', 'Other']
+export const DEFAULT_LOCATIONS = ['Home', 'University', 'Parents', 'Home Office', 'HomeOffice', 'Elsewhere', 'Other', 'Work (Epe)']
+export const DEFAULT_TRANSPORT = ['Bicycle', 'Public Transport', 'Car', 'Walk']
+export const META_OPTIONS_KEY = 'am_meta_options'
