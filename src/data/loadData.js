@@ -106,6 +106,7 @@ function parseCourses(rows) {
       comment: (r.notes || '').trim() || null,
       scope: (r.scope || '').trim() || null,
       color: (r.color || '').trim() || null,
+      order: toInt((r.order || '').trim()),
       grade: null,
     })))
 }

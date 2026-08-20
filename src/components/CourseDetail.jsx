@@ -1,0 +1,381 @@
+import { useState } from 'react'
+import { getStatus, getCourseStyle, COLOR_NAMES } from '../utils/helpers'
+import { useAppData } from '../context/AppDataContext'
+import Syllabus from './Syllabus'
+import { DEADLINE_TYPES } from '../config'
+
+const statusColors = {
+  'Completed': 'bg-green-100 text-green-700',
+  'In Progress': 'bg-amber-100 text-amber-700',
+  'Planned': 'bg-slate-100 text-slate-500',
+}
+
+const colorDot = {
+  indigo: 'bg-indigo-500', emerald: 'bg-emerald-500', blue: 'bg-blue-500', purple: 'bg-purple-500',
+  amber: 'bg-amber-500', rose: 'bg-rose-500', cyan: 'bg-cyan-500', teal: 'bg-teal-500',
+  slate: 'bg-slate-500', orange: 'bg-orange-500', gray: 'bg-gray-500', pink: 'bg-pink-500',
+}
+
+const TYPE_LABELS = { exam: 'Exam', assignment: 'Assignment', presentation: 'Presentation', project: 'Project', quiz: 'Quiz', other: 'Other', lecture: 'Lecture' }
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <div className="text-xs text-slate-500 mb-1 font-medium">{label}</div>
+      {children}
+    </div>
+  )
+}
+
+const inputCls = 'text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 w-full focus:outline-none focus:ring-2 focus:ring-slate-300 bg-white'
+
+// A full-page view of one course: every setting, the timeline, grade
+// components and the syllabus. Opened by double-clicking (or "Open course" on)
+// a course card.
+export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClose, onEdit }) {
+  const { gradeComponents, content, deleteCourse, updateCourse } = useAppData()
+  const c = course
+  const status = getStatus(c)
+  const style = getCourseStyle(c.course, c.color)
+  const gradeInfo = gradeComponents.find(g => g.course === c.course)
+  const estimatedHours = c.estHours != null && c.estHours > 0
+    ? c.estHours
+    : c.ec != null && c.ec > 0
+      ? c.ec * avgHoursPerEC
+      : loggedHours * 2
+  const progress = estimatedHours > 0 ? Math.min((loggedHours / estimatedHours) * 100, 100) : null
+
+  function set(patch) {
+    updateCourse(c.course, patch)
+  }
+
+  function confirmDelete() {
+    if (window.confirm(`Delete course "${c.course}"? This also removes its grade components, syllabus items, study-log entries and planner to-dos.`)) {
+      deleteCourse(c.course)
+      onClose()
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-50">
+      <div className="max-w-3xl mx-auto p-6">
+        <div className={`rounded-xl border ${style.border || 'border-slate-200'} ${style.soft} p-6`} style={{ ...style.softCss, ...style.borderCss }}>
+          <div className="flex items-center gap-2 mb-4">
+            <button onClick={onClose} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 bg-white cursor-pointer">← Courses</button>
+            <span className={`w-3 h-3 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
+            <h2 className="font-semibold text-slate-800 text-lg leading-tight truncate">{c.course}</h2>
+            <div className="ml-auto flex items-center gap-2">
+              <select value={status}
+                onChange={e => set({ status: e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed' })}
+                className={`text-xs px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${statusColors[status]}`}>
+                <option value="Planned">Planned</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Completed">Completed</option>
+              </select>
+              <select value={(c.scope || '').toLowerCase() || 'curriculum'}
+                onChange={e => set({ scope: e.target.value })}
+                className={`text-xs px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${(c.scope || '').toLowerCase() === 'extra' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'}`}>
+                <option value="curriculum">Curriculum</option>
+                <option value="extra">Extra</option>
+              </select>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none cursor-pointer">&times;</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <Field label="Hours logged">
+              <p className="text-slate-700 font-medium">{loggedHours.toFixed(1)}h</p>
+            </Field>
+            <Field label="Grade">
+              <p className="font-medium text-slate-700">{c.grade != null ? c.grade.toFixed(3) : (gradeInfo?.totalGrade != null ? gradeInfo.totalGrade.toFixed(3) : '—')}</p>
+            </Field>
+            <Field label="Est. required">
+              <p className="text-slate-700 font-medium">{estimatedHours.toFixed(0)}h</p>
+            </Field>
+            <Field label={`Avg ${avgHoursPerEC.toFixed(1)}h/EC`}>
+              <p className="text-slate-700 font-medium">{c.ec != null && c.ec > 0 ? `${(loggedHours / c.ec).toFixed(1)}h/EC` : '—'}</p>
+            </Field>
+          </div>
+
+          {progress != null && (
+            <div className="mb-5">
+              <div className="flex justify-between text-xs text-slate-400 mb-1">
+                <span>Progress</span>
+                <span>{loggedHours.toFixed(0)} / {estimatedHours.toFixed(0)}h</span>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-2">
+                <div className={`h-2 rounded-full transition-all ${style.progress || 'bg-slate-700'}`}
+                  style={{ width: `${Math.min(progress, 100)}%`, ...style.progressCss }} />
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+            <Field label="Abbreviation (used for IDs)">
+              <input type="text" value={c.abbrev || ''} placeholder="e.g. ASDfR" onChange={e => set({ abbrev: e.target.value || null })} className={inputCls} />
+            </Field>
+            <Field label="Course code">
+              <input type="text" value={c.code || ''} placeholder="e.g. 202400250" onChange={e => set({ code: e.target.value || null })} className={inputCls} />
+            </Field>
+            <Field label="EC">
+              <input type="text" inputMode="decimal" value={c.ec != null ? String(c.ec) : ''} onChange={e => set({ ec: e.target.value ? parseFloat(e.target.value) : null })} className={inputCls} />
+            </Field>
+            <Field label="Year">
+              <input type="text" value={c.year || ''} placeholder="e.g. 2025" onChange={e => set({ year: e.target.value || null })} className={inputCls} />
+            </Field>
+            <Field label="Quartile">
+              <select value={c.quartile || ''} onChange={e => set({ quartile: e.target.value || null })} className={inputCls}>
+                <option value="">—</option>
+                <option value="Q1">Q1</option>
+                <option value="Q2">Q2</option>
+                <option value="Q3">Q3</option>
+                <option value="Q4">Q4</option>
+              </select>
+            </Field>
+            <Field label="Estimated hours">
+              <input type="text" inputMode="decimal" value={c.estHours != null ? String(c.estHours) : ''} placeholder="e.g. 160"
+                onChange={e => set({ estHours: e.target.value ? parseFloat(e.target.value) : null })} className={inputCls} />
+            </Field>
+            <Field label="Start">
+              <input type="date" value={c.start || ''} onChange={e => set({ start: e.target.value || null })} className={inputCls} />
+            </Field>
+            <Field label="Finish">
+              <input type="date" value={c.finish || ''} onChange={e => set({ finish: e.target.value || null })} className={inputCls} />
+            </Field>
+            <Field label="Colour">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {COLOR_NAMES.map(name => (
+                  <button key={name} onClick={() => set({ color: name })}
+                    className={`w-6 h-6 rounded-full cursor-pointer transition-transform hover:scale-110 ${colorDot[name]} ${c.color === name ? 'ring-2 ring-slate-700 ring-offset-1' : ''}`}
+                    title={name} />
+                ))}
+                <label className="flex items-center gap-1.5 cursor-pointer ml-1">
+                  <input type="color" value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.color || '') ? c.color : '#6366f1'}
+                    onChange={e => set({ color: e.target.value })}
+                    className="w-7 h-7 cursor-pointer border border-slate-200 rounded" />
+                  <span className="text-[11px] text-slate-400">Any colour</span>
+                </label>
+              </div>
+            </Field>
+          </div>
+
+          {c.comment && (
+            <Field label="Comment">
+              <input type="text" value={c.comment || ''} onChange={e => set({ comment: e.target.value || null })} className={inputCls} />
+            </Field>
+          )}
+
+          <div className="mb-5">
+            <CourseTimeline course={c.course} content={content} gradeComponents={gradeComponents} />
+          </div>
+
+          <div className="mb-5">
+            <Syllabus course={c.course} abbrev={c.abbrev} code={c.code} />
+          </div>
+
+          <div className="mb-5">
+            <GradeEditor course={c.course} />
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
+            <button onClick={() => onEdit(c)} className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">Edit course…</button>
+            <button onClick={confirmDelete} className="text-sm px-4 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer">Delete course</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Horizontal course timeline: start -> finish with markers for scheduled items
+// (indigo), assessments/deadlines (amber) and grade component due dates (rose).
+function CourseTimeline({ course, content, gradeComponents }) {
+  const items = (content || []).filter(i => i.course === course)
+  const grades = (gradeComponents || []).find(g => g.course === course)
+  const now = new Date()
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+  const minDate = items.reduce((min, i) => {
+    const d = i.date || i.deadline
+    return d && (!min || d < min) ? d : min
+  }, null)
+  const maxDate = items.reduce((max, i) => {
+    const d = i.date || i.deadline
+    return d && (!max || d > max) ? d : max
+  }, null)
+
+  if (!minDate || !maxDate) {
+    return (
+      <div className="text-xs text-slate-400 italic">No dated items for a timeline yet (import schedule in the Calendar tab).</div>
+    )
+  }
+
+  const start = new Date(minDate + 'T12:00:00').getTime()
+  const end = new Date(maxDate + 'T12:00:00').getTime()
+  const span = Math.max(end - start, 1)
+  const pos = (iso) => {
+    const t = new Date(iso + 'T12:00:00').getTime()
+    return Math.min(100, Math.max(0, ((t - start) / span) * 100))
+  }
+
+  const markers = []
+  for (const i of items) {
+    const iso = i.date || i.deadline
+    if (!iso) continue
+    const isDeadline = !!i.deadline
+    markers.push({ iso, label: i.topic || i.description, isDeadline, course: i.course, type: i.type })
+  }
+  const todayPos = todayIso >= minDate && todayIso <= maxDate ? pos(todayIso) : null
+  for (const comp of grades?.components || []) {
+    if (comp.dueDate) markers.push({ iso: comp.dueDate, label: `${comp.type === 'exam' ? 'Exam' : TYPE_LABELS[comp.type] || 'Assignment'} due`, isDeadline: true, due: true })
+  }
+  markers.sort((a, b) => a.iso.localeCompare(b.iso))
+
+  return (
+    <div>
+      <div className="text-xs text-slate-500 mb-2 font-medium">Timeline</div>
+      <div className="relative h-2 bg-slate-100 rounded-full mb-2">
+        {todayPos != null && (
+          <div className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 bg-slate-700 rounded" style={{ left: `${todayPos}%` }} title="Today" />
+        )}
+      </div>
+      <div className="relative pt-3">
+        {markers.slice(0, 16).map((m, i) => (
+          <div key={i} className="flex items-center gap-2 mb-1.5 absolute" style={{ left: `${pos(m.iso) - 2}%`, top: 0 }}>
+            <span className={`h-2 w-2 rounded-full shrink-0 ${m.isDeadline ? 'bg-amber-400' : m.due ? 'bg-rose-400' : 'bg-indigo-400'}`} />
+            <span className="text-[11px] text-slate-600 whitespace-nowrap overflow-hidden text-ellipsis max-w-[140px]">{m.label}</span>
+          </div>
+        ))}
+        <div className="h-px" />
+      </div>
+      <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+        <span>{minDate}</span>
+        <span>{maxDate}</span>
+      </div>
+    </div>
+  )
+}
+
+function GradeEditor({ course }) {
+  const { gradeComponents, updateGradeComponents, content } = useAppData()
+  const existing = gradeComponents.find(g => g.course === course)
+  const [comps, setComps] = useState(
+    existing?.components?.map(c => ({
+      type: c.type || 'assignment',
+      id: c.id || '',
+      name: c.name || c.id || '',
+      dueDate: c.dueDate || '',
+      weight: c.weight != null ? String(c.weight) : '',
+      grade: c.grade != null ? String(c.grade) : '',
+    })) || [
+      { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' },
+    ]
+  )
+
+  const projectOptions = (content || []).filter(i =>
+    i.course === course && i.contentId && (i.deadline || DEADLINE_TYPES.has(i.type))
+  )
+
+  function addComp() {
+    setComps([...comps, { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
+  }
+
+  function removeComp(i) {
+    if (comps.length <= 1) return
+    setComps(comps.filter((_, idx) => idx !== i))
+  }
+
+  function updateComp(i, field, value) {
+    const updated = [...comps]
+    updated[i] = { ...updated[i], [field]: value }
+    setComps(updated)
+  }
+
+  function pickProject(i, contentId) {
+    const item = projectOptions.find(o => o.contentId === contentId)
+    const updated = [...comps]
+    updated[i] = {
+      ...updated[i],
+      id: contentId || '',
+      name: contentId ? (item?.description || contentId) : updated[i].name,
+      type: contentId && item?.type ? (item.type === 'lecture' ? 'assignment' : item.type) : updated[i].type,
+      dueDate: contentId && item?.deadline ? item.deadline : updated[i].dueDate,
+    }
+    setComps(updated)
+  }
+
+  function save() {
+    const parsed = comps.map(c => ({
+      type: c.type,
+      id: c.id || null,
+      name: c.name || c.id || null,
+      weight: parseFloat(c.weight) || null,
+      grade: c.grade ? parseFloat(c.grade) : null,
+      dueDate: c.dueDate || null,
+    })).filter(c => c.weight != null)
+    updateGradeComponents(course, parsed)
+  }
+
+  const total = comps.reduce((sum, c) => {
+    const w = parseFloat(c.weight) || 0
+    const g = parseFloat(c.grade)
+    return g != null ? sum + w * g : sum
+  }, 0)
+
+  const totalWeight = comps.reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0)
+
+  return (
+    <div className="border-t border-slate-100 pt-3 space-y-2">
+      <p className="text-xs font-medium text-slate-700">Grade Components for {course}</p>
+      <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
+        <div className="text-[10px] uppercase tracking-wider text-slate-400">Type</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-28">Project ID</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-32">Deadline</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Weight</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Grade</div>
+        <div className="w-5" />
+      </div>
+      {comps.map((comp, i) => (
+        <div key={i} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
+          <select value={comp.type} onChange={e => updateComp(i, 'type', e.target.value)}
+            className="text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white w-full">
+            <option value="exam">Exam</option>
+            <option value="assignment">Assignment</option>
+            <option value="presentation">Presentation</option>
+            <option value="project">Project</option>
+            <option value="quiz">Quiz</option>
+            <option value="other">Other</option>
+          </select>
+          <select value={comp.id || ''} onChange={e => pickProject(i, e.target.value)}
+            className="w-28 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white">
+            <option value="">—</option>
+            {projectOptions.map(o => (
+              <option key={o.contentId} value={o.contentId}>
+                {o.contentId} · {o.description || o.type}
+              </option>
+            ))}
+          </select>
+          <input type="date" value={comp.dueDate} onChange={e => updateComp(i, 'dueDate', e.target.value)}
+            className="w-32 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+          <input type="text" inputMode="decimal" placeholder="0.3" value={comp.weight}
+            onChange={e => updateComp(i, 'weight', e.target.value)}
+            className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+          <input type="text" inputMode="decimal" placeholder="—" value={comp.grade}
+            onChange={e => updateComp(i, 'grade', e.target.value)}
+            className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+          {comps.length > 1
+            ? <button onClick={() => removeComp(i)} className="w-5 text-xs text-red-400 hover:text-red-600 cursor-pointer">×</button>
+            : <div className="w-5" />}
+        </div>
+      ))}
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <button onClick={addComp} className="text-slate-500 hover:text-slate-700 cursor-pointer">+ Add component</button>
+        <button onClick={save} className="ml-2 px-2 py-0.5 bg-slate-700 text-white rounded cursor-pointer">Save</button>
+        <span className="ml-auto">
+          Weight sum: {(totalWeight * 100).toFixed(0)}% |
+          Weighted avg: {totalWeight > 0 ? (total / totalWeight).toFixed(3) : '—'}
+        </span>
+      </div>
+    </div>
+  )
+}

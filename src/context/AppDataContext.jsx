@@ -17,6 +17,7 @@ import {
   readAllTabs,
   writeAllTabs,
   writeTabRows,
+  writeTabsBatch,
   listIcsFiles,
   fetchIcsFile,
   ensureCalendar,
@@ -273,11 +274,11 @@ export function AppDataProvider({ children }) {
     const data = dataRef.current
     const planner = plannerRef.current
     const titles = keys.map(k => TITLE_BY_KEY[k]).filter(Boolean)
-    for (const title of titles) {
-      writeTabRows(driveRef.current.fileId, title, serializeTabByTitle(title, data, planner))
-        .catch(e => setDriveError(e.message))
-    }
-    setSyncing(false)
+    const rowsByTab = {}
+    for (const title of titles) rowsByTab[title] = serializeTabByTitle(title, data, planner)
+    writeTabsBatch(driveRef.current.fileId, rowsByTab)
+      .catch(e => setDriveError(e.message))
+      .finally(() => setSyncing(false))
   }
 
   async function loadAndApplyFromDrive(file) {
@@ -560,8 +561,10 @@ export function AppDataProvider({ children }) {
     const d = { ...(dataRef.current || {}), calendarEvents: merged, content }
     const planner = plannerRef.current || []
     setAll(d, planner)
-    await writeTabRows(info.fileId, TAB_CALENDAR, serializeCalendar(merged))
-    await writeTabRows(info.fileId, TAB_CONTENT, serializeContent(content))
+    await writeTabsBatch(info.fileId, {
+      [TAB_CALENDAR]: serializeCalendar(merged),
+      [TAB_CONTENT]: serializeContent(content),
+    })
     return { imported: merged.length, files: files.length }
   }
 
@@ -707,8 +710,10 @@ export function AppDataProvider({ children }) {
       setData(d)
       const info = driveRef.current
       if (info) {
-        await writeTabRows(info.fileId, TAB_CALENDAR, serializeCalendar(merged))
-        await writeTabRows(info.fileId, TAB_CONTENT, serializeContent(content))
+        await writeTabsBatch(info.fileId, {
+          [TAB_CALENDAR]: serializeCalendar(merged),
+          [TAB_CONTENT]: serializeContent(content),
+        })
       }
     }
 
@@ -911,20 +916,44 @@ export function AppDataProvider({ children }) {
     syncTabs(['studyLog'])
   }
 
+  // Delete a course by id or name. Everything referencing it is scrubbed —
+// grade components, syllabus items, study-log rows and planner to-dos — so it
+// never gets re-added from the log on the next load.
   function deleteCourse(id) {
     const prev = dataRef.current || {}
-    const course = (prev.courses || []).find(c => c.id === id)
-    const updated = { ...prev, courses: (prev.courses || []).filter(c => c.id !== id) }
+    const course = (prev.courses || []).find(c => c.id === id || c.course === id)
+    const courseName = course?.course || id
+    const updated = { ...prev, courses: (prev.courses || []).filter(c => c.course !== courseName) }
     const keys = ['courses']
-    if (course) {
-      updated.gradeComponents = (updated.gradeComponents || []).filter(g => g.course !== course.course)
-      keys.push('gradeComponents')
-      const before = (prev.content || []).length
-      updated.content = (prev.content || []).filter(i => i.course !== course.course)
-      if (updated.content.length !== before) keys.push('content')
-    }
+    updated.gradeComponents = (updated.gradeComponents || []).filter(g => g.course !== courseName)
+    keys.push('gradeComponents')
+    const beforeContent = (prev.content || []).length
+    updated.content = (prev.content || []).filter(i => i.course !== courseName)
+    if (updated.content.length !== beforeContent) keys.push('content')
+    const beforeLog = (prev.studyLog || []).length
+    updated.studyLog = (prev.studyLog || []).filter(e => e.course !== courseName)
+    if (updated.studyLog.length !== beforeLog) keys.push('studyLog')
+    const beforePlan = (prev.dailyPlan || []).length
+    updated.dailyPlan = (prev.dailyPlan || []).filter(r => r.course !== courseName)
+    if (updated.dailyPlan.length !== beforePlan) keys.push('dailyPlan')
     setAll(updated, plannerRef.current)
     syncTabs(keys)
+  }
+
+  // Persist a manual course order (drag & drop). Each course gets an `order`
+  // index so reordering one course doesn't touch the others' data.
+  function reorderCourses(orderedCourses) {
+    const prev = dataRef.current || {}
+    const nameToCourse = new Map((prev.courses || []).map(c => [c.course, c]))
+    const courses = orderedCourses
+      .map((c, i) => {
+        const existing = nameToCourse.get(c.course)
+        if (!existing) return null
+        return { ...existing, order: i }
+      })
+      .filter(Boolean)
+    setAll({ ...prev, courses }, plannerRef.current)
+    syncTabs(['courses'])
   }
 
   function deleteDeadline(id) {
@@ -1092,6 +1121,7 @@ export function AppDataProvider({ children }) {
       addContentItem,
       deleteSession,
       deleteCourse,
+      reorderCourses,
       deleteDeadline,
       deleteContentItem: deleteDeadline,
       updateSession,

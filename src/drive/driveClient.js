@@ -21,7 +21,7 @@ const DRIVE_BASE = 'https://www.googleapis.com/drive/v3'
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4'
 const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3'
 
-const MAX_RETRIES = 3
+const MAX_RETRIES = 6
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
@@ -49,12 +49,14 @@ async function authedFetch(url, options = {}, attempt = 0) {
   if (!res.ok) {
     // 409 = concurrent writes to the same spreadsheet (what used to surface as
     // "Conflict"), 429 and 403/rateLimitExceeded = rate limit, 5xx = transient.
-    // All deserve a retry with backoff.
+    // All deserve a retry with backoff. 429 (writes per minute per user) needs
+    // a long wait — the quota window is a full minute.
     const text = await res.text()
     const rateLimited = res.status === 429 || (res.status === 403 && /rateLimit|quota|userRateLimit/i.test(text))
     const lastRetry = attempt >= MAX_RETRIES
     if (!lastRetry && (rateLimited || res.status === 409 || res.status >= 500)) {
-      await sleep(400 * 2 ** attempt)
+      const base = rateLimited ? 5000 : 400
+      await sleep(Math.min(30000, base * 2 ** attempt))
       return authedFetch(url, options, attempt + 1)
     }
     let message = `Google API ${res.status}: ${text.slice(0, 240)}`
@@ -62,6 +64,8 @@ async function authedFetch(url, options = {}, attempt = 0) {
       message += ' Enable the Google Drive and Google Sheets APIs in your Google Cloud project (APIs & Services > Library), then try again.'
     } else if (res.status === 403 && /insufficient.*scope|insufficientPermission|permission/i.test(text)) {
       message += ' The token is missing a required Google scope. Sign out and sign back in to re-authorize. If it still fails, make sure the OAuth consent screen lists the calendar and drive.readonly scopes, and that the Google Calendar API is enabled (APIs & Services > Library).'
+    } else if (res.status === 429) {
+      message += ' Google is rate-limiting writes. Wait a minute and try again — batch edits now write far fewer requests.'
     }
     throw new Error(message)
   }
@@ -485,10 +489,37 @@ export async function readAllTabs(id) {
   return Object.fromEntries(SHEET_TABS.map((title, i) => [title, values[i]]))
 }
 
+// Write several tabs in just two requests: one batchClear of every tab, then
+// one batchUpdate rewriting them all. Keeps well under the sheets "write
+// requests per minute per user" quota while still removing stale rows (deleted
+// rows never linger below the new data).
+export function writeTabsBatch(id, rowsByTab) {
+  return enqueueSpreadsheetWrite(id, async () => {
+    const tabs = Object.entries(rowsByTab).filter(([, rows]) => rows && rows.length > 0)
+    if (tabs.length === 0) return
+    await authedFetch(
+      `${SHEETS_BASE}/spreadsheets/${id}/values:batchClear`,
+      { method: 'POST', body: JSON.stringify({ ranges: tabs.map(([t]) => `'${t}'!A:ZZ`) }) },
+    )
+    return authedFetch(
+      `${SHEETS_BASE}/spreadsheets/${id}/values:batchUpdate?valueInputOption=USER_ENTERED`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          valueInputOption: 'USER_ENTERED',
+          data: tabs.map(([title, rows]) => ({
+            range: `'${title}'!A1`,
+            majorDimension: 'ROWS',
+            values: rows,
+          })),
+        }),
+      },
+    )
+  })
+}
+
 export async function writeAllTabs(id, rowsByTab) {
-  for (const title of SHEET_TABS) {
-    if (rowsByTab[title]) await writeTabRows(id, title, rowsByTab[title])
-  }
+  await writeTabsBatch(id, rowsByTab)
 }
 
 // --- Tab keys ------------------------------------------------------------
