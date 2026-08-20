@@ -211,9 +211,10 @@ export function courseColorId(course) {
 }
 
 export function toGcalEvent(ev) {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const start = ev.allDay
     ? { date: ev.date }
-    : { dateTime: `${ev.date}T${(ev.startTime || '09:00').padStart(5, '0')}:00` }
+    : { dateTime: `${ev.date}T${(ev.startTime || '09:00').padStart(5, '0')}:00`, timeZone }
   const end = ev.allDay
     ? { date: ev.date }
     : (() => {
@@ -221,7 +222,7 @@ export function toGcalEvent(ev) {
         const minutes = (parseInt(sh, 10) * 60 + parseInt(sm, 10)) + 60
         const h = String(Math.floor(minutes / 60) % 24).padStart(2, '0')
         const m = String(minutes % 60).padStart(2, '0')
-        return { dateTime: `${ev.date}T${h}:${m}:00` }
+        return { dateTime: `${ev.date}T${h}:${m}:00`, timeZone }
       })()
   const body = {
     summary: ev.summary,
