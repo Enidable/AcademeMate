@@ -430,17 +430,19 @@ export function AppDataProvider({ children }) {
   // Calendar (never the primary calendar). First-time events are inserted
   // (their returned id is stored in cal_id), already-exported events are
   // updated in place, so running it repeatedly is idempotent.
-  async function pushCalendarToGoogle() {
+  async function pushCalendarToGoogle(colorOverrides = null) {
     const data = dataRef.current || {}
     const events = data.calendarEvents || []
     if (events.length === 0) return { inserted: 0, updated: 0 }
     const calendarId = await ensureCalendar('AcademeMate')
-    // Give every course a distinct Google Calendar color (cycled 1-11), keyed by
-    // its position in the user's actual course list — not a hardcoded palette,
-    // which only covers the bundled template courses.
+    // Every course gets a distinct colour (cycled 1-10; 11/Tomato is reserved
+    // for exams, enforced in toGcalEvent). Overrides from the pre-push colour
+    // dialog win when present.
     const courseColorMap = new Map()
     ;(data.courses || []).forEach((c, i) => {
-      if (c?.course && !courseColorMap.has(c.course)) courseColorMap.set(c.course, String((i % 11) + 1))
+      if (!c?.course || courseColorMap.has(c.course)) return
+      const override = colorOverrides?.get?.(c.course)
+      courseColorMap.set(c.course, override && /^(10|[1-9])$/.test(override) ? override : String((i % 10) + 1))
     })
     let inserted = 0
     let updated = 0

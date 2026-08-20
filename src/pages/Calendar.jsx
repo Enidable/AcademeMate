@@ -6,6 +6,21 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December']
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+// Google Calendar event colours (1-10). 11 (Tomato) is reserved for exams and
+// deliberately excluded here so courses can never take it.
+const GCAL_COLORS = [
+  { id: '1', name: 'Lavender' },
+  { id: '2', name: 'Sage' },
+  { id: '3', name: 'Grape' },
+  { id: '4', name: 'Flamingo' },
+  { id: '5', name: 'Banana' },
+  { id: '6', name: 'Tangerine' },
+  { id: '7', name: 'Peacock' },
+  { id: '8', name: 'Graphite' },
+  { id: '9', name: 'Blueberry' },
+  { id: '10', name: 'Basil' },
+]
+
 function addDays(date, n) {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate() + n)
   d.setHours(12, 0, 0, 0)
@@ -53,6 +68,27 @@ export default function Calendar() {
   const [anchor, setAnchor] = useState(() => new Date())
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
+  const [colorOpen, setColorOpen] = useState(false)
+  const [courseColors, setCourseColors] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('am_calendar_colors')) || {} } catch { return {} }
+  })
+
+  const autoColor = i => String((i % 10) + 1)
+
+  function openColors() {
+    const map = { ...courseColors }
+    ;(masterCourses || []).forEach((c, i) => {
+      if (c?.course && !map[c.course]) map[c.course] = autoColor(i)
+    })
+    setCourseColors(map)
+    setColorOpen(true)
+  }
+
+  async function confirmPush() {
+    try { localStorage.setItem('am_calendar_colors', JSON.stringify(courseColors)) } catch {}
+    setColorOpen(false)
+    await runPush(courseColors)
+  }
 
   const eventColor = useMemo(() => {
     const colorByCourse = {}
@@ -96,11 +132,11 @@ export default function Calendar() {
     }
   }
 
-  async function runPush() {
+  async function runPush(colorOverrides = null) {
     setBusy('push')
     setMessage('')
     try {
-      const res = await pushCalendarToGoogle()
+      const res = await pushCalendarToGoogle(colorOverrides)
       setMessage(`AcademeMate calendar: ${res.inserted} inserted, ${res.updated} updated.`)
     } catch (e) {
       setMessage(`Push failed: ${e.message}`)
@@ -162,7 +198,7 @@ export default function Calendar() {
             className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 cursor-pointer">
             {busy === 'import' ? 'Importing…' : '↧ Import .ics'}
           </button>
-          <button onClick={runPush} disabled={!hasDrive || calendarEvents.length === 0 || busy !== ''}
+          <button onClick={openColors} disabled={!hasDrive || calendarEvents.length === 0 || busy !== ''}
             className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 cursor-pointer">
             {busy === 'push' ? 'Pushing…' : '↥ Push to Google Calendar'}
           </button>
@@ -173,6 +209,45 @@ export default function Calendar() {
       {message && (
         <div className={`text-xs rounded-lg px-3 py-2 border ${message.includes('failed') || message.includes('Failed') ? 'text-red-600 bg-red-50 border-red-100' : 'text-slate-600 bg-slate-50 border-slate-100'}`}>
           {message}
+        </div>
+      )}
+
+      {colorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setColorOpen(false)}>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+              <h2 className="font-semibold text-slate-800">Calendar push colors</h2>
+              <button onClick={() => setColorOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none cursor-pointer">&times;</button>
+            </div>
+            <div className="p-5">
+              <p className="text-xs text-slate-500 mb-3">
+                Pick a color per course. Exam events are always <span className="inline-block rounded px-1.5 py-0.5 bg-red-600 text-white text-[10px]">Tomato</span> — that color is reserved for exams, so it's not offered below.
+              </p>
+              <div className="space-y-2">
+                {(masterCourses || []).filter(c => c?.course).map((c, i) => (
+                  <div key={c.course} className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-slate-700 truncate">{c.course}</span>
+                    <select value={courseColors[c.course] || autoColor(i)}
+                      onChange={e => setCourseColors(m => ({ ...m, [c.course]: e.target.value }))}
+                      className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
+                      {GCAL_COLORS.map(col => <option key={col.id} value={col.id}>{col.name}</option>)}
+                    </select>
+                  </div>
+                ))}
+                {(!masterCourses || masterCourses.length === 0) && (
+                  <div className="text-xs text-slate-400">No courses found — add some in the Courses tab.</div>
+                )}
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button onClick={() => setColorOpen(false)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Cancel</button>
+                <button onClick={confirmPush} disabled={busy !== ''}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 cursor-pointer">
+                  {busy === 'push' ? 'Pushing…' : 'Push with these colors'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

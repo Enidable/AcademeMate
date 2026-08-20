@@ -201,6 +201,12 @@ export async function ensureCalendar(name = 'AcademeMate') {
   return created?.id || 'primary'
 }
 
+// Exam events are always Tomato (11) — a colour that non-exam events never use.
+// Exams are recognised by the word "exam" in the event's summary or description.
+export function isExamEvent(ev) {
+  return /exam/i.test(`${ev.summary || ''} ${ev.description || ''}`)
+}
+
 // Fallback colour (1-11) for a course name when the push's per-course colour
 // map has no entry (e.g. an event whose course wasn't linked to the course list).
 // The hash is sign-normalised so it never produces a negative colour id.
@@ -252,7 +258,7 @@ export function toGcalEvent(ev, courseColorMap = null) {
     start,
     end,
   }
-  const colorId = courseColorMap?.get(ev.course) || courseColorId(ev.course)
+  const colorId = isExamEvent(ev) ? '11' : (courseColorMap?.get(ev.course) || courseColorId(ev.course))
   if (colorId) body.colorId = colorId
   return body
 }
