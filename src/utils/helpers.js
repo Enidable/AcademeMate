@@ -31,8 +31,37 @@ export function getCourseStyle(courseName, colorOverride) {
   if (colorOverride && colorMap[colorOverride]) {
     return colorMap[colorOverride]
   }
+  // Arbitrary hex colour (color wheel): return inline styles with white-tinted
+  // backgrounds so chips stay readable next to the class-based named colours.
+  if (colorOverride && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colorOverride)) {
+    return {
+      dot: '', dotCss: { backgroundColor: colorOverride },
+      bg: '', bgCss: { backgroundColor: mixHex(colorOverride, 0.86) || '#f1f5f9' },
+      text: '', textCss: { color: colorOverride },
+      soft: '', softCss: { backgroundColor: mixHex(colorOverride, 0.93) || '#f8fafc' },
+      border: '', borderCss: { borderColor: mixHex(colorOverride, 0.7) || '#e2e8f0' },
+    }
+  }
   const entry = courseColors.find(c => c.course === courseName)
   return colorMap[entry?.color] || colorMap.slate
+}
+
+function hexToRgb(hex) {
+  const h = String(hex).replace('#', '')
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h
+  if (!/^[0-9a-f]{6}$/i.test(full)) return null
+  const n = parseInt(full, 16)
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+
+// Blend a hex colour towards white by `ratio` (0 = pure, 1 = white).
+function mixHex(hex, ratio) {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return null
+  const r = Math.round(rgb.r + (255 - rgb.r) * ratio)
+  const g = Math.round(rgb.g + (255 - rgb.g) * ratio)
+  const b = Math.round(rgb.b + (255 - rgb.b) * ratio)
+  return `rgb(${r}, ${g}, ${b})`
 }
 
 export function formatDate(dateStr) {

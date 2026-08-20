@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getCourseStyle } from '../utils/helpers'
-import { UI_TO_GCAL } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -80,8 +79,7 @@ export default function Calendar() {
   function openColors() {
     const map = { ...courseColors }
     ;(masterCourses || []).forEach((c, i) => {
-      if (!c?.course || map[c.course]) return
-      map[c.course] = c.color && UI_TO_GCAL[c.color] ? UI_TO_GCAL[c.color] : autoColor(i)
+      if (c?.course && !map[c.course]) map[c.course] = autoColor(i)
     })
     setCourseColors(map)
     setColorOpen(true)
@@ -163,7 +161,8 @@ export default function Calendar() {
     const time = e.allDay ? 'All day' : (e.startTime ? `${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '')
     return (
       <div key={e.id || `${e.date}|${e.summary}|${e.startTime}`}
-        className={`rounded border ${style.border || 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[11px] leading-tight truncate ${compact ? '' : 'mb-1'}`} title={e.summary}>
+        className={`rounded border ${style.border || 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[11px] leading-tight truncate ${compact ? '' : 'mb-1'}`}
+        style={{ ...style.borderCss, ...style.bgCss, ...style.textCss }} title={e.summary}>
         {!compact && time && <span className="opacity-70 mr-1">{time}</span>}
         {compact && e.startTime && <span className="opacity-70 mr-1">{e.startTime}</span>}
         <span className="truncate">{e.isDeadline ? `Due: ${e.description}` : e.summary}</span>

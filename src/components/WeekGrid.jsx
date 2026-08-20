@@ -107,7 +107,7 @@ export default function WeekGrid({ week, byDay, masterCourses, hourHeight = 44 }
                   ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' }
                   : eventColor(e.course)
                 return (
-                  <div key={e.id || `${e.date}|${e.summary}`} className={`rounded border border-transparent ${style.bg} ${style.text} px-1.5 py-0.5 text-[10px] leading-tight truncate`} title={e.summary}>
+                  <div key={e.id || `${e.date}|${e.summary}`} className={`rounded border border-transparent ${style.bg} ${style.text} px-1.5 py-0.5 text-[10px] leading-tight truncate`} style={{ ...style.bgCss, ...style.textCss }} title={e.summary}>
                     {e.isDeadline ? `Due: ${e.description || e.summary}` : e.summary}
                   </div>
                 )
@@ -145,8 +145,8 @@ export default function WeekGrid({ week, byDay, masterCourses, hourHeight = 44 }
                   className="absolute flex overflow-hidden rounded"
                   style={{ top: p.top + '%', height: p.height + '%', left: p.left + '%', width: p.width + '%' }}
                   title={`${ev.summary}${ev.endTime ? ` (${ev.startTime}–${ev.endTime})` : ''}`}>
-                  <span className={`w-1 shrink-0 rounded-l ${style.dot}`} />
-                  <div className={`flex-1 min-w-0 ${style.bg} ${style.text} px-1 py-0.5`}>
+                  <span className={`w-1 shrink-0 rounded-l ${style.dot}`} style={style.dotCss} />
+                  <div className={`flex-1 min-w-0 ${style.bg} ${style.text} px-1 py-0.5`} style={{ ...style.bgCss, ...style.textCss }}>
                     <div className="text-[10px] font-medium leading-tight truncate">
                       {ev.isDeadline ? `Due: ${ev.description || ev.summary}` : ev.summary}
                     </div>

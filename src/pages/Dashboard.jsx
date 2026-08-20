@@ -159,7 +159,7 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
                 const style = getCourseStyle(entry.course, courseColorByCourse[entry.course])
                 return (
                   <div key={i} className="flex items-start gap-3 text-sm">
-                    <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${style.dot}`} />
+                    <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${style.dot}`} style={style.dotCss} />
                     <div className="flex-1 min-w-0">
                       <p className="text-slate-700 truncate">{truncate(entry.course, 40)}</p>
                       <p className="text-xs text-slate-400">

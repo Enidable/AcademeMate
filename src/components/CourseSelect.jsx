@@ -35,7 +35,7 @@ export default function CourseSelect({ value, onChange, courses, onlyActive = fa
       <button type="button" onClick={() => setOpen(o => !o)} className={triggerCls}>
         {selected ? (
           <>
-            <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
+            <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
             <span className="truncate">{selected.course}</span>
           </>
         ) : (
@@ -58,7 +58,7 @@ export default function CourseSelect({ value, onChange, courses, onlyActive = fa
             return (
               <button key={c.course} type="button" onClick={() => { onChange(c.course); setOpen(false) }}
                 className={`${itemCls} ${value === c.course ? 'bg-slate-100' : ''}`}>
-                <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
+                <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} style={st.dotCss} />
                 <span className="truncate">{c.course}</span>
                 {active && (
                   <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">active</span>

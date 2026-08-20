@@ -25,7 +25,6 @@ import {
   inferEventType,
   deriveAbbrev,
   courseColorId,
-  UI_TO_GCAL,
   batchCalendarEvents,
 } from '../drive/driveClient'
 import { fetchTemplateRows } from '../drive/template'
@@ -108,9 +107,38 @@ function synthCourses(parsed) {
 function buildState(rowsByTab) {
   const data = parseAll(rowsByTab)
   synthCourses(data)
+  linkGradeComponents(data)
   const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
   return { data, weeklyHours, plannerWeeks }
+}
+
+// Link existing grade components to their syllabus items so old data gets the
+// same behaviour as newly edited ones: match component id ⇄ contentId (same
+// course) and mirror the type (exam/assignment) in both directions. This is
+// display-only reconciliation; the next write to Drive persists it.
+function linkGradeComponents(data) {
+  const content = data.content || []
+  const grades = data.gradeComponents || []
+  const byId = new Map()
+  for (const item of content) {
+    if (!item.contentId) continue
+    const key = `${item.course}||${item.contentId}`
+    if (!byId.has(key)) byId.set(key, item)
+  }
+  for (const g of grades) {
+    const components = g.components || []
+    for (const comp of components) {
+      const item = comp.id != null ? byId.get(`${g.course}||${comp.id}`) : null
+      if (item) {
+        if ((item.type === 'exam' || item.type === 'assignment') && comp.type !== item.type) {
+          comp.type = item.type
+        }
+      } else if (comp.id != null && comp.name == null) {
+        comp.name = comp.id
+      }
+    }
+  }
 }
 
 const TITLE_BY_KEY = {
@@ -551,18 +579,17 @@ export function AppDataProvider({ children }) {
     if (events.length === 0 && deadlines.length === 0) return { inserted: 0, updated: 0, deadlinesInserted: 0 }
     const calendarId = await ensureCalendar('AcademeMate')
 
-    // Course colour: the pre-push dialog override wins; otherwise the course's
-    // UI colour (Courses tab) is mapped to a Google colour; otherwise the stable
-    // course hash. 11/Tomato is reserved for exams, enforced in toGcalEvent.
+    // Course colour: the pre-push dialog override wins; otherwise the stable
+    // course hash. Google Calendar colours stay independent from the in-app
+    // course colour (which can be any colour via the colour wheel). 11/Tomato
+    // is reserved for exams, enforced in toGcalEvent.
     const ov = colorOverrides instanceof Map ? colorOverrides : new Map(Object.entries(colorOverrides || {}))
     const courseColorMap = new Map()
     ;(data.courses || []).forEach((c, i) => {
       if (!c?.course || courseColorMap.has(c.course)) return
       const override = ov.get(c.course)
-      const ui = c.color && UI_TO_GCAL[c.color]
       const fallback = courseColorId(c.course) || String((i % 10) + 1)
-      const base = ui && /^(10|[1-9])$/.test(ui) ? ui : /^(10|[1-9])$/.test(fallback) ? fallback : String((i % 10) + 1)
-      courseColorMap.set(c.course, override && /^(10|[1-9])$/.test(override) ? override : base)
+      courseColorMap.set(c.course, override && /^(10|[1-9])$/.test(override) ? override : /^(10|[1-9])$/.test(fallback) ? fallback : String((i % 10) + 1))
     })
 
     const fp = loadCalFp()
@@ -783,6 +810,7 @@ export function AppDataProvider({ children }) {
   }
 
   function updateContentItem(id, payload) {
+    let matched = null
     const prev = dataRef.current || {}
     const content = (prev.content || []).map(i => {
       if (i.id !== id) return i
@@ -819,10 +847,29 @@ export function AppDataProvider({ children }) {
         updated.marker = (payload.urgency === 'High' || payload.urgency === 'Extremely High') ? 'important' : ''
       }
       if (payload.done != null) updated.done = payload.done
+      matched = updated
       return updated
     })
-    setAll({ ...prev, content }, plannerRef.current)
-    syncTabs(['content'])
+
+    // Keep the grade component of the same course linked: when the syllabus
+    // item's id or type changes, mirror it on the matching component (matched
+    // by component id === contentId) so exams show as "Exam", not "Assignment".
+    let gradeComponents = prev.gradeComponents || []
+    if (matched && (payload.type != null || payload.contentId != null || payload.course != null)) {
+      const compId = payload.contentId != null ? payload.contentId : matched.contentId
+      gradeComponents = gradeComponents.map(g => {
+        const isMatch = g.course === matched.course && g.id === compId
+        if (!isMatch) return g
+        const g2 = { ...g }
+        if (payload.type != null && payload.type !== 'deadline') g2.type = payload.type === 'exam' ? 'exam' : payload.type === 'assignment' ? 'assignment' : g2.type
+        if (payload.contentId != null) g2.id = payload.contentId
+        return g2
+      })
+    }
+
+    const updated = { ...prev, content, gradeComponents }
+    setAll(updated, plannerRef.current)
+    syncTabs(['content', 'gradeComponents'])
   }
 
   // Generic Course Content item (lecture, project, deadline...). Used by the
@@ -901,9 +948,21 @@ export function AppDataProvider({ children }) {
     } else {
       gradeComponents.push(entry)
     }
-    const updated = { ...prev, gradeComponents }
+
+    // Mirror component type/id changes back onto linked syllabus items
+    // (matched by contentId === component id), so the two never disagree on
+    // whether something is an exam, assignment, or lecture.
+    const content = (prev.content || []).map(i => {
+      if (i.course !== course) return i
+      const comp = entry.components.find(c => c.id === i.contentId && c.id != null)
+      if (!comp) return i
+      const type = comp.type === 'exam' ? 'exam' : comp.type === 'assignment' ? 'assignment' : null
+      if (!type || i.type === type) return i
+      return { ...i, type }
+    })
+    const updated = { ...prev, gradeComponents, content }
     setAll(updated, plannerRef.current)
-    syncTabs(['gradeComponents', 'courses'])
+    syncTabs(['gradeComponents', 'courses', 'content'])
   }
 
   function updatePlannerWeek(weekIndex, rows) {

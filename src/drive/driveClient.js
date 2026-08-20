@@ -267,25 +267,6 @@ export function courseColorId(course) {
   return String(((h % 10) + 10) % 10 + 1)
 }
 
-// The UI course colours (helpers.getCourseStyle) mapped to a Google Calendar
-// colour id, so picking a course colour in Courses also changes how that
-// course renders in Google Calendar. 11 (Tomato) is never used — it's reserved
-// for exams.
-export const UI_TO_GCAL = {
-  indigo: '9',
-  emerald: '10',
-  blue: '1',
-  purple: '3',
-  amber: '5',
-  rose: '4',
-  cyan: '7',
-  teal: '2',
-  slate: '8',
-  orange: '6',
-  gray: '8',
-  pink: '4',
-}
-
 function addMinutes(time, minutes) {
   const [sh, sm] = (time || '09:00').split(':')
   const total = (parseInt(sh, 10) * 60 + parseInt(sm, 10)) + minutes

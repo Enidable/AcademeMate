@@ -138,14 +138,22 @@ export default function Courses({ courses }) {
                     <span className="relative">
                       <button onClick={() => setColorMenu(colorMenu === c.course ? null : c.course)}
                         title="Change colour"
-                        className={`w-2.5 h-2.5 rounded-full shrink-0 cursor-pointer ${style.dot}`} />
+                        className={`w-2.5 h-2.5 rounded-full shrink-0 cursor-pointer ${style.dot}`} style={style.dotCss} />
                       {colorMenu === c.course && (
-                        <div className="absolute left-0 top-4 z-30 bg-white border border-slate-200 rounded-lg shadow-lg p-2 flex items-center gap-1.5 flex-wrap w-48">
-                          {COLOR_NAMES.map(name => (
-                            <button key={name} onClick={() => { setCourse(c.id, { color: name }); setColorMenu(null) }}
-                              className={`w-5 h-5 rounded-full cursor-pointer transition-transform hover:scale-110 ${colorDot[name]} ${c.color === name ? 'ring-2 ring-slate-700 ring-offset-1' : ''}`}
-                              title={name} />
-                          ))}
+                        <div className="absolute left-0 top-4 z-30 bg-white border border-slate-200 rounded-lg shadow-lg p-2 w-52">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {COLOR_NAMES.map(name => (
+                              <button key={name} onClick={() => { setCourse(c.id, { color: name }); setColorMenu(null) }}
+                                className={`w-5 h-5 rounded-full cursor-pointer transition-transform hover:scale-110 ${colorDot[name]} ${c.color === name ? 'ring-2 ring-slate-700 ring-offset-1' : ''}`}
+                                title={name} />
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-2 mt-2 border-t border-slate-100 pt-2">
+                            <input type="color" value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.color || '') ? c.color : '#6366f1'}
+                              onChange={e => setCourse(c.id, { color: e.target.value })}
+                              className="w-7 h-7 cursor-pointer border border-slate-200 rounded" title="Pick any colour" />
+                            <span className="text-[11px] text-slate-400">Any colour (color wheel)</span>
+                          </div>
                         </div>
                       )}
                     </span>
@@ -210,7 +218,7 @@ export default function Courses({ courses }) {
                   <div className="space-y-1">
                     {gradeInfo.components.map((comp, idx) => (
                       <div key={idx} className="flex justify-between text-xs text-slate-600">
-                        <span>{comp.type === 'exam' ? 'Exam' : 'Assignment'}{comp.id ? ` (${comp.id})` : ''}</span>
+                        <span>{comp.name || (comp.type === 'exam' ? 'Exam' : 'Assignment')}{comp.id ? ` (${comp.id})` : ''}</span>
                         <span>{comp.weight != null ? `${(comp.weight * 100).toFixed(0)}%` : '—'} {comp.grade != null ? `· ${comp.grade}` : '(pending)'}</span>
                       </div>
                     ))}
@@ -225,6 +233,10 @@ export default function Courses({ courses }) {
               )}
 
               {c.comment && <p className="mt-2 text-xs text-slate-400 italic">{c.comment}</p>}
+
+              <div className="mt-4">
+                <Syllabus course={c.course} abbrev={c.abbrev} />
+              </div>
 
               {isExpanded && (
                 <div className="mt-4 space-y-4">
@@ -263,12 +275,17 @@ export default function Courses({ courses }) {
                           className={`w-6 h-6 rounded-full cursor-pointer transition-transform hover:scale-110 ${colorDot[name]} ${c.color === name ? 'ring-2 ring-slate-700 ring-offset-1' : ''}`}
                           title={name} />
                       ))}
+                      <label className="flex items-center gap-1.5 cursor-pointer ml-1">
+                        <input type="color" value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.color || '') ? c.color : '#6366f1'}
+                          onChange={e => setCourse(c.id, { color: e.target.value })}
+                          className="w-7 h-7 cursor-pointer border border-slate-200 rounded" />
+                        <span className="text-[11px] text-slate-400">Any colour</span>
+                      </label>
                     </div>
                   </div>
 
                   <CourseTimeline course={c.course} content={content} gradeComponents={gradeComponents} />
                   <GradeEditor course={c.course} />
-                  <Syllabus course={c.course} abbrev={c.abbrev} />
                 </div>
               )}
 

@@ -97,10 +97,10 @@ function CourseRow({
   onEdit, onSaveEdit, onCancelEdit, onToggle, onDelete, onOpenAdd, onSaveAdd, onCancelAdd, onRemoveExtraRow,
 }) {
   return (
-    <tr className={`border-b border-slate-100 ${style.soft}`}>
+    <tr className={`border-b border-slate-100 ${style.soft}`} style={style.softCss}>
       <td className="px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
+          <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
           <span className="truncate font-medium text-slate-700" title={course}>{shortCourseName(course)}</span>
           {isActive && (
             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">active</span>

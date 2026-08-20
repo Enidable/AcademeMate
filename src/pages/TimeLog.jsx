@@ -175,7 +175,7 @@ export default function TimeLog({ entries }) {
                   <td className="px-3 py-2.5 text-slate-700 font-medium whitespace-nowrap">{entry.durationHours.toFixed(2)}h</td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
                       <span className="text-slate-700 truncate max-w-[160px]" title={entry.course}>
                         {truncate(entry.course, 30)}
                       </span>
