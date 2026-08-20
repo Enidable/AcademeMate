@@ -202,28 +202,50 @@ export async function ensureCalendar(name = 'AcademeMate') {
 }
 
 // Stable Google Calendar colour (1..11) per course, so each course keeps one
-// colour across all its events. Events without a course stay calendar-default.
+// Google Calendar event colors (1-11). Known courses map to a distinct, stable
+// color that mirrors the app's own palette (helpers.js `courseColors`); unknown
+// courses fall back to a deterministic hash.
+const COURSE_COLOR_ID = {
+  'Advanced Software Development for Robotics': '9',
+  'Biomechanics of Human Movement': '10',
+  'Biomechatronics': '1',
+  'Design Principles for Robotic and Mechatronic Mechanisms': '3',
+  'Modelling and Simulation': '6',
+  'AI for Autonomous Robots': '11',
+  'System Identification with Parameter Estimation and Machine Learning': '7',
+  'Professional and Personal Development': '2',
+  'Other University Stuff': '8',
+  'System Improvement (Spreadsheet)': '5',
+  'Work': '4',
+}
+
+// Stable color (1-11) for a course name, shared by every event of that course.
 export function courseColorId(course) {
   if (!course) return null
+  if (COURSE_COLOR_ID[course]) return COURSE_COLOR_ID[course]
   let h = 0
   for (let i = 0; i < course.length; i++) h = (h * 31 + course.charCodeAt(i)) | 0
-  return String(((h % 11) + 11) % 11 + 1)
+  return String((h % 10) + 1)
+}
+
+function addMinutes(time, minutes) {
+  const [sh, sm] = (time || '09:00').split(':')
+  const total = (parseInt(sh, 10) * 60 + parseInt(sm, 10)) + minutes
+  const h = String(Math.floor(total / 60) % 24).padStart(2, '0')
+  const m = String(total % 60).padStart(2, '0')
+  return `${h}:${m}`
 }
 
 export function toGcalEvent(ev) {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const startTime = (ev.startTime || '09:00').padStart(5, '0')
+  const endTime = (ev.endTime || addMinutes(startTime, 60)).padStart(5, '0')
   const start = ev.allDay
     ? { date: ev.date }
-    : { dateTime: `${ev.date}T${(ev.startTime || '09:00').padStart(5, '0')}:00`, timeZone }
+    : { dateTime: `${ev.date}T${startTime}:00`, timeZone }
   const end = ev.allDay
     ? { date: ev.date }
-    : (() => {
-        const [sh, sm] = (ev.startTime || '09:00').split(':')
-        const minutes = (parseInt(sh, 10) * 60 + parseInt(sm, 10)) + 60
-        const h = String(Math.floor(minutes / 60) % 24).padStart(2, '0')
-        const m = String(minutes % 60).padStart(2, '0')
-        return { dateTime: `${ev.date}T${h}:${m}:00`, timeZone }
-      })()
+    : { dateTime: `${ev.date}T${endTime}:00`, timeZone }
   const body = {
     summary: ev.summary,
     location: ev.location || '',

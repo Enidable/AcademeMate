@@ -46,15 +46,28 @@ function unescapeText(v) {
   return (v || '').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\n/gi, '\n').replace(/\\\\(?![nN])/g, '\\')
 }
 
-// Parse "YYYYMMDD[THHMMSS[Z]]" into a local Date. Floating times (no Z) are
-// treated as local wall time, which is what university calendars produce.
-function parseIcalDate(value) {
+// True when a DTSTART/DTEND/etc. line declares a UTC timezone, either via a
+// trailing Z in the value or an explicit TZID=UTC-like parameter.
+function isUtcTzid(params) {
+  return /^(UTC|Etc\/UTC|GMT|Z)$/i.test((params.TZID || []).join(','))
+}
+
+// Parse "YYYYMMDD[THHMMSS[Z]]" into a Date. A trailing Z (or TZID=UTC) means the
+// instant is UTC — convert it to local time. Floating times (no Z, no TZID) are
+// treated as local wall time.
+function parseIcalDate(value, { utc = false } = {}) {
   if (!value) return null
   const match = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2}))?(Z)?$/)
   if (!match) return null
-  const [, y, mo, d, hh, mm] = match
-  const date = new Date(+y, +mo - 1, +d, +(hh || 0), +(mm || 0), +(match[6] || 0))
-  return date
+  const [, y, mo, d, hh, mm, ss, z] = match
+  const asUtc = utc || z === 'Z'
+  const Y = +y
+  const M = +mo - 1
+  const D = +d
+  const H = +(hh || 0)
+  const Min = +(mm || 0)
+  const S = +(ss || 0)
+  return asUtc ? new Date(Date.UTC(Y, M, D, H, Min, S)) : new Date(Y, M, D, H, Min, S)
 }
 
 function parseDuration(value) {
@@ -194,10 +207,10 @@ export function parseIcs(text, { from, to, source = 'ics' } = {}) {
       case 'DTSTART': {
         const dateOnly = !cl.value.includes('T')
         current.dateOnly = dateOnly
-        current.start = parseIcalDate(cl.value)
+        current.start = parseIcalDate(cl.value, { utc: isUtcTzid(cl.params) })
         break
       }
-      case 'DTEND': current.end = parseIcalDate(cl.value); break
+      case 'DTEND': current.end = parseIcalDate(cl.value, { utc: isUtcTzid(cl.params) }); break
       case 'DURATION': current.durationMin = parseDuration(cl.value); break
       case 'RRULE': {
         const rule = {}
@@ -211,7 +224,7 @@ export function parseIcs(text, { from, to, source = 'ics' } = {}) {
           } else if (key === 'COUNT') {
             rule.count = parseInt(value, 10)
           } else if (key === 'UNTIL') {
-            rule.until = parseIcalDate(value)
+            rule.until = parseIcalDate(value, { utc: isUtcTzid(cl.params) })
           } else if (key === 'INTERVAL') {
             rule.interval = parseInt(value, 10)
           } else if (key === 'FREQ') {
@@ -222,12 +235,12 @@ export function parseIcs(text, { from, to, source = 'ics' } = {}) {
         break
       }
       case 'EXDATE': {
-        const d = parseIcalDate(cl.value)
+        const d = parseIcalDate(cl.value, { utc: isUtcTzid(cl.params) })
         if (d) current.exdate.push(d)
         break
       }
       case 'RDATE': {
-        const d = parseIcalDate(cl.value)
+        const d = parseIcalDate(cl.value, { utc: isUtcTzid(cl.params) })
         if (d) current.rdate.push(d)
         break
       }
