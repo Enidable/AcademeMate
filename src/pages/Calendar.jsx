@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getCourseStyle } from '../utils/helpers'
+import WeekGrid from '../components/WeekGrid'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December']
@@ -153,7 +154,7 @@ export default function Calendar() {
 
   const eventChip = (e, compact = false) => {
     const style = e.isDeadline
-      ? { bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400', border: 'border-amber-200' }
+      ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', border: 'border-red-200' }
       : eventColor(e.course)
     const time = e.allDay ? 'All day' : (e.startTime ? `${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '')
     return (
@@ -264,25 +265,9 @@ export default function Calendar() {
       )}
 
       {mode === 'week' && (
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="grid grid-cols-7 gap-2">
-            {week.map((d, i) => {
-              const key = dateKey(d)
-              const items = byDay[key] || []
-              const isToday = isSameDay(d, today)
-              return (
-                <div key={i} className="min-h-[320px]">
-                  <div className={`text-center text-xs font-medium pb-2 border-b mb-1 ${isToday ? 'text-indigo-600' : 'text-slate-500'}`}>
-                    <div>{DOW[i]}</div>
-                    <div className={`inline-block rounded-full px-1.5 ${isToday ? 'bg-indigo-600 text-white' : ''}`}>{d.getDate()}</div>
-                  </div>
-                  <div className="space-y-1">
-                    {items.slice(0, 12).map(e => eventChip(e))}
-                    {items.length > 12 && <div className="text-[10px] text-slate-400 pl-1">+{items.length - 12} more…</div>}
-                  </div>
-                </div>
-              )
-            })}
+        <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+          <div className="min-w-[720px]">
+            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} />
           </div>
         </div>
       )}
