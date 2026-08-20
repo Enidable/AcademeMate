@@ -27,7 +27,10 @@ const colorMap = {
   pink: { bg: 'bg-pink-100', text: 'text-pink-700', dot: 'bg-pink-500' },
 }
 
-export function getCourseStyle(courseName) {
+export function getCourseStyle(courseName, colorOverride) {
+  if (colorOverride && colorMap[colorOverride]) {
+    return colorMap[colorOverride]
+  }
   const entry = courseColors.find(c => c.course === courseName)
   return colorMap[entry?.color] || colorMap.slate
 }
@@ -57,9 +60,21 @@ export function normalizeCategory(cat) {
     .join(' ')
 }
 
+export function normalizeStatus(status) {
+  const s = (status || '').trim().toLowerCase()
+  if (['completed', 'complete', 'done', 'finished'].includes(s)) return 'completed'
+  if (['in progress', 'in process', 'active', 'ongoing', 'inprog'].includes(s)) return 'in progress'
+  if (['planned', 'upcoming', 'to do', 'todo', 'not started'].includes(s)) return 'planned'
+  return ''
+}
+
+export const COLOR_NAMES = Object.keys(colorMap)
+
 export function getStatus(course) {
-  if (!course.start) return 'Planned'
+  const normalized = normalizeStatus(course?.status)
+  if (normalized) return normalized === 'completed' ? 'Completed' : normalized === 'in progress' ? 'In Progress' : 'Planned'
   if (course.grade != null) return 'Completed'
+  if (!course.start) return 'Planned'
   return 'In Progress'
 }
 

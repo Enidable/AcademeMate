@@ -45,7 +45,7 @@ function monthGrid(year, month) {
 
 export default function Calendar() {
   const {
-    calendarEvents, deadlines, hasDrive, driveError,
+    calendarEvents, deadlines, hasDrive, driveError, masterCourses,
     importCalendarFromDrive, pushCalendarToGoogle,
   } = useAppData()
 
@@ -55,12 +55,14 @@ export default function Calendar() {
   const [message, setMessage] = useState('')
 
   const eventColor = useMemo(() => {
+    const colorByCourse = {}
+    for (const c of masterCourses || []) colorByCourse[c.course] = c.color
     const map = {}
     return (name) => {
-      if (!map[name]) map[name] = name ? getCourseStyle(name) : { dot: 'bg-indigo-500', bg: 'bg-indigo-100', text: 'text-indigo-700' }
+      if (!map[name]) map[name] = name ? getCourseStyle(name, colorByCourse[name]) : { dot: 'bg-indigo-500', bg: 'bg-indigo-100', text: 'text-indigo-700' }
       return map[name]
     }
-  }, [])
+  }, [masterCourses])
 
   const byDay = useMemo(() => {
     const map = {}

@@ -34,6 +34,12 @@ function todayISO() {
 
 export default function DailyPlanner() {
   const { dailyPlan, weeklyHours, masterCourses, addPlannerTask, updatePlannerTask, deletePlannerTask } = useAppData()
+
+  const colorByCourse = useMemo(() => {
+    const m = {}
+    for (const c of masterCourses || []) m[c.course] = c.color
+    return m
+  }, [masterCourses])
   const [weekKey, setWeekKey] = useState(() => mondayOf(todayISO()))
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({ task: '', hours: '', notes: '' })
@@ -181,7 +187,7 @@ function DayCard({
           <p className="text-[11px] text-slate-300 text-center mt-4">No tasks</p>
         )}
         {tasks.map(row => {
-          const style = getCourseStyle(row.course)
+          const style = getCourseStyle(row.course, colorByCourse[row.course])
           const hours = row.plannedHours || row.actualHours || 0
           const isEditing = editingId === row.id
           return (

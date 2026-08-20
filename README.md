@@ -24,10 +24,10 @@ npm run dev
 ### 1. Google Cloud / OAuth setup (one-time)
 
 1. Go to https://console.cloud.google.com → create a project (e.g. `AcademeMate`).
-2. **APIs & Services → Library** → enable *Google Drive API* and *Google Sheets API*.
+2. **APIs & Services → Library** → enable *Google Drive API*, *Google Sheets API*, and *Google Calendar API*.
 3. **APIs & Services → OAuth consent screen**:
    - User type: **External** (so your friends can sign in later).
-   - Add the scopes `.../auth/drive.file`, `.../auth/spreadsheets`, `openid`, `email`, `profile`.
+   - Add the scopes `.../auth/drive.file`, `.../auth/spreadsheets`, `.../auth/drive.readonly`, `.../auth/calendar`, `openid`, `email`, `profile`.
    - Add yourself (and friends) as **Test users**.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID** → *Web application*:
    - **Authorized JavaScript origins** (these are the only ones checked by this app's sign-in flow; redirect URIs are not used): `http://localhost:5173` for local dev **and** `https://<username>.github.io` for the deployed GitHub Pages site.

@@ -6,7 +6,7 @@
 import { num, isoDateToDDMMYYYY } from './normalize.js'
 
 export const STUDY_LOG_HEADER = 'date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes'
-export const COURSES_HEADER = 'course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes'
+export const COURSES_HEADER = 'course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes,scope,color'
 export const GRADE_COMPONENTS_HEADER = 'course_id,component,type,weight,grade,due_date,hours_spent,done,notes'
 export const CONTENT_HEADER = 'course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id'
 export const DAILY_PLAN_HEADER = 'date,course_id,task,planned_hours,actual_hours,done,notes'
@@ -50,6 +50,8 @@ export function serializeCourses(courses) {
     c.status || '',
     num(c.estHours, 2),
     c.notes || c.comment || '',
+    c.scope || '',
+    c.color || '',
   ])
   return [splitHeader(COURSES_HEADER), ...rows]
 }

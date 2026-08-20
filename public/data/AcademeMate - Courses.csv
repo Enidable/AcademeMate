@@ -1,4 +1,4 @@
-course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes
+﻿course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes,scope,color
 Advanced Software Development for Robotics,Advanced Software Development for Robotics,202200109,,2A,Q3,04/02/2026,16/04/2026,5,completed,140,"C++ course, in teams of two. 100%; Labwork"
 Biomechanics of Human Movement,Biomechanics of Human Movement,201800156,,2A,Q3,03/02/2026,16/04/2026,5,completed,140,Information. 40%; 4 x 15%
 Design Principles for Robotic and Mechatronic Mechanisms,Design Principles for Robotic and Mechatronic Mechanisms,202200107,,2A,Q3,04/02/2026,13/04/2026,5,completed,140,All partial grades > 5.5. 50%; 2 x 25%

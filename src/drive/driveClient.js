@@ -58,6 +58,8 @@ async function authedFetch(url, options = {}, attempt = 0) {
     let message = `Google API ${res.status}: ${text.slice(0, 240)}`
     if (res.status === 403 && /has not been used|disabled/i.test(text)) {
       message += ' Enable the Google Drive and Google Sheets APIs in your Google Cloud project (APIs & Services > Library), then try again.'
+    } else if (res.status === 403 && /insufficient.*scope|insufficientPermission|permission/i.test(text)) {
+      message += ' The token is missing a required Google scope. Sign out and sign back in to re-authorize. If it still fails, make sure the OAuth consent screen lists the calendar and drive.readonly scopes, and that the Google Calendar API is enabled (APIs & Services > Library).'
     }
     throw new Error(message)
   }

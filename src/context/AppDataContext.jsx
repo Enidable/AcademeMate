@@ -535,7 +535,8 @@ export function AppDataProvider({ children }) {
     const courses = [...(prev.courses || [])]
     const idx = courses.findIndex(c => c.id === id)
     if (idx < 0) return
-    courses[idx] = { ...courses[idx], ...courseData, id: courseData.course, course: courseData.course }
+    const name = courseData.course || courses[idx].course || id
+    courses[idx] = { ...courses[idx], ...courseData, id: name, course: name }
     const updated = { ...prev, courses }
     const keys = ['courses']
     if (_gradeComponents) {

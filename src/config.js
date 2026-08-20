@@ -14,14 +14,16 @@ export const ASSET_BASE = import.meta.env.BASE_URL
 
 // drive.file keeps the app scoped to spreadsheets it created (per-user isolation).
 // spreadsheets lets us read/write cell values. drive.readonly lets the app read
-// the user's "iCal" folder of downloaded university .ics files. calendar.events
-// lets the app push events from the Calendar tab back into the user's real
-// Google Calendar. openid/email/profile only give the display name/email.
+// the user's "iCal" folder of downloaded university .ics files. calendar lets the
+// app find/create the dedicated AcademeMate calendar (calendarList + calendars
+// resources) and push events into it — note calendar.events alone does NOT cover
+// the calendarList endpoint the app needs, so the broader calendar scope is used.
+// openid/email/profile only give the display name/email.
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar',
   'openid',
   'email',
   'profile',

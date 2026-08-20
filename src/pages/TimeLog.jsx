@@ -13,7 +13,13 @@ export default function TimeLog({ entries }) {
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState(null)
 
-  const { deleteSession } = useAppData()
+  const { deleteSession, masterCourses } = useAppData()
+
+  const colorByCourse = useMemo(() => {
+    const m = {}
+    for (const c of masterCourses || []) m[c.course] = c.color
+    return m
+  }, [masterCourses])
 
   const courses = useMemo(() => {
     const set = new Set(entries.map(e => e.course))
@@ -145,7 +151,7 @@ export default function TimeLog({ entries }) {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {paginated.map((entry, i) => {
-              const style = getCourseStyle(entry.course)
+              const style = getCourseStyle(entry.course, colorByCourse[entry.course])
               const effBar = getEfficiencyBar(entry.efficiency)
               const wellBar = getWellbeingBar(entry.wellbeing)
               return (

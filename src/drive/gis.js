@@ -77,12 +77,27 @@ function storeToken(resp) {
   return null
 }
 
+// A cached token is only usable if it still covers every scope the app needs.
+// If the scope list changed since the token was issued (e.g. calendar.events was
+// added), the old token silently lacks that access and every API call would 403
+// with "insufficient authentication scopes" — so treat it as invalid and force
+// a fresh consent pop-up instead.
+function missingScopes(scopeString) {
+  const granted = typeof scopeString === 'string' ? scopeString.split(/\s+/) : []
+  return SCOPES.filter(s => !granted.includes(s))
+}
+
+function hasRequiredScopes(scopeString) {
+  return missingScopes(scopeString).length === 0
+}
+
 export function readToken() {
   try {
     const raw = sessionStorage.getItem(TOKEN_KEY)
     if (!raw) return null
     const t = JSON.parse(raw)
     if (!t.access_token || t.expires_at < Date.now()) return null
+    if (!hasRequiredScopes(t.scope)) return null
     return t
   } catch {
     return null
@@ -125,6 +140,16 @@ export async function getAccessToken({ force = false } = {}) {
         return
       }
       if (resp?.access_token) {
+        if (!hasRequiredScopes(resp.scope)) {
+          clearToken()
+          const missing = missingScopes(resp.scope).join(', ')
+          finish(reject, new Error(
+            `Google granted only part of the requested access — the token is missing: ${missing}. ` +
+            'Open the Google Cloud console for THIS app\u2019s project, add those scopes under ' +
+            'APIs & Services > OAuth consent screen > Scopes (save the app afterwards), then try Connect again.',
+          ))
+          return
+        }
         finish(resolve, storeToken(resp))
         return
       }

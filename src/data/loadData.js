@@ -72,6 +72,8 @@ function parseCourses(rows) {
       estHours: toFloat((r.est_hours || '').trim()),
       notes: (r.notes || '').trim() || null,
       comment: (r.notes || '').trim() || null,
+      scope: (r.scope || '').trim() || null,
+      color: (r.color || '').trim() || null,
       grade: null,
     }))
 }
