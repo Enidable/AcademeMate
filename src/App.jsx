@@ -39,10 +39,13 @@ function AppContent() {
     try {
       const r = await pushCalendarToGoogle()
       setSyncMsg(`Synced (${r.inserted} added, ${r.updated} updated)`)
+      setTimeout(() => setSyncMsg(null), 5000)
     } catch (e) {
+      // Keep the error visible until dismissed — it shouldn't vanish in a
+      // second. It's also logged to the console for inspection.
+      console.error('Sync failed:', e)
       setSyncMsg('Sync failed: ' + e.message)
     }
-    setTimeout(() => setSyncMsg(null), 5000)
   }
 
   if (error) {
@@ -91,7 +94,11 @@ function AppContent() {
 
       <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
         {syncMsg && (
-          <span className="text-xs text-slate-600 bg-white border border-slate-200 rounded-full px-3 py-2 shadow-sm max-w-[16rem]">{syncMsg}</span>
+          <span className={`text-xs rounded-full px-3 py-2 shadow-sm max-w-[20rem] ${syncMsg.startsWith('Sync failed')
+            ? 'text-red-700 bg-red-50 border border-red-200'
+            : 'text-slate-600 bg-white border border-slate-200'}`}>
+            {syncMsg}
+          </span>
         )}
         <button
           onClick={handleSync}

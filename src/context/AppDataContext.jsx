@@ -12,6 +12,7 @@ import {
 } from '../data/serialize'
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter } from '../utils/ids'
+import { parseCSVRaw } from '../utils/csv'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -38,6 +39,7 @@ import {
   TAB_DAILY,
   TAB_HOURS,
   TAB_CALENDAR,
+  ASSET_BASE,
 } from '../config'
 
 const STORAGE_KEY = 'am_state'
@@ -339,8 +341,8 @@ export function AppDataProvider({ children }) {
   // never re-adds a course the user deleted, never overwrites a present value.
   async function fillCourseGapsFromTemplate(d) {
     try {
-      const template = await fetchTemplateRows()
-      fillCourseGaps(d, parseAll(template).courses)
+      const text = await fetch(`${ASSET_BASE}data/AcademeMate - Courses.csv`).then(r => r.text())
+      fillCourseGaps(d, parseAll({ [TAB_COURSES]: parseCSVRaw(text) }).courses)
     } catch { /* template unreachable — skip */ }
   }
 
@@ -608,17 +610,28 @@ export function AppDataProvider({ children }) {
     // Log each scheduled lecture/tutorial/practical into the course's syllabus
     // (Course Content) so every class gets a numbered entry the user only has
     // to give a description to. Re-imports refresh dates/ids but keep the
-    // manually written description.
+    // manually written description. Content created before the ID scheme
+    // (whose contentId is the old raw calendar title) is matched via its
+    // calendar element and re-keyed to the generated lecture ID, so the ID list
+    // and the calendar elements never show up as separate duplicates.
     const existingContent = dataRef.current?.content || []
     const contentByLecture = new Map()
+    const contentByCal = new Map()
     for (const i of existingContent) {
       if (i.course && i.contentId) contentByLecture.set(`${i.course}|${i.contentId}`, i)
+      if (i.course && i.calId) contentByCal.set(`${i.course}|${i.calId}`, i)
     }
     const content = [...existingContent]
     for (const r of merged) {
       if (!r.lectureId || !r.course) continue
-      const item = contentByLecture.get(`${r.course}|${r.lectureId}`)
+      let item = contentByLecture.get(`${r.course}|${r.lectureId}`)
+      if (!item && r.calId) item = contentByCal.get(`${r.course}|${r.calId}`)
       if (item) {
+        if (item.contentId !== r.lectureId) {
+          item.contentId = r.lectureId
+          item.id = `${r.course}||${r.lectureId}|${r.date}||${item.topic || r.lectureId}`
+          contentByLecture.set(`${r.course}|${r.lectureId}`, item)
+        }
         item.date = r.date
         item.start = r.startTime || ''
         item.end = r.endTime || ''

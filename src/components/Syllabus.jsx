@@ -142,64 +142,75 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
   }
 
   const dateStr = `${fmtDate(item.date)}${item.start ? ` ${item.start}${item.end ? `–${item.end}` : ''}` : ''}`
+  const calLine = item.calId
+    ? `${dateStr}${linkedEvent ? ` · ${linkedEvent.summary}` : ''}`
+    : (dateStr || 'No calendar element linked — double-click the ID to link one.')
 
   return (
-    <div className="group flex items-center gap-2 px-1 py-1 rounded hover:bg-slate-50">
-      {linkOpen ? (
-        <span className="flex items-center gap-1.5 shrink-0">
-          <input
-            autoFocus
-            type="text"
-            value={linkVal}
-            onChange={(e) => setLinkVal(e.target.value)}
-            onBlur={() => closeLink(true)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur()
-              if (e.key === 'Escape') closeLink(false)
-            }}
-            placeholder="Google event id"
-            className="text-[10px] font-mono w-36 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
-          <span className={`text-[9px] shrink-0 ${item.calId ? 'text-emerald-500' : 'text-slate-300'}`}>
-            {item.calId ? 'linked' : 'unlinked'}
-          </span>
-          {linkedEvent && (
-            <span className="text-[10px] text-slate-400 truncate max-w-[180px]" title={linkedEvent.summary}>
-              → {linkedEvent.summary} · {fmtDate(linkedEvent.date)}
+    <div className="group px-1 py-1 rounded hover:bg-slate-50">
+      <div className="flex items-center gap-2">
+        {linkOpen ? (
+          <span className="flex items-center gap-1.5 shrink-0">
+            <input
+              autoFocus
+              type="text"
+              value={linkVal}
+              onChange={(e) => setLinkVal(e.target.value)}
+              onBlur={() => closeLink(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+                if (e.key === 'Escape') closeLink(false)
+              }}
+              placeholder="Google event id"
+              className="text-[10px] font-mono w-36 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
+            <span className={`text-[9px] shrink-0 ${item.calId ? 'text-emerald-500' : 'text-slate-300'}`}>
+              {item.calId ? 'linked' : 'unlinked'}
             </span>
-          )}
-        </span>
-      ) : (
-        <span
-          title="Double-click to view / change the linked calendar element"
-          onDoubleClick={openLink}
-          className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-700 text-white shrink-0 cursor-pointer hover:bg-slate-600">
-          {id}
-        </span>
-      )}
-      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${typeBadge(item.type)}`}>{TYPE_LABELS[item.type] || item.type}</span>
-      <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{dateStr}</span>
-      <input
-        key={item.id + '::note'}
-        type="text"
-        defaultValue={item.description || ''}
-        onBlur={(e) => { const v = e.target.value.trim(); if (v !== (item.description || '')) onSaveNote(item, v) }}
-        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-        placeholder="Lecture contents / notes…"
-        title="Lecture contents (e.g. from the syllabus) — auto-saves"
-        className="flex-1 min-w-0 text-[11px] px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-700 placeholder-slate-300 focus:border-slate-400 focus:outline-none" />
-      <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0" title={timeTitle}>{timeLabel}</span>
-      <div className="flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
-        <button onClick={() => onStartEdit(item)} className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
-        <button onClick={() => { if (window.confirm(`Remove "${item.description || item.contentId}" from the syllabus?`)) onDelete(item) }}
-          className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
+            {linkedEvent && (
+              <span className="text-[10px] text-slate-400 truncate max-w-[180px]" title={linkedEvent.summary}>
+                → {linkedEvent.summary} · {fmtDate(linkedEvent.date)}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span
+            title="Double-click to view / change the linked calendar element"
+            onDoubleClick={openLink}
+            className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-700 text-white shrink-0 cursor-pointer hover:bg-slate-600">
+            {id}
+          </span>
+        )}
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${typeBadge(item.type)}`}>{TYPE_LABELS[item.type] || item.type}</span>
+        <input
+          key={item.id + '::note'}
+          type="text"
+          defaultValue={item.description || ''}
+          onBlur={(e) => { const v = e.target.value.trim(); if (v !== (item.description || '')) onSaveNote(item, v) }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+          placeholder="Lecture contents / notes…"
+          title="Lecture contents (e.g. from the syllabus) — auto-saves"
+          className="flex-1 min-w-0 text-[11px] px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-700 placeholder-slate-300 focus:border-slate-400 focus:outline-none" />
+        <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0" title={timeTitle}>{timeLabel}</span>
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
+          <button onClick={() => onStartEdit(item)} className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
+          <button onClick={() => { if (window.confirm(`Remove "${item.description || item.contentId}" from the syllabus?`)) onDelete(item) }}
+            className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 mt-0.5 pl-10 text-[10px] text-slate-400 truncate">
+        {item.calId && <span className="text-emerald-500 shrink-0">linked ·</span>}
+        <span className="truncate">{calLine}</span>
       </div>
     </div>
   )
 }
 
 // A deadline / grade-component row. Inline note like lectures, but no calendar
-// link or time column (deadlines are shown by their due date).
-function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote }) {
+// link or time column (deadlines are shown by their due date). Double-click the
+// ID chip to rename the project/assignment ID.
+function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSaveId }) {
+  const [idEdit, setIdEdit] = useState(false)
+  const [idVal, setIdVal] = useState('')
   if (isEditing) {
     return (
       <EditPanel editing={editing} setEditing={setEditing} isDeadline={true} onSaveEdit={onSaveEdit} />
@@ -209,7 +220,29 @@ function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSave
   const dueStr = `due ${fmtDate(item.deadline)}`
   return (
     <div className="group flex items-center gap-2 px-1 py-1 rounded hover:bg-slate-50">
-      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-700 text-white shrink-0">{id}</span>
+      {idEdit ? (
+        <span className="flex items-center gap-1 shrink-0">
+          <input
+            autoFocus
+            type="text"
+            value={idVal}
+            onChange={(e) => setIdVal(e.target.value)}
+            onBlur={() => { const v = idVal.trim(); if (v && v !== (item.contentId || '')) onSaveId(item, v); setIdEdit(false) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') setIdEdit(false)
+            }}
+            placeholder="New ID (e.g. ML11)"
+            className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
+        </span>
+      ) : (
+        <span
+          title="Double-click to rename this project / assignment ID"
+          onDoubleClick={() => { setIdVal(item.contentId || ''); setIdEdit(true) }}
+          className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-700 text-white shrink-0 cursor-pointer hover:bg-slate-600">
+          {id}
+        </span>
+      )}
       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${typeBadge(item.type)}`}>{TYPE_LABELS[item.type] || item.type}</span>
       <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{dueStr}</span>
       <input
@@ -390,6 +423,7 @@ export default function Syllabus({ course, abbrev, code }) {
   const handleDelete = (item) => deleteContentItem(item.id)
   const handleSaveNote = (item, value) => updateContentItem(item.id, { description: value })
   const handleSaveLink = (item, calId) => updateContentItem(item.id, { calId })
+  const handleSaveId = (item, contentId) => updateContentItem(item.id, { contentId })
 
   return (
     <div className="border-t border-slate-100 pt-3 space-y-3">
@@ -402,7 +436,10 @@ export default function Syllabus({ course, abbrev, code }) {
       </div>
 
       <div>
-        <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Scheduled</p>
+        <div className="flex items-baseline justify-between">
+          <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Scheduled</p>
+          <span className="text-[9px] text-slate-300 mb-1">Each class gets a generated ID (e.g. ML1-L-01) · double-click an ID to view/change its calendar element</span>
+        </div>
         {scheduled.length === 0 && !adding && <p className="text-[11px] text-slate-300 italic">No classes yet — import your .ics files in the Calendar tab to auto-fill these.</p>}
         <div className="space-y-0.5">
           {scheduled.map((item) => {
@@ -433,7 +470,7 @@ export default function Syllabus({ course, abbrev, code }) {
             <DeadlineRow key={item.id} item={item}
               isEditing={editing?.id === item.id} editing={editing} setEditing={setEditing}
               onStartEdit={startEdit} onSaveEdit={saveEdit} onDelete={handleDelete}
-              onSaveNote={handleSaveNote} />
+              onSaveNote={handleSaveNote} onSaveId={handleSaveId} />
           ))}
         </div>
         {(adding?.mode === 'project' || adding?.mode === 'deadline') && (

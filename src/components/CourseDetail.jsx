@@ -2,6 +2,7 @@
 import { getStatus, getCourseStyle, colorToHex } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { nextDeadlineId } from '../utils/ids'
+import { deriveAbbrev } from '../drive/driveClient'
 import Syllabus from './Syllabus'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -187,7 +188,9 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
   const progress = estimatedHours > 0 ? Math.min((loggedHours / estimatedHours) * 100, 100) : null
 
   const [form, setForm] = useState({
-    abbrev: c.abbrev || '',
+    // Default to the derived abbreviation (never blank) so the field always
+    // shows the effective abbreviation and can simply be overwritten.
+    abbrev: c.abbrev || deriveAbbrev(c.course),
     code: c.code || '',
     ec: c.ec != null ? String(c.ec) : '',
     quartile: c.quartile || '',
