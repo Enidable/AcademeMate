@@ -251,12 +251,12 @@ export function deriveAbbrev(name) {
     'Natural Language Processing': 'NLP',
     'Professional and Personal Development': 'PPD',
     'Advanced Software Development for Robotics': 'ASDfR',
-    'Biomechanics of Human Movement': 'BMHM',
-    'Design Principles for Robotic and Mechatronic Mechanisms': 'DPPM',
+    'Biomechanics of Human Movement': 'BoHM',
+    'Design Principles for Robotic and Mechatronic Mechanisms': 'DDPM',
     'Modelling and Simulation': 'M&S',
-    'AI for Autonomous Robots': 'AAR',
-    'System Identification with Parameter Estimation and Machine Learning': 'SysID',
-    'Biomechatronics': 'BMT',
+    'AI for Autonomous Robots': 'AI4AR',
+    'System Identification with Parameter Estimation and Machine Learning': 'SiPEML',
+    'Biomechatronics': 'BioM',
   }
   if (customAbbrevs[name]) return customAbbrevs[name]
   const STOPWORDS = new Set(['of', 'and', 'for', 'the', 'a', 'an', 'in', 'on', 'to', 'with', 'at'])

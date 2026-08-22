@@ -15,14 +15,21 @@ export const CALENDAR_HEADER = 'date,start_time,end_time,all_day,summary,course_
 
 const splitHeader = h => h.split(',')
 
-export function serializeStudyLog(entries) {
+// course_id columns store the university course CODE (stable, present in every
+// .ics summary). Entries without a known code fall back to the course name.
+function courseIdFor(codeMap, course) {
+  if (!codeMap) return course || ''
+  return codeMap.get(course) || course || ''
+}
+
+export function serializeStudyLog(entries, codeMap) {
   const rows = (entries || []).map(e => [
     isoDateToDDMMYYYY(e.date),
     e.startTime || '',
     e.endTime || '',
     num(e.durationHours, 3),
     num(e.durationMinutes),
-    e.course || '',
+    courseIdFor(codeMap, e.course),
     e.category || '',
     e.project || '',
     e.location || '',
@@ -38,7 +45,7 @@ export function serializeStudyLog(entries) {
 
 export function serializeCourses(courses) {
   const rows = (courses || []).map(c => [
-    c.course || '',
+    c.code || c.course || '',
     c.course || '',
     c.code || '',
     c.abbrev || '',
@@ -57,14 +64,14 @@ export function serializeCourses(courses) {
   return [splitHeader(COURSES_HEADER), ...rows]
 }
 
-export function serializeGradeComponents(groups) {
+export function serializeGradeComponents(groups, codeMap) {
   const rows = []
   for (const g of groups || []) {
     for (const c of g.components || []) {
       const hasData = c.name || c.id || c.weight != null || c.grade != null || c.dueDate || c.hoursSpent != null || c.done
       if (!hasData) continue
       rows.push([
-        g.course || '',
+        courseIdFor(codeMap, g.course),
         c.name || c.id || (c.type && c.type !== 'other' ? c.type.charAt(0).toUpperCase() + c.type.slice(1) : ''),
         (c.type || 'other') === 'other' ? '' : c.type || '',
         num(c.weight, 2),
@@ -79,9 +86,9 @@ export function serializeGradeComponents(groups) {
   return [splitHeader(GRADE_COMPONENTS_HEADER), ...rows]
 }
 
-export function serializeContent(items) {
+export function serializeContent(items, codeMap) {
   const rows = (items || []).map(i => [
-    i.course || '',
+    courseIdFor(codeMap, i.course),
     i.course2 || '',
     i.contentId || i.lectureId || '',
     i.type === 'other' ? '' : i.type || '',
@@ -101,10 +108,10 @@ export function serializeContent(items) {
   return [splitHeader(CONTENT_HEADER), ...rows]
 }
 
-export function serializeDailyPlan(rows) {
+export function serializeDailyPlan(rows, codeMap) {
   const out = (rows || []).map(r => [
     isoDateToDDMMYYYY(r.date),
-    r.course || '',
+    courseIdFor(codeMap, r.course),
     r.task || '',
     num(r.plannedHours, 2),
     num(r.actualHours, 2),
@@ -124,14 +131,14 @@ export function serializeWeeklyOverrides(overrides) {
   return [splitHeader(WEEKLY_TOTALS_HEADER), ...rows]
 }
 
-export function serializeCalendar(events) {
+export function serializeCalendar(events, codeMap) {
   const rows = (events || []).map(e => [
     isoDateToDDMMYYYY(e.date),
     e.startTime || '',
     e.endTime || '',
     e.allDay ? '1' : '',
     e.summary || '',
-    e.course || '',
+    courseIdFor(codeMap, e.course),
     e.location || '',
     e.description || '',
     e.source || '',

@@ -24,14 +24,14 @@ const CSV_FILES = {
 
 // --- Study Log ------------------------------------------------------------
 
-function parseStudyLog(rows) {
+function parseStudyLog(rows, resolveCourse) {
   return rows
     .filter(r => (r.course_id || '').trim())
     .map((r, i) => {
       const durationHours = toFloat(r.duration_hours)
       const durationMinutes = toInt(r.duration_minutes)
       const date = parseDateDDMMYYYY((r.date || '').trim())
-      const course = (r.course_id || '').trim()
+      const course = resolveCourse((r.course_id || '').trim())
       return {
         id: `${date}|${course}|${(r.start_time || '').trim()}|${i}`,
         date,
@@ -92,7 +92,7 @@ function parseCourses(rows) {
     .filter(r => (r.course_id || '').trim())
     .map(r => ({
       id: (r.course_id || '').trim(),
-      course: (r.course_id || '').trim(),
+      course: (r.name || r.course_id || '').trim(),
       code: (r.code || '').trim() || null,
       abbrev: (r.abbrev || '').trim() || null,
       year: (r.year || '').trim() || null,
@@ -111,12 +111,24 @@ function parseCourses(rows) {
     })))
 }
 
+// course_id columns hold the university course code (new data) but historically
+// held the course name — resolve either back to the canonical course name.
+function resolveCourseFor(courses) {
+  const byName = new Map()
+  const byCode = new Map()
+  for (const c of courses) {
+    if (c.course) byName.set(c.course, c.course)
+    if (c.code) byCode.set(c.code, c.course)
+  }
+  return v => byName.get(v) || byCode.get(v) || v
+}
+
 // --- Grade Components -----------------------------------------------------
 
-function parseGradeComponents(rows) {
+function parseGradeComponents(rows, resolveCourse) {
   const map = {}
   for (const r of rows) {
-    const course = (r.course_id || '').trim()
+    const course = resolveCourse((r.course_id || '').trim())
     if (!course) continue
     if (!map[course]) {
       map[course] = { course, components: [], totalGrade: null, check: null }
@@ -154,7 +166,7 @@ function parseGradeComponents(rows) {
 
 const CONTENT_TYPES_SET = new Set(CONTENT_TYPES)
 
-function parseContent(rows) {
+function parseContent(rows, resolveCourse) {
   const urgencyFor = (marker, done) => {
     const m = (marker || '').trim().toLowerCase()
     if (done && String(done).toLowerCase() === 'done') return 'Complete'
@@ -166,7 +178,7 @@ function parseContent(rows) {
   return rows
     .filter(r => (r.content_id || r.topic || '').trim())
     .map(r => {
-      const course = (r.course_id || '').trim()
+      const course = resolveCourse((r.course_id || '').trim())
       const course2 = (r.course_2 || '').trim() || null
       const type = ((r.type || '').trim().toLowerCase())
       const topic = (r.topic || '').trim()
@@ -205,12 +217,12 @@ function parseContent(rows) {
 
 // --- Daily Plan (flat rows) ----------------------------------------------
 
-function parseDailyPlan(rows) {
+function parseDailyPlan(rows, resolveCourse) {
   return rows
     .filter(r => (r.date || '').trim() && (r.course_id || '').trim())
     .map(r => {
       const date = parseDateDDMMYYYY((r.date || '').trim())
-      const course = (r.course_id || '').trim()
+      const course = resolveCourse((r.course_id || '').trim())
       const task = (r.task || '').trim()
       return {
         id: `${date}|${course}|${task}`,
@@ -245,7 +257,7 @@ function parseWeeklyOverrides(rows) {
 
 // --- Calendar (flattened timetable events) -------------------------------
 
-function parseCalendar(rows) {
+function parseCalendar(rows, resolveCourse) {
   return rows
     .filter(r => (r.date || '').trim() && (r.summary || r.uid || '').trim())
     .map(r => {
@@ -257,7 +269,7 @@ function parseCalendar(rows) {
         endTime: (r.end_time || '').trim(),
         allDay: allDay === '1' || allDay.toLowerCase() === 'true',
         summary: (r.summary || '').trim(),
-        course: (r.course_id || '').trim() || null,
+        course: resolveCourse((r.course_id || '').trim()) || null,
         location: (r.location || '').trim() || null,
         description: (r.description || '').trim() || null,
         source: (r.source || '').trim() || null,
@@ -283,16 +295,17 @@ export function attachCourseGrades(courses, gradeComponents) {
 // rowsByTab maps canonical tab title -> 2D array (from Drive or bundled CSVs).
 export function parseAll(rowsByTab) {
   const courses = parseCourses(parseCSVRows(rowsByTab[TAB_COURSES] || []))
-  const gradeComponents = parseGradeComponents(parseCSVRows(rowsByTab[TAB_GRADES] || []))
+  const resolveCourse = resolveCourseFor(courses)
+  const gradeComponents = parseGradeComponents(parseCSVRows(rowsByTab[TAB_GRADES] || []), resolveCourse)
   attachCourseGrades(courses, gradeComponents)
   return {
-    studyLog: parseStudyLog(parseCSVRows(rowsByTab[TAB_STUDY_LOG] || [])),
+    studyLog: parseStudyLog(parseCSVRows(rowsByTab[TAB_STUDY_LOG] || []), resolveCourse),
     courses,
     gradeComponents,
-    content: parseContent(parseCSVRows(rowsByTab[TAB_CONTENT] || [])),
-    dailyPlan: parseDailyPlan(parseCSVRows(rowsByTab[TAB_DAILY] || [])),
+    content: parseContent(parseCSVRows(rowsByTab[TAB_CONTENT] || []), resolveCourse),
+    dailyPlan: parseDailyPlan(parseCSVRows(rowsByTab[TAB_DAILY] || []), resolveCourse),
     weeklyOverrides: parseWeeklyOverrides(parseCSVRows(rowsByTab[TAB_HOURS] || [])),
-    calendarEvents: parseCalendar(parseCSVRows(rowsByTab[TAB_CALENDAR] || [])),
+    calendarEvents: parseCalendar(parseCSVRows(rowsByTab[TAB_CALENDAR] || []), resolveCourse),
   }
 }
 

@@ -162,14 +162,16 @@ const TITLE_BY_KEY = {
 }
 
 function serializeTabByTitle(title, data, _planner) {
+  // course_id columns store the course code; map each course name to its code.
+  const codeMap = new Map((data?.courses || []).map(c => [c.course, c.code || null]))
   switch (title) {
-    case TAB_STUDY_LOG: return serializeStudyLog(data?.studyLog)
+    case TAB_STUDY_LOG: return serializeStudyLog(data?.studyLog, codeMap)
     case TAB_COURSES: return serializeCourses(data?.courses)
-    case TAB_GRADES: return serializeGradeComponents(data?.gradeComponents)
-    case TAB_CONTENT: return serializeContent(data?.content)
+    case TAB_GRADES: return serializeGradeComponents(data?.gradeComponents, codeMap)
+    case TAB_CONTENT: return serializeContent(data?.content, codeMap)
     case TAB_HOURS: return serializeWeeklyOverrides(data?.weeklyOverrides)
-    case TAB_DAILY: return serializeDailyPlan(data?.dailyPlan)
-    case TAB_CALENDAR: return serializeCalendar(data?.calendarEvents)
+    case TAB_DAILY: return serializeDailyPlan(data?.dailyPlan, codeMap)
+    case TAB_CALENDAR: return serializeCalendar(data?.calendarEvents, codeMap)
     default: return []
   }
 }
@@ -730,9 +732,10 @@ export function AppDataProvider({ children }) {
     const d = { ...(dataRef.current || {}), calendarEvents: merged, content: contentFinal }
     const planner = plannerRef.current || []
     setAll(d, planner)
+    const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
     await writeTabsBatch(info.fileId, {
-      [TAB_CALENDAR]: serializeCalendar(merged),
-      [TAB_CONTENT]: serializeContent(contentFinal),
+      [TAB_CALENDAR]: serializeCalendar(merged, codeMap),
+      [TAB_CONTENT]: serializeContent(contentFinal, codeMap),
     })
     return { imported: merged.length, files: files.length }
   }
@@ -879,9 +882,10 @@ export function AppDataProvider({ children }) {
       setData(d)
       const info = driveRef.current
       if (info) {
+        const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
         await writeTabsBatch(info.fileId, {
-          [TAB_CALENDAR]: serializeCalendar(merged),
-          [TAB_CONTENT]: serializeContent(content),
+          [TAB_CALENDAR]: serializeCalendar(merged, codeMap),
+          [TAB_CONTENT]: serializeContent(content, codeMap),
         })
       }
     }
@@ -909,7 +913,7 @@ export function AppDataProvider({ children }) {
     if (ym) courseData.year = ym[1]
     const updated = {
       ...prev,
-      courses: [...(prev.courses || []), { ...courseData, id: courseData.course, course: courseData.course }],
+      courses: [...(prev.courses || []), { ...courseData, id: courseData.code || courseData.course, course: courseData.course }],
     }
     const keys = ['courses']
     if (_gradeComponents && _gradeComponents.length > 0) {
@@ -972,11 +976,13 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     const { _gradeComponents, ...courseData } = course
     const prev = dataRef.current || {}
     const courses = [...(prev.courses || [])]
-    const idx = courses.findIndex(c => c.id === id)
+    // Match by the stored id (course code) or by name — callers pass both.
+    const idx = courses.findIndex(c => c.id === id || c.course === id)
     if (idx < 0) return
     const current = courses[idx]
     const name = courseData.course || current.course || id
-    const updated = { ...current, ...courseData, id: name, course: name }
+    const updated = { ...current, ...courseData, course: name }
+    updated.id = updated.code || name
     // The year is always derived from the start (or finish) date, so it is
     // never entered by hand.
     if (courseData.start != null || courseData.finish != null) {
