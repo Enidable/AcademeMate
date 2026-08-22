@@ -211,6 +211,9 @@ export default function DailyPlanner({ onLogTask }) {
       if (c === 'WORK' || c === 'Travel') workSet.add(c)
       else studySet.add(c)
     }
+    // Every currently-active course is listed by default (as an empty row you
+    // can plan into) — no need to add courses manually each week.
+    for (const c of activeSet) studySet.add(c)
     const study = [...studySet].sort((a, b) => ((activeSet.has(b) ? 1 : 0) - (activeSet.has(a) ? 1 : 0)) || a.localeCompare(b))
     const work = [...workSet]
     const hoursOf = r => r.plannedHours || r.actualHours || 0

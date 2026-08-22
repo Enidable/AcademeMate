@@ -215,7 +215,9 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
     : c.ec != null && c.ec > 0
       ? c.ec * avgHoursPerEC
       : loggedHours * 2
-  const progress = estimatedHours > 0 ? Math.min((loggedHours / estimatedHours) * 100, 100) : null
+  // A completed course's estimate matches what was actually invested (100%).
+  const effectiveEstimated = status === 'Completed' && loggedHours > estimatedHours ? loggedHours : estimatedHours
+  const progress = effectiveEstimated > 0 ? Math.min((loggedHours / effectiveEstimated) * 100, 100) : null
 
   const [form, setForm] = useState({
     // Default to the derived abbreviation (never blank) so the field always
@@ -274,7 +276,10 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
             <h2 className="font-semibold text-slate-800 text-base leading-tight truncate">{c.course}</h2>
             <div className="ml-auto flex items-center gap-2">
               <select value={status}
-                onChange={(e) => set({ status: e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed' })}
+                onChange={(e) => {
+                  const next = e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed'
+                  set(next === 'completed' && loggedHours > 0 ? { status: next, estHours: loggedHours } : { status: next })
+                }}
                 className={`text-xs px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${statusColors[status]}`}>
                 <option value="Planned">Planned</option>
                 <option value="In Progress">In Progress</option>
@@ -303,7 +308,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
                 </div>
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
                   <div className="text-[10px] text-slate-400">Est. required</div>
-                  <div className="text-slate-700 font-semibold">{estimatedHours.toFixed(0)}h</div>
+                  <div className="text-slate-700 font-semibold">{effectiveEstimated.toFixed(0)}h</div>
                 </div>
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
                   <div className="text-[10px] text-slate-400">Avg {avgHoursPerEC.toFixed(1)}h/EC</div>
@@ -315,7 +320,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
                   <div className="flex justify-between text-[10px] text-slate-400 mb-1">
                     <span>Progress</span>
-                    <span>{loggedHours.toFixed(0)} / {estimatedHours.toFixed(0)}h</span>
+                    <span>{loggedHours.toFixed(0)} / {effectiveEstimated.toFixed(0)}h</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-2">
                     <div className={`h-2 rounded-full transition-all ${style.progress || 'bg-slate-700'}`}

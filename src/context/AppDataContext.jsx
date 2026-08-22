@@ -332,6 +332,40 @@ export function AppDataProvider({ children }) {
   const weeklyRef = useRef([])
   const driveRef = useRef(null)
 
+  // Debounce Drive writes so rapid edits coalesce into ONE spreadsheet request
+  // instead of one per keystroke. Google Sheets rate-limits at ~60 writes/min
+  // per user; a burst of auto-saving edits used to trip 429 (Too Many Requests)
+  // and fail saves.
+  const syncTimers = useRef({})
+  async function performWrite(keys) {
+    if (!driveRef.current) return
+    setSyncing(true)
+    const data = dataRef.current
+    const planner = plannerRef.current
+    const titles = keys.map(k => TITLE_BY_KEY[k]).filter(Boolean)
+    const rowsByTab = {}
+    for (const title of titles) rowsByTab[title] = serializeTabByTitle(title, data, planner)
+    try {
+      await writeTabsBatch(driveRef.current.fileId, rowsByTab)
+    } catch (e) {
+      console.error(`Failed to save ${keys.join(', ')} to Drive:`, e)
+      setDriveError(`Could not save: ${e.message}`)
+      flashSaveMsg(`Save failed: ${e.message}`, 8000)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  function syncTabs(keys) {
+    if (!driveRef.current) return
+    const sig = keys.slice().sort().join('|')
+    if (syncTimers.current[sig]) clearTimeout(syncTimers.current[sig])
+    syncTimers.current[sig] = setTimeout(() => {
+      delete syncTimers.current[sig]
+      performWrite(keys)
+    }, 500)
+  }
+
   function setAll(d, p) {
     const wt = deriveWeeklyTotals(d.studyLog, d.weeklyOverrides)
     dataRef.current = d
@@ -348,24 +382,6 @@ export function AppDataProvider({ children }) {
     const u = getTokenUser(token)
     if (u?.email) return u
     return { email: '', name: 'Google user' }
-  }
-
-  function syncTabs(keys) {
-    if (!driveRef.current) return
-    setSyncing(true)
-    const data = dataRef.current
-    const planner = plannerRef.current
-    const titles = keys.map(k => TITLE_BY_KEY[k]).filter(Boolean)
-    const rowsByTab = {}
-    for (const title of titles) rowsByTab[title] = serializeTabByTitle(title, data, planner)
-    writeTabsBatch(driveRef.current.fileId, rowsByTab)
-      .then(() => flashSaveMsg('Saved to Drive ✓', 2500))
-      .catch(e => {
-        console.error(`Failed to save ${keys.join(', ')} to Drive:`, e)
-        setDriveError(`Could not save: ${e.message}`)
-        flashSaveMsg(`Save failed: ${e.message}`, 8000)
-      })
-      .finally(() => setSyncing(false))
   }
 
   // Fields a course row can silently lose when its Drive tab gets overwritten.

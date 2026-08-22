@@ -182,7 +182,12 @@ export default function Courses({ courses }) {
             : c.ec != null && c.ec > 0
               ? c.ec * avgHoursPerEC
               : loggedHours * 2
-          const progress = estimatedHours > 0 ? Math.min((loggedHours / estimatedHours) * 100, 100) : null
+          // A completed course's estimate matches what was actually invested, so
+          // the progress bar reads 100% instead of "still in progress".
+          const effectiveEstimated = status === 'Completed' && loggedHours > estimatedHours
+            ? loggedHours
+            : estimatedHours
+          const progress = effectiveEstimated > 0 ? Math.min((loggedHours / effectiveEstimated) * 100, 100) : null
           const gradeInfo = gradeMap[c.course]
           const scope = c.scope || ''
           const dragging = dragName === c.course
@@ -217,7 +222,15 @@ export default function Courses({ courses }) {
 
               <div className="flex items-center gap-1.5 shrink-0">
                 <select value={status}
-                  onChange={e => setCourse(c.id, { status: e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed' })}
+                  onChange={e => {
+                    const nextStatus = e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed'
+                    // Marking a course completed sets its estimate to the hours
+                    // actually invested, so estimate and progress match (100%).
+                    const patch = nextStatus === 'completed' && loggedHours > 0
+                      ? { status: nextStatus, estHours: loggedHours }
+                      : { status: nextStatus }
+                    setCourse(c.id, patch)
+                  }}
                   title="Mark as planned, active (in progress) or completed"
                   className={`text-[11px] px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${statusColors[status]}`}>
                   <option value="Planned">Planned</option>
@@ -241,13 +254,13 @@ export default function Courses({ courses }) {
               <div className="flex items-center gap-3 text-[11px] text-slate-500 shrink-0">
                 <span><span className="text-slate-400">Hours </span><span className="font-medium text-slate-700">{loggedHours.toFixed(1)}</span></span>
                 <span><span className="text-slate-400">Grade </span><span className={`font-medium ${c.grade != null ? 'text-slate-700' : 'text-slate-400'}`}>{c.grade != null ? c.grade.toFixed(3) : (gradeInfo?.totalGrade != null ? gradeInfo.totalGrade.toFixed(3) : '—')}</span></span>
-                <span><span className="text-slate-400">Est </span><span className="font-medium text-slate-700">{estimatedHours.toFixed(0)}h</span></span>
+                <span><span className="text-slate-400">Est </span><span className="font-medium text-slate-700">{effectiveEstimated.toFixed(0)}h</span></span>
                 <span><span className="text-slate-400">EC </span><span className="font-medium text-slate-700">{c.ec != null ? c.ec : '—'}</span></span>
                 <span><span className="text-slate-400">Avg/EC </span><span className="font-medium text-slate-700">{c.ec != null && c.ec > 0 ? `${(loggedHours / c.ec).toFixed(1)}` : '—'}</span></span>
               </div>
 
               {progress != null && (
-                <div className="sm:w-24 shrink-0" title={`${loggedHours.toFixed(0)} / ${estimatedHours.toFixed(0)}h`}>
+                <div className="sm:w-24 shrink-0" title={`${loggedHours.toFixed(0)} / ${effectiveEstimated.toFixed(0)}h`}>
                   <div className="w-full bg-slate-100 rounded-full h-1.5">
                     <div className={`h-1.5 rounded-full transition-all ${style.progress || 'bg-slate-700'}`}
                       style={{ width: `${Math.min(progress, 100)}%`, ...style.progressCss }} />
