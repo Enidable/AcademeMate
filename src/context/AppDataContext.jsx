@@ -125,12 +125,32 @@ function synthCourses(parsed) {
   }
 }
 
+// Remove exact-duplicate syllabus rows (same course + component ID + date/
+// deadline) — earlier bugs wrote the same deadline twice. The row with more
+// user content (description/hours/done) wins.
+function dedupeContent(items) {
+  const seen = new Map()
+  const out = []
+  const score = it => ((it.description && it.description.trim()) ? 2 : 0) + (it.hoursSpent ? 1 : 0) + ((it.done || '').trim() ? 1 : 0)
+  for (const i of items || []) {
+    const k = `${i.course || ''}|${i.contentId || ''}|${i.date || ''}|${i.deadline || ''}`
+    const existing = seen.get(k)
+    if (!existing) { seen.set(k, i); out.push(i); continue }
+    if (score(i) > score(existing)) {
+      out[out.indexOf(existing)] = i
+      seen.set(k, i)
+    }
+  }
+  return out
+}
+
 function buildState(rowsByTab) {
   const data = parseAll(rowsByTab)
   // Drop garbage rows created by earlier bugs: a "course" whose name is purely
   // the numeric course code (e.g. "191211110" next to the real "Modelling and
   // Simulation"). The next Courses write removes them from Drive for good.
   data.courses = (data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
+  data.content = dedupeContent(data.content)
   synthCourses(data)
   linkGradeComponents(data)
   const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides)
@@ -363,17 +383,18 @@ export function AppDataProvider({ children }) {
 
   // Drive is the source of truth, but a course that only exists in the last
   // known-good localStorage snapshot (its row was dropped from Drive at some
-  // point) is re-added with its stored metadata, so nothing silently vanishes
-  // and colours/abbreviations survive. Drive values always win on conflicts.
+  // point) is re-added with its stored metadata. Drive values win on conflicts.
+  // Numeric-named "courses" (unresolved codes) are never re-added — they are
+  // corruption, not real courses.
   function healCoursesFromLocal(d, savedLocal) {
     const local = savedLocal?.data?.courses
     if (!Array.isArray(local) || local.length === 0) return
-    fillCourseGaps(d, local)
+    fillCourseGaps(d, local.filter(c => c && !/^\d{5,9}$/.test(String(c.course || ''))))
     const byName = new Map((d.courses || []).map(c => [c.course, c]))
     for (const c of local) {
-      if (!c?.course || byName.has(c.course)) continue
+      if (!c?.course || byName.has(c.course) || /^\d{5,9}$/.test(String(c.course))) continue
       byName.set(c.course, c)
-      d.courses.push({ ...c, id: c.course, course: c.course })
+      d.courses.push({ ...c, id: c.code || c.course, course: c.course })
     }
   }
 
@@ -393,27 +414,25 @@ export function AppDataProvider({ children }) {
     await fillCourseGapsFromTemplate(d)
   }
 
-  // Recover syllabus content that only exists in the last-known-good
-  // localStorage snapshot (e.g. a Drive write failed): merge newer local
-  // notes/hours/done onto matching Drive rows, and re-add rows Drive is missing
-  // entirely. Intentional deletions are never resurrected (they remove the row
-  // from localStorage too).
+  // Merge user content from the last-known-good localStorage onto the matching
+  // Drive row (match by course + component ID) so a failed Drive write doesn't
+  // lose notes/hours. NEVER creates rows — pushing duplicates is what corrupted
+  // the Course Content tab before.
   function healContentFromLocal(d, savedLocal) {
     const local = savedLocal?.data?.content
     if (!Array.isArray(local) || local.length === 0) return
-    const byKey = new Map()
-    const keyOf = i => `${i.course || ''}|${i.contentId || ''}|${i.date || ''}|${i.deadline || ''}`
-    for (const i of d.content || []) byKey.set(keyOf(i), i)
+    const driveById = new Map()
+    for (const i of d.content || []) {
+      if (!i.course) continue
+      const k = `${i.course}|${i.contentId || ''}`
+      if (!driveById.has(k)) driveById.set(k, i)
+    }
     for (const l of local) {
       if (!l.course) continue
-      const key = keyOf(l)
-      const existing = byKey.get(key)
-      if (existing) {
-        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done']) {
-          if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
-        }
-      } else {
-        d.content.push({ ...l })
+      const existing = driveById.get(`${l.course}|${l.contentId || ''}`)
+      if (!existing) continue
+      for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done']) {
+        if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
       }
     }
   }
@@ -1105,7 +1124,10 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     const courses = [...(prev.courses || [])]
     // Match by the stored id (course code) or by name — callers pass both.
     const idx = courses.findIndex(c => c.id === id || c.course === id)
-    if (idx < 0) return
+    if (idx < 0) {
+      console.warn('updateCourse: no course matched for', id)
+      return
+    }
     const current = courses[idx]
     const name = courseData.course || current.course || id
     const updated = { ...current, ...courseData, course: name }
@@ -1170,12 +1192,11 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     syncTabs(keys)
   }
 
-  function updateContentItem(id, payload) {
+  function updateContentItem(id, payload, fallback = null) {
     let matched = null
     const prev = dataRef.current || {}
-    const content = (prev.content || []).map(i => {
-      if (i.id !== id) return i
-      const updated = { ...i, id }
+    const apply = (i) => {
+      const updated = { ...i }
       if (payload.course != null) updated.course = payload.course
       if (payload.description != null) {
         updated.topic = payload.description
@@ -1209,9 +1230,22 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         updated.marker = (payload.urgency === 'High' || payload.urgency === 'Extremely High') ? 'important' : ''
       }
       if (payload.done != null) updated.done = payload.done
-      matched = updated
       return updated
+    }
+    let content = (prev.content || []).map(i => {
+      if (i.id !== id) return i
+      matched = apply(i)
+      return matched
     })
+    // Fallback: match by (course + contentId) — robust against the compound id
+    // drifting after an import. Applies to every matching row.
+    if (!matched && fallback?.course) {
+      content = (prev.content || []).map(i => {
+        if (i.course !== fallback.course || i.contentId !== fallback.contentId) return i
+        matched = apply(i)
+        return matched
+      })
+    }
 
     // Keep the grade component of the same course linked: when the syllabus
     // item's id or type changes, mirror it on the matching component (matched
@@ -1227,6 +1261,10 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         if (payload.contentId != null) g2.id = payload.contentId
         return g2
       })
+    }
+
+    if (!matched) {
+      console.warn('updateContentItem: no content row matched', { id, fallback })
     }
 
     const updated = { ...prev, content, gradeComponents }

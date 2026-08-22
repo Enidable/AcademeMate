@@ -451,7 +451,7 @@ export default function Syllabus({ course, abbrev, code }) {
       } else {
         payload.deadline = e.date || null
       }
-      updateContentItem(e.id, payload)
+      updateContentItem(e.id, payload, { course, contentId: e.contentId || null })
     } catch (err) {
       console.error('Failed to save syllabus edit:', err)
     } finally {
@@ -463,9 +463,9 @@ export default function Syllabus({ course, abbrev, code }) {
     try { fn(...args) } catch (err) { console.error('Failed to save:', err) }
   }
   const handleDelete = (item) => deleteContentItem(item.id)
-  const handleSaveNote = guard((item, value) => updateContentItem(item.id, { description: value }))
-  const handleSaveLink = guard((item, calId) => updateContentItem(item.id, { calId }))
-  const handleSaveId = guard((item, contentId) => updateContentItem(item.id, { contentId }))
+  const handleSaveNote = guard((item, value) => updateContentItem(item.id, { description: value }, { course: item.course, contentId: item.contentId }))
+  const handleSaveLink = guard((item, calId) => updateContentItem(item.id, { calId }, { course: item.course, contentId: item.contentId }))
+  const handleSaveId = guard((item, contentId) => updateContentItem(item.id, { contentId }, { course: item.course, contentId }))
 
   return (
     <div className="border-t border-slate-100 pt-3 space-y-3">
