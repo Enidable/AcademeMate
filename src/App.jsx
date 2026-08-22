@@ -20,7 +20,7 @@ const pages = {
 
 function AppContent() {
   const [active, setActive] = useState('Dashboard')
-  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, driveError, pushCalendarToGoogle } = useAppData()
+  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, saveMsg, driveError, pushCalendarToGoogle } = useAppData()
   const [modal, setModal] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionPreset, setSessionPreset] = useState(null)
@@ -93,6 +93,13 @@ function AppContent() {
       <DriveSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
+        {saveMsg && (
+          <span className={`text-xs rounded-full px-3 py-2 shadow-sm max-w-[22rem] ${saveMsg.startsWith('Save failed')
+            ? 'text-red-700 bg-red-50 border border-red-200'
+            : 'text-emerald-700 bg-emerald-50 border border-emerald-200'}`}>
+            {saveMsg}
+          </span>
+        )}
         {syncMsg && (
           <span className={`text-xs rounded-full px-3 py-2 shadow-sm max-w-[20rem] ${syncMsg.startsWith('Sync failed')
             ? 'text-red-700 bg-red-50 border border-red-200'

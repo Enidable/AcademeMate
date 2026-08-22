@@ -319,6 +319,13 @@ export function AppDataProvider({ children }) {
   const [drive, setDrive] = useState(null)
   const [syncing, setSyncing] = useState(false)
   const [driveError, setDriveError] = useState(null)
+  const [saveMsg, setSaveMsg] = useState(null)
+  let saveTimer = null
+  const flashSaveMsg = (msg, ms) => {
+    setSaveMsg(msg)
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => setSaveMsg(null), ms)
+  }
 
   const dataRef = useRef(null)
   const plannerRef = useRef([])
@@ -352,9 +359,11 @@ export function AppDataProvider({ children }) {
     const rowsByTab = {}
     for (const title of titles) rowsByTab[title] = serializeTabByTitle(title, data, planner)
     writeTabsBatch(driveRef.current.fileId, rowsByTab)
+      .then(() => flashSaveMsg('Saved to Drive ✓', 2500))
       .catch(e => {
         console.error(`Failed to save ${keys.join(', ')} to Drive:`, e)
         setDriveError(`Could not save: ${e.message}`)
+        flashSaveMsg(`Save failed: ${e.message}`, 8000)
       })
       .finally(() => setSyncing(false))
   }
@@ -1552,6 +1561,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       error,
       drive,
       syncing,
+      saveMsg,
       driveError,
       hasDrive: !!drive,
       connectToDrive,
