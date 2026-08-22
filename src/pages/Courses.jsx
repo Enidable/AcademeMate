@@ -19,6 +19,8 @@ const quartileColors = {
 
 const TYPE_LABELS = { exam: 'Exam', assignment: 'Assignment', presentation: 'Presentation', project: 'Project', quiz: 'Quiz', other: 'Other' }
 
+const COMPONENT_COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#eab308', '#3b82f6', '#f97316', '#a855f7', '#22c55e']
+
 export default function Courses({ courses }) {
   const { inputLog, gradeComponents, deleteCourse, updateCourse, reorderCourses } = useAppData()
   const [editing, setEditing] = useState(null)
@@ -194,114 +196,86 @@ export default function Courses({ courses }) {
               onDragEnd={onDrop}
               onDoubleClick={() => setViewing(c.course)}
               title="Double-click to open the course page"
-              className={`rounded-lg border ${style.border || 'border-slate-200'} ${style.soft} p-3 flex flex-col gap-2.5 min-h-[200px] transition-opacity ${dragging ? 'opacity-40' : ''}`}
+              className={`rounded-lg border ${style.border || 'border-slate-200'} ${style.soft} p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center transition-opacity ${dragging ? 'opacity-40' : ''}`}
               style={{ ...style.softCss, ...style.borderCss }}>
 
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-start gap-2 min-w-0">
-                  <input type="color" value={colorVal}
-                    onChange={e => setCourse(c.id, { color: e.target.value })}
-                    title="Pick any colour"
-                    className="w-4 h-4 rounded-full mt-1 cursor-pointer border-0 p-0 bg-transparent shrink-0" />
-                  <div className="min-w-0">
-                    <h3 className="font-semibold text-slate-800 text-sm leading-tight" title={c.course}>
-                      {truncate(c.course, 45)}
-                    </h3>
-                    <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
-                      {c.abbrev && <span>{c.abbrev}</span>}
-                      {c.ec != null && <span>{c.ec} EC</span>}
-                      {c.year && !c.quartile && <span>{c.year}</span>}
-                    </div>
+              <div className="flex items-center gap-2 sm:flex-1 sm:min-w-0">
+                <input type="color" value={colorVal}
+                  onChange={e => setCourse(c.id, { color: e.target.value })}
+                  title="Pick any colour"
+                  className="w-4 h-4 rounded-full cursor-pointer border-0 p-0 bg-transparent shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-slate-800 text-sm leading-tight" title={c.course}>{truncate(c.course, 60)}</h3>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                    {c.abbrev && <span>{c.abbrev}</span>}
+                    {c.ec != null && <span>{c.ec} EC</span>}
+                    {c.year && !c.quartile && <span>{c.year}</span>}
                   </div>
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <select value={status}
-                    onChange={e => setCourse(c.id, { status: e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed' })}
-                    title="Mark as planned, active (in progress) or completed"
-                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${statusColors[status]}`}>
-                    <option value="Planned">Planned</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Completed">Completed</option>
-                  </select>
-                  <select value={scope.toLowerCase() || 'curriculum'}
-                    onChange={e => setCourse(c.id, { scope: e.target.value })}
-                    title="Curriculum or extra course"
-                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${scope === 'extra' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'}`}>
-                    <option value="curriculum">Curriculum</option>
-                    <option value="extra">Extra</option>
-                  </select>
-                  {c.quartile && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${quartileColors[c.quartile] || 'bg-slate-100 text-slate-600'}`}>
-                      {c.quartile}{c.year ? ` · ${c.year}` : ''}
-                    </span>
-                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-2 text-center">
-                <div>
-                  <div className="text-[10px] text-slate-400">Hours</div>
-                  <div className="text-slate-700 font-medium text-sm">{loggedHours.toFixed(1)}h</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-400">Grade</div>
-                  <div className={`font-medium text-sm ${c.grade != null ? 'text-slate-700' : 'text-slate-400'}`}>
-                    {c.grade != null ? c.grade.toFixed(3) : (gradeInfo?.totalGrade != null ? gradeInfo.totalGrade.toFixed(3) : '—')}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-400">Est.</div>
-                  <div className="text-slate-700 font-medium text-sm">{estimatedHours.toFixed(0)}h</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-400">Avg</div>
-                  <div className="text-slate-700 font-medium text-sm">{c.ec != null && c.ec > 0 ? `${(loggedHours / c.ec).toFixed(1)}` : '—'}</div>
-                </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <select value={status}
+                  onChange={e => setCourse(c.id, { status: e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed' })}
+                  title="Mark as planned, active (in progress) or completed"
+                  className={`text-[11px] px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${statusColors[status]}`}>
+                  <option value="Planned">Planned</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Completed">Completed</option>
+                </select>
+                <select value={scope.toLowerCase() || 'curriculum'}
+                  onChange={e => setCourse(c.id, { scope: e.target.value })}
+                  title="Curriculum or extra course"
+                  className={`text-[11px] px-2 py-0.5 rounded-full cursor-pointer border-0 focus:outline-none ${scope === 'extra' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'}`}>
+                  <option value="curriculum">Curriculum</option>
+                  <option value="extra">Extra</option>
+                </select>
+                {c.quartile && (
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full ${quartileColors[c.quartile] || 'bg-slate-100 text-slate-600'}`}>
+                    {c.quartile}{c.year ? ` · ${c.year}` : ''}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 text-[11px] text-slate-500 shrink-0">
+                <span><span className="text-slate-400">Hours </span><span className="font-medium text-slate-700">{loggedHours.toFixed(1)}</span></span>
+                <span><span className="text-slate-400">Grade </span><span className={`font-medium ${c.grade != null ? 'text-slate-700' : 'text-slate-400'}`}>{c.grade != null ? c.grade.toFixed(3) : (gradeInfo?.totalGrade != null ? gradeInfo.totalGrade.toFixed(3) : '—')}</span></span>
+                <span><span className="text-slate-400">Est </span><span className="font-medium text-slate-700">{estimatedHours.toFixed(0)}h</span></span>
+                <span><span className="text-slate-400">Avg </span><span className="font-medium text-slate-700">{c.ec != null && c.ec > 0 ? `${(loggedHours / c.ec).toFixed(1)}` : '—'}</span></span>
               </div>
 
               {progress != null && (
-                <div>
-                  <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                    <span>Progress</span>
-                    <span>{loggedHours.toFixed(0)} / {estimatedHours.toFixed(0)}h</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div className={`h-2 rounded-full transition-all ${style.progress || 'bg-slate-700'}`}
+                <div className="sm:w-24 shrink-0" title={`${loggedHours.toFixed(0)} / ${estimatedHours.toFixed(0)}h`}>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5">
+                    <div className={`h-1.5 rounded-full transition-all ${style.progress || 'bg-slate-700'}`}
                       style={{ width: `${Math.min(progress, 100)}%`, ...style.progressCss }} />
                   </div>
                 </div>
               )}
 
-              <div className="mt-auto">
-                {gradeInfo && gradeInfo.components.length > 0 ? (
-                  <div>
-                    <div className="flex h-2.5 rounded-full overflow-hidden bg-slate-100">
-                      {gradeInfo.components.map((comp, idx) => {
-                        const totalW = gradeInfo.components.reduce((s, x) => s + (parseFloat(x.weight) || 0), 0)
-                        const pct = totalW > 0 ? (parseFloat(comp.weight) || 0) / totalW * 100 : 100 / gradeInfo.components.length
-                        const isExam = comp.type === 'exam'
-                        const bg = isExam ? '#ef4444' : ((style.dotCss && style.dotCss.backgroundColor) || '#64748b')
-                        return <div key={idx} style={{ width: `${pct}%`, backgroundColor: bg }} title={(comp.id || TYPE_LABELS[comp.type] || 'Assignment') + (comp.weight != null ? ` ${(comp.weight * 100).toFixed(0)}%` : '')} />
-                      })}
-                    </div>
-                    {gradeInfo.totalGrade != null && (
-                      <div className="text-[10px] font-medium text-slate-500 mt-1">Weighted {gradeInfo.totalGrade.toFixed(3)}</div>
-                    )}
+              {gradeInfo && gradeInfo.components.length > 0 ? (
+                <div className="sm:w-44 shrink-0" title="Grade component weights">
+                  <div className="flex h-2.5 rounded-full overflow-hidden bg-slate-100">
+                    {gradeInfo.components.map((comp, idx) => {
+                      const totalW = gradeInfo.components.reduce((s, x) => s + (parseFloat(x.weight) || 0), 0)
+                      const pct = totalW > 0 ? (parseFloat(comp.weight) || 0) / totalW * 100 : 100 / gradeInfo.components.length
+                      const isExam = comp.type === 'exam'
+                      const bg = isExam ? '#ef4444' : COMPONENT_COLORS[idx % COMPONENT_COLORS.length]
+                      return <div key={idx} style={{ width: `${pct}%`, backgroundColor: bg }} title={(comp.id || TYPE_LABELS[comp.type] || 'Assignment') + (comp.weight != null ? ` ${(comp.weight * 100).toFixed(0)}%` : '')} />
+                    })}
                   </div>
-                ) : (
-                  <p className="text-[11px] text-slate-300 italic">No grade components</p>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="sm:w-44 shrink-0 text-[11px] text-slate-300 italic">No grade components</div>
+              )}
 
-              <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+              <div className="flex items-center gap-3 sm:ml-auto shrink-0">
                 <button onClick={() => setViewing(c.course)}
                   className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer">
                   Open →
                 </button>
-                <div className="flex items-center gap-2">
-                  {sortBy === 'custom' && <span className="text-[10px] text-slate-300 cursor-grab" title="Drag to reorder">⠿</span>}
-                  <button onClick={() => { if (window.confirm(`Delete course "${c.course}"? This also removes its grade components, syllabus items, study-log entries and planner to-dos.`)) deleteCourse(c.course) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">Delete</button>
-                </div>
+                {sortBy === 'custom' && <span className="text-[10px] text-slate-300 cursor-grab" title="Drag to reorder">⠿</span>}
+                <button onClick={() => { if (window.confirm(`Delete course "${c.course}"? This also removes its grade components, syllabus items, study-log entries and planner to-dos.`)) deleteCourse(c.course) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">Delete</button>
               </div>
             </div>
           )
