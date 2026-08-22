@@ -14,6 +14,8 @@
 // The abbreviation is mandatory when a course is created; code/derived
 // abbreviation is the fallback. Spaces in the base are replaced with dashes.
 
+import { deriveAbbrev } from '../drive/driveClient'
+
 // Only scheduled session types carry a letter. Everything else (projects,
 // assessments, etc.) is a plain number or (for exams) {ABBR}E{NN}.
 export const TYPE_LETTER = {
@@ -28,6 +30,8 @@ export const TYPE_LETTER = {
   // Calendar exam events are scheduled occurrences, so they get a distinct
   // letter to avoid colliding with grade-component exam IDs (ABBR-E-NN).
   exam: 'E',
+  'exam review': 'E',
+  resit: 'E',
 }
 
 export function typeLetter(type) {
@@ -39,18 +43,11 @@ function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// The prefix used to build IDs: the course's abbreviation when set, else the
-// course code, else a derived abbreviation (never the full course name).
+// The prefix used to build IDs: the course's abbreviation when set, else a
+// derived abbreviation (initials / known short form), never the numeric course
+// code — so IDs stay readable (ML1-L-01), not code-based (202200112-L-01).
 export function idBase(course, abbrev, code) {
-  return (abbrev || code || deriveAbbrevFallback(course)).replace(/\s+/g, '-')
-}
-
-// Local fallback so this module has no hard dependency on driveClient.
-function deriveAbbrevFallback(name) {
-  if (!name) return 'COURSE'
-  const words = String(name).trim().split(/\s+/).filter((w) => w.length > 1)
-  const initials = (words.map((w) => w[0]).join('') || String(name).slice(0, 4)).toUpperCase()
-  return initials.slice(0, 8)
+  return (abbrev || deriveAbbrev(course) || code).replace(/\s+/g, '-')
 }
 
 // Next scheduled ID for a course: {abbrev}-{LETTER}-{NN}. One incremental

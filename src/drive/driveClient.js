@@ -238,7 +238,8 @@ export function inferEventType(summary, description = '') {
 }
 
 // Short identifier for a course when no abbreviation or code is on file:
-// the initials of the significant words (e.g. "AI for Autonomous Robots" -> "AAR").
+// the initials of the significant words, skipping filler words
+// (e.g. "AI for Autonomous Robots" -> "AAR").
 export function deriveAbbrev(name) {
   if (!name) return 'COURSE'
   // User-defined abbreviations take precedence
@@ -249,11 +250,21 @@ export function deriveAbbrev(name) {
     'Statistics and Probability': 'S&P',
     'Natural Language Processing': 'NLP',
     'Professional and Personal Development': 'PPD',
+    'Advanced Software Development for Robotics': 'ASDfR',
+    'Biomechanics of Human Movement': 'BMHM',
+    'Design Principles for Robotic and Mechatronic Mechanisms': 'DPPM',
+    'Modelling and Simulation': 'M&S',
+    'AI for Autonomous Robots': 'AAR',
+    'System Identification with Parameter Estimation and Machine Learning': 'SysID',
+    'Biomechatronics': 'BMT',
   }
   if (customAbbrevs[name]) return customAbbrevs[name]
-  const words = String(name).trim().split(/\s+/).filter(w => w.length > 1)
-  const initials = (words.map(w => w[0]).join('') || String(name).slice(0, 4)).toUpperCase()
-  return initials.slice(0, 8)
+  const STOPWORDS = new Set(['of', 'and', 'for', 'the', 'a', 'an', 'in', 'on', 'to', 'with', 'at'])
+  const words = String(name).trim().split(/\s+/).map(w => w.replace(/[^a-z0-9]/gi, '')).filter(w => w.length > 1 && !STOPWORDS.has(w.toLowerCase()))
+  let initials = words.map(w => w[0]).join('')
+  if (!initials) initials = String(name).replace(/[^a-z0-9]/gi, '').slice(0, 4)
+  else if (words.length === 1) initials = words[0].slice(0, 4)
+  return initials.toUpperCase().slice(0, 8)
 }
 
 // Fallback colour (1-11) for a course name when the push's per-course colour

@@ -223,8 +223,9 @@ function assignLectureIds(rows, courses) {
     groups[r.course].push(r)
   }
   for (const [courseName, evs] of Object.entries(groups)) {
-    const c = courseById[courseName]
-    const abbrev = (c?.abbrev || c?.code || deriveAbbrev(courseName)).replace(/\s+/g, '-')
+    const c = courseById[courseName] || {}
+    // Readable abbreviation (stored or derived) over the numeric code.
+    const abbrev = (c.abbrev || deriveAbbrev(courseName) || c.code).replace(/\s+/g, '-')
     // One incremental sequence per course across ALL scheduled types
     // (ML1-L-01, then a practical becomes ML1-P-02). Both the current
     // (ABBR-L-01) and legacy (ABBR-L01) formats are matched so a re-import
@@ -610,66 +611,128 @@ export function AppDataProvider({ children }) {
     // Log each scheduled lecture/tutorial/practical into the course's syllabus
     // (Course Content) so every class gets a numbered entry the user only has
     // to give a description to. Re-imports refresh dates/ids but keep the
-    // manually written description. Content created before the ID scheme
-    // (whose contentId is the old raw calendar title) is matched via its
-    // calendar element and re-keyed to the generated lecture ID, so the ID list
-    // and the calendar elements never show up as separate duplicates.
+    // manually written description.
+    //
+    // Reconciliation rules (so re-imports converge instead of piling up):
+    //   • an existing entry is matched by lecture ID, then by its calendar
+    //     element (cal_id), then by occurrence (date+start) — duplicates of the
+    //     same element/occurrence are dropped and the survivor is re-keyed to
+    //     the generated lecture ID;
+    //   • exam, exam review and resit events of a course collapse into ONE exam
+    //     entry (they are the same exam), old separate entries are removed.
+    const EX = new Set(['exam', 'exam review', 'resit'])
     const existingContent = dataRef.current?.content || []
     const contentByLecture = new Map()
     const contentByCal = new Map()
+    const contentByOccurrence = new Map()
+    const addTo = (map, key, item) => {
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(item)
+    }
     for (const i of existingContent) {
-      if (i.course && i.contentId) contentByLecture.set(`${i.course}|${i.contentId}`, i)
-      if (i.course && i.calId) contentByCal.set(`${i.course}|${i.calId}`, i)
+      if (!i.course) continue
+      if (i.contentId) contentByLecture.set(`${i.course}|${i.contentId}`, i)
+      if (i.calId) addTo(contentByCal, `${i.course}|${i.calId}`, i)
+      if (i.date) addTo(contentByOccurrence, `${i.course}|${i.date}|${i.start || ''}`, i)
     }
     const content = [...existingContent]
-    for (const r of merged) {
-      if (!r.lectureId || !r.course) continue
-      let item = contentByLecture.get(`${r.course}|${r.lectureId}`)
-      if (!item && r.calId) item = contentByCal.get(`${r.course}|${r.calId}`)
-      if (item) {
-        if (item.contentId !== r.lectureId) {
-          item.contentId = r.lectureId
-          item.id = `${r.course}||${r.lectureId}|${r.date}||${item.topic || r.lectureId}`
-          contentByLecture.set(`${r.course}|${r.lectureId}`, item)
-        }
-        item.date = r.date
-        item.start = r.startTime || ''
-        item.end = r.endTime || ''
-        item.calId = r.calId
-      } else {
-        const type = inferEventType(r.summary, r.description)
-        const topic = r.summary || r.lectureId
-        content.push({
-          id: `${r.course}||${r.lectureId}|${r.date}||${topic}`,
-          course: r.course,
-          course2: null,
-          contentId: r.lectureId,
-          type,
-          topic,
-          description: topic,
-          date: r.date,
-          deadline: null,
-          start: r.startTime || '',
-          end: r.endTime || '',
-          marker: null,
-          location: r.location || null,
-          hoursSpent: null,
-          materialHours: null,
-          content: null,
-          calId: r.calId,
-          done: '',
-          urgency: 'Medium',
-          time: 0,
-        })
+    const consumed = new Set()
+
+    const makeItem = (r, type) => {
+      const topic = r.summary || r.lectureId
+      return {
+        id: `${r.course}||${r.lectureId}|${r.date}||${topic}`,
+        course: r.course,
+        course2: null,
+        contentId: r.lectureId,
+        type,
+        topic,
+        description: topic,
+        date: r.date,
+        deadline: null,
+        start: r.startTime || '',
+        end: r.endTime || '',
+        marker: null,
+        location: r.location || null,
+        hoursSpent: null,
+        materialHours: null,
+        content: null,
+        calId: r.calId,
+        done: '',
+        urgency: 'Medium',
+        time: 0,
       }
     }
 
-    const d = { ...(dataRef.current || {}), calendarEvents: merged, content }
+    // Reuse (or create) the syllabus entry for one calendar event, deduplicating
+    // against every existing entry that points at the same element/occurrence.
+    // Returns the kept entry (the re-keyed existing one or the freshly created
+    // one) so callers can exclude it from later clean-up.
+    const reconcile = (r, type) => {
+      if (!r.lectureId || !r.course) return null
+      const candidates = []
+      const seen = new Set()
+      const consider = i => { if (i && !seen.has(i.id)) { seen.add(i.id); candidates.push(i) } }
+      consider(contentByLecture.get(`${r.course}|${r.lectureId}`))
+      if (r.calId) for (const i of contentByCal.get(`${r.course}|${r.calId}`) || []) consider(i)
+      for (const i of contentByOccurrence.get(`${r.course}|${r.date}|${r.startTime}`) || []) consider(i)
+      const chosen = candidates.find(i => !consumed.has(i.id))
+      for (const c of candidates) if (c !== chosen) consumed.add(c.id)
+      if (chosen) {
+        if (chosen.contentId !== r.lectureId) {
+          chosen.contentId = r.lectureId
+          chosen.id = `${r.course}||${r.lectureId}|${r.date}||${chosen.topic || r.lectureId}`
+          contentByLecture.set(`${r.course}|${r.lectureId}`, chosen)
+        }
+        chosen.date = r.date
+        chosen.start = r.startTime || ''
+        chosen.end = r.endTime || ''
+        chosen.calId = r.calId
+        chosen.type = type
+        return chosen
+      }
+      const fresh = makeItem(r, type)
+      content.push(fresh)
+      return fresh
+    }
+
+    // Pick one representative event per course for the exam family (prefer the
+    // actual exam, else the earliest of review/resit).
+    const examRep = new Map()
+    for (const r of merged) {
+      if (!r.course) continue
+      const t = inferEventType(r.summary, r.description)
+      if (!EX.has(t)) continue
+      const cur = examRep.get(r.course)
+      const curIsExam = cur ? inferEventType(cur.summary, cur.description) === 'exam' : false
+      const take = !cur || (t === 'exam' && !curIsExam) || (t !== 'exam' && !curIsExam && r.date < cur.date)
+      if (take) examRep.set(r.course, r)
+    }
+
+    for (const r of merged) {
+      if (!r.lectureId || !r.course) continue
+      const type = inferEventType(r.summary, r.description)
+      if (EX.has(type)) {
+        // Only the course's exam representative becomes a syllabus entry.
+        if (examRep.get(r.course) !== r) continue
+        const kept = reconcile(r, 'exam')
+        // Remove any stale standalone exam/review/resit entries of this course.
+        for (const i of existingContent) {
+          if (i.course === r.course && i.date && !i.deadline && EX.has(i.type) && i !== kept) consumed.add(i.id)
+        }
+        continue
+      }
+      reconcile(r, type)
+    }
+
+    const contentFinal = content.filter(i => !consumed.has(i.id))
+
+    const d = { ...(dataRef.current || {}), calendarEvents: merged, content: contentFinal }
     const planner = plannerRef.current || []
     setAll(d, planner)
     await writeTabsBatch(info.fileId, {
       [TAB_CALENDAR]: serializeCalendar(merged),
-      [TAB_CONTENT]: serializeContent(content),
+      [TAB_CONTENT]: serializeContent(contentFinal),
     })
     return { imported: merged.length, files: files.length }
   }
