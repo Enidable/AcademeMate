@@ -433,7 +433,8 @@ export async function batchCalendarEvents(ops, calendarId) {
       if (res.ok) break
       const rateLimited = status === 429 || (status === 403 && /rateLimit|quota|userRateLimit/i.test(text))
       if (attempt < MAX_RETRIES && (rateLimited || status === 409 || status >= 500)) {
-        await sleep(500 * 2 ** attempt)
+        // Rate limits (429) need a long wait — the quota window is a full minute.
+        await sleep(Math.min(30000, (rateLimited ? 5000 : 500) * 2 ** attempt))
         continue
       }
       break
