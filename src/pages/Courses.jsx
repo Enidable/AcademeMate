@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
-import { getStatus, truncate, getCourseStyle, isCourseActive } from '../utils/helpers'
+import { getStatus, truncate, getCourseStyle, isCourseActive, colorToHex } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
+import { deriveAbbrev } from '../drive/driveClient'
 import { AddCourseModal } from '../components/forms/Modals'
 import CourseDetail from '../components/CourseDetail'
 
@@ -35,7 +36,7 @@ export default function Courses({ courses }) {
     const merged = [...courses]
     for (const c of logCourses) {
       if (!merged.find(m => m.course === c)) {
-        merged.push({ course: c, year: null, quartile: null, abbrev: null, code: null, start: null, finish: null, ec: null, comment: null, scope: null, color: null, order: null })
+        merged.push({ id: c, course: c, year: null, quartile: null, abbrev: null, code: null, start: null, finish: null, ec: null, comment: null, scope: null, color: null, order: null })
       }
     }
 
@@ -185,7 +186,7 @@ export default function Courses({ courses }) {
           const gradeInfo = gradeMap[c.course]
           const scope = c.scope || ''
           const dragging = dragName === c.course
-          const colorVal = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.color || '') ? c.color : '#6366f1'
+          const colorVal = colorToHex(c.color, c.course)
 
           return (
             <div key={c.course}
@@ -207,7 +208,7 @@ export default function Courses({ courses }) {
                 <div className="min-w-0">
                   <h3 className="font-semibold text-slate-800 text-sm leading-tight" title={c.course}>{truncate(c.course, 60)}</h3>
                   <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                    {c.abbrev && <span>{c.abbrev}</span>}
+                    {c.abbrev ? <span>{c.abbrev}</span> : <span title="Derived abbreviation (no custom one saved)">{deriveAbbrev(c.course)}</span>}
                     {c.ec != null && <span>{c.ec} EC</span>}
                     {c.year && !c.quartile && <span>{c.year}</span>}
                   </div>
@@ -241,7 +242,8 @@ export default function Courses({ courses }) {
                 <span><span className="text-slate-400">Hours </span><span className="font-medium text-slate-700">{loggedHours.toFixed(1)}</span></span>
                 <span><span className="text-slate-400">Grade </span><span className={`font-medium ${c.grade != null ? 'text-slate-700' : 'text-slate-400'}`}>{c.grade != null ? c.grade.toFixed(3) : (gradeInfo?.totalGrade != null ? gradeInfo.totalGrade.toFixed(3) : '—')}</span></span>
                 <span><span className="text-slate-400">Est </span><span className="font-medium text-slate-700">{estimatedHours.toFixed(0)}h</span></span>
-                <span><span className="text-slate-400">Avg </span><span className="font-medium text-slate-700">{c.ec != null && c.ec > 0 ? `${(loggedHours / c.ec).toFixed(1)}` : '—'}</span></span>
+                <span><span className="text-slate-400">EC </span><span className="font-medium text-slate-700">{c.ec != null ? c.ec : '—'}</span></span>
+                <span><span className="text-slate-400">Avg/EC </span><span className="font-medium text-slate-700">{c.ec != null && c.ec > 0 ? `${(loggedHours / c.ec).toFixed(1)}` : '—'}</span></span>
               </div>
 
               {progress != null && (

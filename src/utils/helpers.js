@@ -10,6 +10,11 @@ const courseColors = [
   { course: 'Other University Stuff', color: 'slate' },
   { course: 'System Improvement (Spreadsheet)', color: 'orange' },
   { course: 'Work', color: 'gray' },
+  { course: 'Systems Engineering', color: 'pink' },
+  { course: 'Modelling, Dynamics, and Kinematics', color: 'emerald' },
+  { course: 'Machine Learning I', color: 'blue' },
+  { course: 'Statistics and Probability', color: 'amber' },
+  { course: 'Natural Language Processing', color: 'purple' },
 ]
 
 const colorMap = {
@@ -27,6 +32,39 @@ const colorMap = {
   pink: { bg: 'bg-pink-100', text: 'text-pink-700', dot: 'bg-pink-500', soft: 'bg-pink-50/50', progress: 'bg-teal-500' },
 }
 
+const NAMED_COLOR_HEX = {
+  indigo: '#6366f1', emerald: '#10b981', blue: '#3b82f6', purple: '#a855f7',
+  amber: '#f59e0b', rose: '#f43f5e', cyan: '#06b6d4', teal: '#14b8a6',
+  slate: '#64748b', orange: '#f97316', gray: '#9ca3af', pink: '#ec4899',
+}
+
+// Stable, readable hex colour for a course that has neither a saved colour nor
+// an entry in the static map — so a brand-new course never falls back to grey.
+const FALLBACK_HEX = [
+  '#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899',
+  '#8b5cf6', '#14b8a6', '#f97316', '#22c55e', '#06b6d4',
+  '#eab308', '#a855f7', '#3b82f6', '#ef4444', '#84cc16',
+]
+
+function colorFromName(name) {
+  let h = 0
+  for (let i = 0; i < (name || '').length; i++) h = (h * 31 + name.charCodeAt(i)) | 0
+  return FALLBACK_HEX[((h % FALLBACK_HEX.length) + FALLBACK_HEX.length) % FALLBACK_HEX.length]
+}
+
+// Inline styles for an arbitrary hex colour (colour wheel): white-tinted
+// backgrounds so chips stay readable next to the class-based named colours.
+function hexStyle(hex) {
+  return {
+    dot: '', dotCss: { backgroundColor: hex },
+    bg: '', bgCss: { backgroundColor: mixHex(hex, 0.86) || '#f1f5f9' },
+    text: '', textCss: { color: hex },
+    soft: '', softCss: { backgroundColor: mixHex(hex, 0.93) || '#f8fafc' },
+    border: '', borderCss: { borderColor: mixHex(hex, 0.7) || '#e2e8f0' },
+    progress: '', progressCss: { backgroundColor: complementHex(hex) || '#334155' },
+  }
+}
+
 export function getCourseStyle(courseName, colorOverride) {
   if (colorOverride && colorMap[colorOverride]) {
     return colorMap[colorOverride]
@@ -34,17 +72,11 @@ export function getCourseStyle(courseName, colorOverride) {
   // Arbitrary hex colour (color wheel): return inline styles with white-tinted
   // backgrounds so chips stay readable next to the class-based named colours.
   if (colorOverride && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colorOverride)) {
-    return {
-      dot: '', dotCss: { backgroundColor: colorOverride },
-      bg: '', bgCss: { backgroundColor: mixHex(colorOverride, 0.86) || '#f1f5f9' },
-      text: '', textCss: { color: colorOverride },
-      soft: '', softCss: { backgroundColor: mixHex(colorOverride, 0.93) || '#f8fafc' },
-      border: '', borderCss: { borderColor: mixHex(colorOverride, 0.7) || '#e2e8f0' },
-      progress: '', progressCss: { backgroundColor: complementHex(colorOverride) || '#334155' },
-    }
+    return hexStyle(colorOverride)
   }
   const entry = courseColors.find(c => c.course === courseName)
-  return colorMap[entry?.color] || colorMap.slate
+  if (entry?.color) return colorMap[entry.color]
+  return hexStyle(colorFromName(courseName))
 }
 
 function hexToRgb(hex) {
@@ -106,6 +138,12 @@ export function normalizeStatus(status) {
 }
 
 export const COLOR_NAMES = Object.keys(colorMap)
+
+export function colorToHex(color, courseName = null) {
+  if (!color) return courseName ? colorFromName(courseName) : '#6366f1'
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) return color
+  return NAMED_COLOR_HEX[color] || (courseName ? colorFromName(courseName) : '#6366f1')
+}
 
 export function getStatus(course) {
   const normalized = normalizeStatus(course?.status)

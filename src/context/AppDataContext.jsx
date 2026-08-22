@@ -89,10 +89,16 @@ function ensureDefaultRows(planner) {
   return planner
 }
 
+// Re-create a course row whenever it is still referenced anywhere else (study
+// log, grade components or syllabus) but its row is missing — a safeguard so a
+// course that lost its Courses-tab row never silently disappears from the app.
 function synthCourses(parsed) {
-  const logCourses = new Set((parsed.studyLog || []).map(e => e.course))
+  const referenced = new Set()
+  for (const e of parsed.studyLog || []) if (e.course) referenced.add(e.course)
+  for (const g of parsed.gradeComponents || []) if (g.course) referenced.add(g.course)
+  for (const i of parsed.content || []) if (i.course) referenced.add(i.course)
   const existingNames = new Set((parsed.courses || []).map(c => c.course))
-  for (const name of logCourses) {
+  for (const name of referenced) {
     if (name && !existingNames.has(name)) {
       parsed.courses.push({
         id: name,
@@ -100,6 +106,7 @@ function synthCourses(parsed) {
         code: null, abbrev: null, year: null, quartile: null,
         start: null, finish: null, ec: null, status: null,
         estHours: null, notes: null, grade: null,
+        color: null, scope: null, order: null,
       })
     }
   }
@@ -292,12 +299,29 @@ export function AppDataProvider({ children }) {
       .finally(() => setSyncing(false))
   }
 
-  async function loadAndApplyFromDrive(file) {
+  // Drive is the source of truth, but a course that only exists in the last
+  // known-good localStorage snapshot (its row was dropped from Drive at some
+  // point) is re-added with its stored metadata, so nothing silently vanishes
+  // and colours/abbreviations survive. Drive values always win on conflicts.
+  function healCoursesFromLocal(d, savedLocal) {
+    const local = savedLocal?.data?.courses
+    if (!Array.isArray(local) || local.length === 0) return
+    const byName = new Map((d.courses || []).map(c => [c.course, c]))
+    for (const c of local) {
+      if (!c?.course || byName.has(c.course)) continue
+      byName.set(c.course, c)
+      d.courses.push({ ...c, id: c.course, course: c.course })
+    }
+  }
+
+  async function loadAndApplyFromDrive(file, savedLocal = null) {
     const info = { fileId: file.id, fileUrl: file.webViewLink, user: resolveUser() }
     setDrive(info)
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
     const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
+    healCoursesFromLocal(d, savedLocal)
+
     dataRef.current = d
     plannerRef.current = p
     weeklyRef.current = wt
@@ -350,7 +374,7 @@ export function AppDataProvider({ children }) {
           if (cancelled) return
           await seedEmptyTabs(file.id)
           if (cancelled) return
-          await loadAndApplyFromDrive(file)
+          await loadAndApplyFromDrive(file, saved)
         } catch (e) {
           if (!cancelled) setDriveError(e.message)
           if (!saved?.data && !cancelled) {
@@ -402,7 +426,7 @@ export function AppDataProvider({ children }) {
       const file = await ensureSpreadsheet()
       await ensureTabs(file.id)
       await seedEmptyTabs(file.id)
-      return await loadAndApplyFromDrive(file)
+      return await loadAndApplyFromDrive(file, loadJSON())
     } catch (e) {
       setDriveError(e.message)
       throw e
@@ -423,6 +447,7 @@ export function AppDataProvider({ children }) {
     try {
       const rowsByTab = await readAllTabs(info.fileId)
       const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
+      healCoursesFromLocal(d, loadJSON())
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt

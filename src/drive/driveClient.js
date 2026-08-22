@@ -240,6 +240,15 @@ export function inferEventType(summary, description = '') {
 // the initials of the significant words (e.g. "AI for Autonomous Robots" -> "AAR").
 export function deriveAbbrev(name) {
   if (!name) return 'COURSE'
+  // User-defined abbreviations take precedence
+  const customAbbrevs = {
+    'Systems Engineering': 'SE',
+    'Modelling, Dynamics, and Kinematics': 'MDK',
+    'Machine Learning I': 'ML1',
+    'Statistics and Probability': 'S&P',
+    'Natural Language Processing': 'NLP',
+  }
+  if (customAbbrevs[name]) return customAbbrevs[name]
   const words = String(name).trim().split(/\s+/).filter(w => w.length > 1)
   const initials = (words.map(w => w[0]).join('') || String(name).slice(0, 4)).toUpperCase()
   return initials.slice(0, 8)
