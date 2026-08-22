@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo } from 'react'
-import { getStatus, getCourseStyle, COLOR_NAMES } from '../utils/helpers'
+import { getStatus, getCourseStyle } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import Syllabus from './Syllabus'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
@@ -8,12 +8,6 @@ const statusColors = {
   'Completed': 'bg-green-100 text-green-700',
   'In Progress': 'bg-amber-100 text-amber-700',
   'Planned': 'bg-slate-100 text-slate-500',
-}
-
-const colorDot = {
-  indigo: 'bg-indigo-500', emerald: 'bg-emerald-500', blue: 'bg-blue-500', purple: 'bg-purple-500',
-  amber: 'bg-amber-500', rose: 'bg-rose-500', cyan: 'bg-cyan-500', teal: 'bg-teal-500',
-  slate: 'bg-slate-500', orange: 'bg-orange-500', gray: 'bg-gray-500', pink: 'bg-pink-500',
 }
 
 const CATEGORY_COLORS = {
@@ -238,7 +232,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 items-start">
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
@@ -326,12 +320,11 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
                   <input type="text" inputMode="decimal" value={form.estHours} placeholder="e.g. 160" onChange={(e) => setForm((f) => ({ ...f, estHours: e.target.value }))} onBlur={commit} className={inputCls} />
                 </Field>
                 <Field label="Colour">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {COLOR_NAMES.map((name) => (
-                      <button key={name} onClick={() => set({ color: name })}
-                        className={`w-5 h-5 rounded-full cursor-pointer transition-transform hover:scale-110 ${colorDot[name]} ${c.color === name ? 'ring-2 ring-slate-700 ring-offset-1' : ''}`}
-                        title={name} />
-                    ))}
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.color || '') ? c.color : '#6366f1'}
+                      onChange={(e) => set({ color: e.target.value })}
+                      className="w-10 h-10 cursor-pointer border border-slate-200 rounded" />
+                    <span className="text-[11px] text-slate-400">Pick any colour with the wheel</span>
                   </div>
                 </Field>
                 <Field label="Start">

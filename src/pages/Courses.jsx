@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
-import { getStatus, truncate, getCourseStyle, isCourseActive, COLOR_NAMES } from '../utils/helpers'
+import { useState, useMemo } from 'react'
+import { getStatus, truncate, getCourseStyle, isCourseActive } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { AddCourseModal } from '../components/forms/Modals'
 import CourseDetail from '../components/CourseDetail'
@@ -17,12 +17,6 @@ const quartileColors = {
   'Q4': 'bg-rose-100 text-rose-700',
 }
 
-const colorDot = {
-  indigo: 'bg-indigo-500', emerald: 'bg-emerald-500', blue: 'bg-blue-500', purple: 'bg-purple-500',
-  amber: 'bg-amber-500', rose: 'bg-rose-500', cyan: 'bg-cyan-500', teal: 'bg-teal-500',
-  slate: 'bg-slate-500', orange: 'bg-orange-500', gray: 'bg-gray-500', pink: 'bg-pink-500',
-}
-
 const TYPE_LABELS = { exam: 'Exam', assignment: 'Assignment', presentation: 'Presentation', project: 'Project', quiz: 'Quiz', other: 'Other' }
 
 export default function Courses({ courses }) {
@@ -31,18 +25,8 @@ export default function Courses({ courses }) {
   const [viewing, setViewing] = useState(null)
   const [sortBy, setSortBy] = useState('custom')
   const [scopeFilter, setScopeFilter] = useState('all')
-  const [colorMenu, setColorMenu] = useState(null)
   const [dragLocal, setDragLocal] = useState(null)
   const [dragName, setDragName] = useState(null)
-
-  // Close the colour popover when clicking anywhere outside it.
-  useEffect(() => {
-    function onDocClick(e) {
-      if (colorMenu && !e.target.closest('[data-colormenu]')) setColorMenu(null)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [colorMenu])
 
   const allCourses = useMemo(() => {
     const logCourses = new Set(inputLog.map(e => e.course))
@@ -185,7 +169,7 @@ export default function Courses({ courses }) {
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
         {displayed.map((c) => {
           const status = getStatus(c)
           const style = getCourseStyle(c.course, c.color)
@@ -199,6 +183,7 @@ export default function Courses({ courses }) {
           const gradeInfo = gradeMap[c.course]
           const scope = c.scope || ''
           const dragging = dragName === c.course
+          const colorVal = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.color || '') ? c.color : '#6366f1'
 
           return (
             <div key={c.course}
@@ -209,44 +194,27 @@ export default function Courses({ courses }) {
               onDragEnd={onDrop}
               onDoubleClick={() => setViewing(c.course)}
               title="Double-click to open the course page"
-              className={`rounded-lg border ${style.border || 'border-slate-200'} ${style.soft} p-3 flex flex-col sm:flex-row sm:items-center gap-3 cursor-default transition-opacity ${dragging ? 'opacity-40' : ''}`}
+              className={`rounded-xl border ${style.border || 'border-slate-200'} ${style.soft} p-4 flex flex-col gap-3 h-full min-h-[230px] cursor-default transition-opacity ${dragging ? 'opacity-40' : ''}`}
               style={{ ...style.softCss, ...style.borderCss }}>
-                <div className="flex items-start justify-between mb-2 sm:mb-0 sm:flex-1 sm:min-w-0">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="relative" data-colormenu>
-                      <button onClick={() => setColorMenu(colorMenu === c.course ? null : c.course)}
-                        title="Change colour"
-                        className={`w-2.5 h-2.5 rounded-full shrink-0 cursor-pointer ${style.dot}`} style={style.dotCss} />
-                      {colorMenu === c.course && (
-                        <div className="absolute left-0 top-4 z-30 bg-white border border-slate-200 rounded-lg shadow-lg p-2 w-52">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {COLOR_NAMES.map(name => (
-                              <button key={name} onClick={() => { setCourse(c.id, { color: name }); setColorMenu(null) }}
-                                className={`w-5 h-5 rounded-full cursor-pointer transition-transform hover:scale-110 ${colorDot[name]} ${c.color === name ? 'ring-2 ring-slate-700 ring-offset-1' : ''}`}
-                                title={name} />
-                            ))}
-                          </div>
-                          <div className="flex items-center gap-2 mt-2 border-t border-slate-100 pt-2">
-                            <input type="color" value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.color || '') ? c.color : '#6366f1'}
-                              onChange={e => setCourse(c.id, { color: e.target.value })}
-                              className="w-7 h-7 cursor-pointer border border-slate-200 rounded" title="Pick any colour" />
-                            <span className="text-[11px] text-slate-400">Any colour (color wheel)</span>
-                          </div>
-                        </div>
-                      )}
-                    </span>
+
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  <input type="color" value={colorVal}
+                    onChange={e => setCourse(c.id, { color: e.target.value })}
+                    title="Pick any colour"
+                    className="w-4 h-4 rounded-full mt-1 cursor-pointer border-0 p-0 bg-transparent shrink-0" />
+                  <div className="min-w-0">
                     <h3 className="font-semibold text-slate-800 text-sm leading-tight" title={c.course}>
                       {truncate(c.course, 45)}
                     </h3>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
-                    {c.abbrev && <span>{c.abbrev}</span>}
-                    {c.ec != null && <span>{c.ec} EC</span>}
-                    {c.year && !c.quartile && <span>{c.year}</span>}
+                    <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                      {c.abbrev && <span>{c.abbrev}</span>}
+                      {c.ec != null && <span>{c.ec} EC</span>}
+                      {c.year && !c.quartile && <span>{c.year}</span>}
+                    </div>
                   </div>
                 </div>
-                <div className="flex flex-col items-end gap-1 shrink-0 ml-3">
+                <div className="flex flex-col items-end gap-1 shrink-0">
                   <select value={status}
                     onChange={e => setCourse(c.id, { status: e.target.value === 'Planned' ? 'planned' : e.target.value === 'In Progress' ? 'in progress' : 'completed' })}
                     title="Mark as planned, active (in progress) or completed"
@@ -270,30 +238,30 @@ export default function Courses({ courses }) {
                 </div>
               </div>
 
-              <div className="mt-3 sm:mt-0 sm:flex sm:gap-4 sm:items-center text-xs">
+              <div className="grid grid-cols-4 gap-2 text-center">
                 <div>
-                  <span className="text-slate-400">Hours logged</span>
-                  <p className="text-slate-700 font-medium">{loggedHours.toFixed(1)}h</p>
+                  <div className="text-[10px] text-slate-400">Hours</div>
+                  <div className="text-slate-700 font-medium text-sm">{loggedHours.toFixed(1)}h</div>
                 </div>
                 <div>
-                  <span className="text-slate-400">Grade</span>
-                  <p className={`font-medium ${c.grade != null ? 'text-slate-700' : 'text-slate-400'}`}>
+                  <div className="text-[10px] text-slate-400">Grade</div>
+                  <div className={`font-medium text-sm ${c.grade != null ? 'text-slate-700' : 'text-slate-400'}`}>
                     {c.grade != null ? c.grade.toFixed(3) : (gradeInfo?.totalGrade != null ? gradeInfo.totalGrade.toFixed(3) : '—')}
-                  </p>
+                  </div>
                 </div>
                 <div>
-                  <span className="text-slate-400">Est. required</span>
-                  <p className="text-slate-700 font-medium">{estimatedHours.toFixed(0)}h</p>
+                  <div className="text-[10px] text-slate-400">Est.</div>
+                  <div className="text-slate-700 font-medium text-sm">{estimatedHours.toFixed(0)}h</div>
                 </div>
                 <div>
-                  <span className="text-slate-400">Avg {avgHoursPerEC.toFixed(1)}h/EC</span>
-                  <p className="text-slate-700 font-medium">{c.ec != null && c.ec > 0 ? `${(loggedHours / c.ec).toFixed(1)}h/EC` : '—'}</p>
+                  <div className="text-[10px] text-slate-400">Avg</div>
+                  <div className="text-slate-700 font-medium text-sm">{c.ec != null && c.ec > 0 ? `${(loggedHours / c.ec).toFixed(1)}` : '—'}</div>
                 </div>
               </div>
 
               {progress != null && (
-                <div className="mt-3 sm:mt-0 sm:w-40">
-                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                <div>
+                  <div className="flex justify-between text-[10px] text-slate-400 mb-1">
                     <span>Progress</span>
                     <span>{loggedHours.toFixed(0)} / {estimatedHours.toFixed(0)}h</span>
                   </div>
@@ -304,36 +272,31 @@ export default function Courses({ courses }) {
                 </div>
               )}
 
-              {gradeInfo && gradeInfo.components.length > 0 && (
-                <div className="mt-3 sm:mt-0 sm:border-l sm:border-t-0 sm:border-slate-100 sm:pl-3 sm:pt-0 sm:max-w-xs">
-                  <div className="text-xs text-slate-500 mb-1 font-medium">Grade Components</div>
-                  <div className="space-y-1">
-                    {gradeInfo.components.map((comp, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-xs text-slate-600">
-                        <span className="font-medium shrink-0">{TYPE_LABELS[comp.type] || 'Assignment'}</span>
-                        {comp.id && <span className="font-mono text-[10px] text-slate-400 shrink-0">{comp.id}</span>}
-                        {comp.name && comp.name !== comp.id && <span className="truncate text-slate-400">{comp.name}</span>}
-                        <span className="ml-auto shrink-0">{comp.weight != null ? `${(comp.weight * 100).toFixed(0)}%` : '—'} · {comp.grade != null ? comp.grade : 'pending'}</span>
-                      </div>
-                    ))}
+              <div className="mt-auto">
+                {gradeInfo && gradeInfo.components.length > 0 ? (
+                  <div className="max-h-[4.75rem] overflow-hidden">
+                    <div className="flex flex-wrap gap-1">
+                      {gradeInfo.components.map((comp, idx) => (
+                        <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 whitespace-nowrap">
+                          {comp.id || TYPE_LABELS[comp.type] || 'Assignment'}{comp.weight != null ? ` · ${(comp.weight * 100).toFixed(0)}%` : ''}
+                        </span>
+                      ))}
+                    </div>
                     {gradeInfo.totalGrade != null && (
-                      <div className="flex justify-between text-xs font-medium text-slate-700 border-t border-slate-100 pt-1 mt-1">
-                        <span>Total</span>
-                        <span>{gradeInfo.totalGrade.toFixed(3)}</span>
-                      </div>
+                      <div className="text-[10px] font-medium text-slate-500 mt-1">Total {gradeInfo.totalGrade.toFixed(3)}</div>
                     )}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-[11px] text-slate-300 italic">No grade components</p>
+                )}
+              </div>
 
-              {c.comment && <p className="mt-2 sm:mt-0 sm:max-w-[12rem] truncate text-xs text-slate-400 italic">{c.comment}</p>}
-
-              <div className="mt-3 sm:mt-0 sm:ml-auto flex items-center gap-2">
+              <div className="flex items-center justify-between pt-1 border-t border-slate-100">
                 <button onClick={() => setViewing(c.course)}
                   className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer">
-                  Open course page →
+                  Open →
                 </button>
-                <div className="ml-auto flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   {sortBy === 'custom' && <span className="text-[10px] text-slate-300 cursor-grab" title="Drag to reorder">⠿</span>}
                   <button onClick={() => { if (window.confirm(`Delete course "${c.course}"? This also removes its grade components, syllabus items, study-log entries and planner to-dos.`)) deleteCourse(c.course) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">Delete</button>
                 </div>
