@@ -1572,6 +1572,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       deleteContentItem: deleteDeadline,
       updateSession,
       updateCourse,
+      updateContentItem,
       updateDeadline: updateContentItem,
       updateGradeComponents,
       updatePlannerWeek,
