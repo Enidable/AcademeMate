@@ -51,11 +51,12 @@ function GradeEditor({ course, abbrev, code }) {
       type: c.type || 'assignment',
       id: c.id || '',
       name: c.name || c.id || '',
+      notes: c.notes || '',
       dueDate: c.dueDate || '',
       weight: c.weight != null ? String(c.weight) : '',
       grade: c.grade != null ? String(c.grade) : '',
     })) || [
-      { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' },
+      { type: 'assignment', id: '', name: '', notes: '', dueDate: '', weight: '', grade: '' },
     ]
   )
 
@@ -73,7 +74,7 @@ function GradeEditor({ course, abbrev, code }) {
   }), [course, abbrev, code, combined])
 
   function hasData(c) {
-    return (c.name || '').trim() !== '' || c.weight !== '' || c.grade !== '' || (c.dueDate || '') !== ''
+    return (c.name || '').trim() !== '' || (c.notes || '').trim() !== '' || c.weight !== '' || c.grade !== '' || (c.dueDate || '') !== ''
   }
 
   // Fill any component that has data but no ID with the next free ID in the
@@ -98,15 +99,16 @@ function GradeEditor({ course, abbrev, code }) {
       type: c.type,
       id: c.id || null,
       name: c.name || c.id || null,
+      notes: c.notes || null,
       weight: parseFloat(c.weight) || null,
       grade: c.grade ? parseFloat(c.grade) : null,
       dueDate: c.dueDate || null,
-    })).filter((c) => c.id || c.name || c.weight != null || c.dueDate)
+    })).filter((c) => c.id || c.name || c.notes || c.weight != null || c.dueDate)
     updateGradeComponents(course, parsed)
   }
 
   function addComp() {
-    const next = assignIds([...comps, { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
+    const next = assignIds([...comps, { type: 'assignment', id: '', name: '', notes: '', dueDate: '', weight: '', grade: '' }])
     setComps(next)
     persist(next)
   }
@@ -141,16 +143,17 @@ function GradeEditor({ course, abbrev, code }) {
   return (
     <div className="border-t border-slate-100 pt-3 space-y-2">
       <p className="text-xs font-medium text-slate-700">Grade Components</p>
-      <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
+      <div className="grid grid-cols-[1fr_auto_1fr_auto_auto_auto_auto] items-center gap-1.5">
         <div className="text-[10px] uppercase tracking-wider text-slate-400">Type</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400 w-28">Project ID</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400">Description</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400 w-32">Deadline</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Weight</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Grade</div>
         <div className="w-5" />
       </div>
       {comps.map((comp, i) => (
-        <div key={i} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
+        <div key={i} className="grid grid-cols-[1fr_auto_1fr_auto_auto_auto_auto] items-center gap-1.5">
           <select value={comp.type} onChange={(e) => updateComp(i, 'type', e.target.value)}
             className="text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white w-full">
             <option value="exam">Exam</option>
@@ -164,6 +167,10 @@ function GradeEditor({ course, abbrev, code }) {
             onChange={(e) => updateComp(i, 'id', e.target.value)}
             placeholder={comp.type === 'exam' ? placeholderIds.exam : placeholderIds.normal}
             className="w-28 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+          <input type="text" value={comp.notes || ''} onChange={(e) => updateComp(i, 'notes', e.target.value)}
+            placeholder="Short description (e.g. midterm report)"
+            title="Short description so you can tell components apart"
+            className="min-w-0 w-full text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
           <input type="date" value={comp.dueDate} onChange={(e) => updateComp(i, 'dueDate', e.target.value)}
             className="w-32 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
           <input type="text" inputMode="decimal" placeholder="0.3" value={comp.weight}
