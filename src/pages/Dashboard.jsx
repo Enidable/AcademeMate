@@ -23,8 +23,11 @@ function splitByScope(courses) {
 function gradeStats(list, gradeMap) {
   const gradeOf = c => (c.grade != null ? c.grade : gradeMap?.[c.course]?.totalGrade ?? null)
   const completed = list.filter(c => gradeOf(c) != null)
-  const avg = completed.length
-    ? completed.reduce((s, c) => s + gradeOf(c), 0) / completed.length
+  // Average grade weighted by each course's ECs: sum(grade × EC) / sum(EC).
+  // With all courses at 5 EC this is a plain average (each course 1/Nth).
+  const totalEc = completed.reduce((s, c) => s + (c.ec || 0), 0)
+  const avg = totalEc > 0
+    ? completed.reduce((s, c) => s + (gradeOf(c) || 0) * (c.ec || 0), 0) / totalEc
     : null
   return {
     completed: completed.length,

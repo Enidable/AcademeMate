@@ -11,7 +11,7 @@ import {
   serializeCalendar,
 } from '../data/serialize'
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
-import { renameIdBase, typeLetter } from '../utils/ids'
+import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import {
   ensureSpreadsheet,
@@ -177,14 +177,18 @@ function serializeTabByTitle(title, data, _planner) {
 }
 
 function calcWeightedGrade(components) {
-  const totalWeight = components.reduce((s, c) => s + (parseFloat(c.weight) || 0), 0)
-  if (totalWeight === 0) return null
-  const weighted = components.reduce((s, c) => {
-    const w = parseFloat(c.weight) || 0
+  // Weighted average over the components that HAVE a grade — an ungraded part
+  // shouldn't drag the average down.
+  let totalWeight = 0
+  let weighted = 0
+  for (const c of components || []) {
     const g = parseFloat(c.grade)
-    return g ? s + w * g : s
-  }, 0)
-  return weighted / totalWeight
+    if (isNaN(g)) continue
+    const w = parseFloat(c.weight) || 0
+    totalWeight += w
+    weighted += w * g
+  }
+  return totalWeight > 0 ? weighted / totalWeight : null
 }
 
 function makeTravelRow() {
@@ -213,14 +217,18 @@ function escapeRe(s) {
 // stable incremental id in the form {abbrev}-{LETTER}-{NN} (e.g. ML1-L-01).
 // One sequence per course across ALL scheduled types, so the number just keeps
 // counting (ML1-L-01, ML1-T-02, ML1-P-03…) — the letter is the calendar type.
-// Events that already carry a lecture id keep it, so re-imports never reshuffle
-// the numbering; both the new (ABBR-L-01) and legacy (ABBR-L01) forms match.
+// Exam-family events (exam / exam review / resit) are deliberately skipped:
+// they belong to the exam GRADE component (e.g. NLPE1), never to a scheduled
+// lecture ID, so lectures always start at 01.
+const EXAM_FAMILY = new Set(['exam', 'exam review', 'resit'])
+
 function assignLectureIds(rows, courses) {
   const courseById = {}
   for (const c of courses || []) courseById[c.course] = c
   const groups = {}
   for (const r of rows) {
     if (!r.course) continue
+    if (EXAM_FAMILY.has(inferEventType(r.summary, r.description))) continue
     if (!groups[r.course]) groups[r.course] = []
     groups[r.course].push(r)
   }
@@ -235,6 +243,16 @@ function assignLectureIds(rows, courses) {
     // 202200109-01) is re-numbered against the current base, so re-imports
     // converge on the readable abbreviation IDs instead of keeping the old ones.
     const pat = new RegExp(`^${escapeRe(abbrev)}[- ][A-Za-z]{1,2}[- ]?(\\d+)$`, 'i')
+    // If the sequence doesn't start at 01 (e.g. an exam previously consumed 01
+    // before it was moved to a component ID), renumber from scratch so lectures
+    // always start at 01. Once it starts at 01 the numbering stays stable.
+    const existingNums = evs
+      .map(r => r.lectureId && pat.exec(String(r.lectureId)))
+      .filter(Boolean)
+      .map(m => parseInt(m[1], 10))
+    if (existingNums.length > 0 && Math.min(...existingNums) > 1) {
+      for (const r of evs) r.lectureId = null
+    }
     const taken = new Set()
     let max = 0
     for (const r of evs) {
@@ -622,9 +640,9 @@ export function AppDataProvider({ children }) {
     //     element (cal_id), then by occurrence (date+start) — duplicates of the
     //     same element/occurrence are dropped and the survivor is re-keyed to
     //     the generated lecture ID;
-    //   • exam, exam review and resit events of a course collapse into ONE exam
-    //     entry (they are the same exam), old separate entries are removed.
-    const EX = new Set(['exam', 'exam review', 'resit'])
+    //   • exam / exam review / resit events of a course collapse into ONE exam
+    //     deadline that uses the exam grade-component ID (e.g. NLPE1) — they are
+    //     the same exam and never take a scheduled lecture ID.
     const existingContent = dataRef.current?.content || []
     const contentByLecture = new Map()
     const contentByCal = new Map()
@@ -655,6 +673,32 @@ export function AppDataProvider({ children }) {
         date: r.date,
         deadline: null,
         start: r.startTime || '',
+        end: r.endTime || '',
+        marker: null,
+        location: r.location || null,
+        hoursSpent: null,
+        materialHours: null,
+        content: null,
+        calId: r.calId,
+        done: '',
+        urgency: 'Medium',
+        time: 0,
+      }
+    }
+
+    const makeExamItem = (r, id) => {
+      const topic = r.summary || id
+      return {
+        id: `${r.course}||${id}|${r.date}||${topic}`,
+        course: r.course,
+        course2: null,
+        contentId: id,
+        type: 'exam',
+        topic,
+        description: topic,
+        date: null,
+        deadline: r.date,
+        start: '',
         end: r.endTime || '',
         marker: null,
         location: r.location || null,
@@ -700,13 +744,46 @@ export function AppDataProvider({ children }) {
       return fresh
     }
 
+    // Reconcile a deadline (exam) entry that is keyed by a grade-component ID
+    // like NLPE1 instead of a scheduled lecture ID.
+    const reconcileDeadline = (r, id) => {
+      if (!r.course) return null
+      const candidates = []
+      const seen = new Set()
+      const consider = i => { if (i && !seen.has(i.id)) { seen.add(i.id); candidates.push(i) } }
+      consider(contentByLecture.get(`${r.course}|${id}`))
+      if (r.calId) for (const i of contentByCal.get(`${r.course}|${r.calId}`) || []) consider(i)
+      for (const i of contentByOccurrence.get(`${r.course}|${r.date}|${r.startTime}`) || []) consider(i)
+      const chosen = candidates.find(i => !consumed.has(i.id))
+      for (const c of candidates) if (c !== chosen) consumed.add(c.id)
+      if (chosen) {
+        if (chosen.contentId !== id) {
+          chosen.contentId = id
+          chosen.id = `${r.course}||${id}|${r.date}||${chosen.topic || id}`
+          contentByLecture.set(`${r.course}|${id}`, chosen)
+        }
+        chosen.deadline = r.date
+        chosen.date = null
+        chosen.type = 'exam'
+        chosen.calId = r.calId
+        return chosen
+      }
+      const fresh = makeExamItem(r, id)
+      content.push(fresh)
+      return fresh
+    }
+
+    const courseById = new Map(courses.map(c => [c.course, c]))
+    const gradeCompIds = (dataRef.current?.gradeComponents || [])
+      .flatMap(g => (g.components || []).map(x => ({ course: g.course, contentId: x.id, type: x.type })))
+
     // Pick one representative event per course for the exam family (prefer the
     // actual exam, else the earliest of review/resit).
     const examRep = new Map()
     for (const r of merged) {
       if (!r.course) continue
       const t = inferEventType(r.summary, r.description)
-      if (!EX.has(t)) continue
+      if (!EXAM_FAMILY.has(t)) continue
       const cur = examRep.get(r.course)
       const curIsExam = cur ? inferEventType(cur.summary, cur.description) === 'exam' : false
       const take = !cur || (t === 'exam' && !curIsExam) || (t !== 'exam' && !curIsExam && r.date < cur.date)
@@ -714,18 +791,22 @@ export function AppDataProvider({ children }) {
     }
 
     for (const r of merged) {
-      if (!r.lectureId || !r.course) continue
+      if (!r.course) continue
       const type = inferEventType(r.summary, r.description)
-      if (EX.has(type)) {
-        // Only the course's exam representative becomes a syllabus entry.
+      if (EXAM_FAMILY.has(type)) {
+        // The exam becomes ONE deadline keyed by the exam grade-component ID.
         if (examRep.get(r.course) !== r) continue
-        const kept = reconcile(r, 'exam')
-        // Remove any stale standalone exam/review/resit entries of this course.
+        r.lectureId = null
+        const c = courseById.get(r.course) || {}
+        const examId = nextDeadlineId(r.course, c.abbrev, c.code, [...existingContent, ...gradeCompIds], 'exam')
+        const kept = reconcileDeadline(r, examId)
+        // Remove any stale standalone exam/review/resit scheduled entries.
         for (const i of existingContent) {
-          if (i.course === r.course && i.date && !i.deadline && EX.has(i.type) && i !== kept) consumed.add(i.id)
+          if (i.course === r.course && i.date && !i.deadline && EXAM_FAMILY.has(i.type) && i !== kept) consumed.add(i.id)
         }
         continue
       }
+      if (!r.lectureId) continue
       reconcile(r, type)
     }
 

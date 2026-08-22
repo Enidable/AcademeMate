@@ -268,17 +268,36 @@ function AddForm({ adding, setAdding, onSubmit, course, abbrev, code, content, g
     ...(content || []),
     ...(gradeComponents || []).flatMap((g) => (g.components || []).map((c) => ({ course: g.course, contentId: c.id }))),
   ], [content, gradeComponents])
+  const isLecture = adding?.mode === 'lecture'
+  // Existing project/component IDs, so a deadline can attach to a project that
+  // already has its own deadlines (multiple deadlines share one project ID).
+  const projectIds = useMemo(() => {
+    if (adding?.mode === 'lecture') return []
+    const seen = new Set()
+    const ids = []
+    for (const i of combined) {
+      const id = i.contentId || i.id
+      if (id && !seen.has(id)) { seen.add(id); ids.push(id) }
+    }
+    return ids
+  }, [adding, combined])
   if (!adding) return null
-  const isLecture = adding.mode === 'lecture'
   const placeholder = isLecture
     ? nextScheduledId(course, abbrev, code, combined, adding.type)
     : nextDeadlineId(course, abbrev, code, combined, adding.type)
+  const datalistId = 'deadline-ids-' + course
   return (
     <div className="flex flex-col gap-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50 mt-2">
       <div className="flex items-center gap-1.5 flex-wrap">
-        <input type="text" value={adding.contentId} onChange={(e) => setAdding((a) => ({ ...a, contentId: e.target.value }))}
+        <input type="text" list={isLecture ? undefined : datalistId} value={adding.contentId} onChange={(e) => setAdding((a) => ({ ...a, contentId: e.target.value }))}
           placeholder={placeholder}
+          title={isLecture ? '' : 'Type a new ID or pick an existing project to add a deadline to it'}
           className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
+        {!isLecture && (
+          <datalist id={datalistId}>
+            {projectIds.map((id) => <option key={id} value={id} />)}
+          </datalist>
+        )}
         {isLecture ? (
           <select value={adding.type} onChange={(e) => setAdding((a) => ({ ...a, type: e.target.value }))}
             className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">
@@ -362,6 +381,12 @@ export default function Syllabus({ course, abbrev, code }) {
   function submitAdd() {
     const a = adding
     const isLecture = a.mode === 'lecture'
+    // A date is what makes an entry visible (scheduled vs deadline) — without
+    // it the item would save invisibly and look like it never saved.
+    if (!a.date) {
+      alert(isLecture ? 'Pick a date for the calendar element.' : 'Pick a due date for the deadline.')
+      return
+    }
     const combined = [
       ...items,
       ...(gradeComponents || []).flatMap((g) => (g.components || []).map((c) => ({ course: g.course, contentId: c.id }))),

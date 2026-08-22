@@ -154,8 +154,15 @@ function parseGradeComponents(rows, resolveCourse) {
     })
   }
   for (const g of Object.values(map)) {
-    const totalWeight = g.components.reduce((s, c) => s + (c.weight || 0), 0)
-    const weighted = g.components.reduce((s, c) => (c.weight && c.grade != null ? s + c.weight * c.grade : s), 0)
+    // Weighted average over components that HAVE a grade (ungraded parts are
+    // excluded so they don't drag the course grade down).
+    let totalWeight = 0
+    let weighted = 0
+    for (const c of g.components) {
+      if (c.grade == null) continue
+      totalWeight += c.weight || 0
+      weighted += (c.weight || 0) * c.grade
+    }
     g.check = totalWeight > 0 ? totalWeight : null
     g.totalGrade = totalWeight > 0 ? weighted / totalWeight : null
   }

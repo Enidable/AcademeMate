@@ -72,6 +72,27 @@ function GradeEditor({ course, abbrev, code }) {
     exam: nextDeadlineId(course, abbrev, code, combined, 'exam'),
   }), [course, abbrev, code, combined])
 
+  function hasData(c) {
+    return (c.name || '').trim() !== '' || c.weight !== '' || c.grade !== '' || (c.dueDate || '') !== ''
+  }
+
+  // Fill any component that has data but no ID with the next free ID in the
+  // scheme (ML11 / ML1E1…), so IDs appear automatically while staying editable.
+  function assignIds(next) {
+    const running = [
+      ...combined,
+      ...next.filter((c) => c.id).map((c) => ({ course, contentId: c.id, type: c.type })),
+    ]
+    for (const c of next) {
+      if (c.id || !hasData(c)) continue
+      const id = nextDeadlineId(course, abbrev, code, running, c.type)
+      c.id = id
+      c.name = c.name || id
+      running.push({ course, contentId: id, type: c.type })
+    }
+    return next
+  }
+
   function persist(next) {
     const parsed = next.map((c) => ({
       type: c.type,
@@ -81,28 +102,18 @@ function GradeEditor({ course, abbrev, code }) {
       grade: c.grade ? parseFloat(c.grade) : null,
       dueDate: c.dueDate || null,
     })).filter((c) => c.id || c.name || c.weight != null || c.dueDate)
-    const running = [
-      ...combined,
-      ...parsed.filter((c) => c.id).map((c) => ({ course, contentId: c.id, type: c.type })),
-    ]
-    for (const c of parsed) {
-      if (c.id) continue
-      c.id = nextDeadlineId(course, abbrev, code, running, c.type)
-      running.push({ course, contentId: c.id, type: c.type })
-      if (!c.name) c.name = c.id
-    }
     updateGradeComponents(course, parsed)
   }
 
   function addComp() {
-    const next = [...comps, { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }]
+    const next = assignIds([...comps, { type: 'assignment', id: '', name: '', dueDate: '', weight: '', grade: '' }])
     setComps(next)
     persist(next)
   }
 
   function removeComp(i) {
     if (comps.length <= 1) return
-    const next = comps.filter((_, idx) => idx !== i)
+    const next = assignIds(comps.filter((_, idx) => idx !== i))
     setComps(next)
     persist(next)
   }
@@ -110,16 +121,22 @@ function GradeEditor({ course, abbrev, code }) {
   function updateComp(i, field, value) {
     const next = [...comps]
     next[i] = { ...next[i], [field]: value }
-    setComps(next)
-    persist(next)
+    const filled = assignIds(next)
+    setComps(filled)
+    persist(filled)
   }
 
   const total = comps.reduce((sum, c) => {
     const w = parseFloat(c.weight) || 0
     const g = parseFloat(c.grade)
-    return g != null ? sum + w * g : sum
+    return !isNaN(g) ? sum + w * g : sum
   }, 0)
-  const totalWeight = comps.reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0)
+  const allWeight = comps.reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0)
+  const totalWeight = comps.reduce((sum, c) => {
+    const g = parseFloat(c.grade)
+    const w = parseFloat(c.weight) || 0
+    return !isNaN(g) ? sum + w : sum
+  }, 0)
 
   return (
     <div className="border-t border-slate-100 pt-3 space-y-2">
@@ -163,7 +180,7 @@ function GradeEditor({ course, abbrev, code }) {
       <div className="flex items-center gap-2 text-xs text-slate-500">
         <button onClick={addComp} className="text-slate-500 hover:text-slate-700 cursor-pointer">+ Add component</button>
         <span className="ml-auto">
-          Weight sum: {(totalWeight * 100).toFixed(0)}% |
+          Weight sum: {(allWeight * 100).toFixed(0)}% |
           Weighted avg: {totalWeight > 0 ? (total / totalWeight).toFixed(3) : '-'}
         </span>
       </div>
