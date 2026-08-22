@@ -389,7 +389,9 @@ function buildBatchBody(ops, calendarId, boundary) {
 function parseBatchBody(text, boundary) {
   const out = {}
   for (const seg of text.split(`--${boundary}`)) {
-    const idm = /Content-ID:\s*<item(\d+)>/i.exec(seg)
+    // Google echoes the request Content-ID as <response-itemN> — match any
+    // Content-ID whose tag ends in a number.
+    const idm = /Content-ID:\s*<[^>]*?(\d+)>/i.exec(seg)
     if (!idm) continue
     const idx = parseInt(idm[1], 10)
     const statusm = /HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(seg)

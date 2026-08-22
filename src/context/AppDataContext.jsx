@@ -439,10 +439,12 @@ export function AppDataProvider({ children }) {
     await fillCourseGapsFromTemplate(d)
   }
 
-  // Merge user content from the last-known-good localStorage onto the matching
-  // Drive row (match by course + component ID) so a failed Drive write doesn't
-  // lose notes/hours. NEVER creates rows — pushing duplicates is what corrupted
-  // the Course Content tab before.
+  // Recover syllabus content from the last-known-good localStorage snapshot:
+  //  • if Drive already has the course+component ID, merge any newer notes /
+  //    hours / done onto it;
+  //  • if Drive is missing the row entirely (e.g. a bad write emptied the tab),
+  //    re-add it — matched by course + component ID so this never re-creates
+  //    the duplicates of the past.
   function healContentFromLocal(d, savedLocal) {
     const local = savedLocal?.data?.content
     if (!Array.isArray(local) || local.length === 0) return
@@ -454,10 +456,15 @@ export function AppDataProvider({ children }) {
     }
     for (const l of local) {
       if (!l.course) continue
-      const existing = driveById.get(`${l.course}|${l.contentId || ''}`)
-      if (!existing) continue
-      for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done']) {
-        if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
+      const k = `${l.course}|${l.contentId || ''}`
+      const existing = driveById.get(k)
+      if (existing) {
+        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done']) {
+          if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
+        }
+      } else {
+        d.content.push({ ...l })
+        driveById.set(k, l)
       }
     }
   }
@@ -520,7 +527,9 @@ export function AppDataProvider({ children }) {
           if (cancelled) return
           await ensureTabs(file.id)
           if (cancelled) return
-          await seedEmptyTabs(file.id)
+          // Seed the template ONLY into a brand-new spreadsheet. Seeding an
+          // existing one whenever its tabs looked empty has wiped real data.
+          if (file.createdNew) await seedEmptyTabs(file.id)
           if (cancelled) return
           await loadAndApplyFromDrive(file, saved)
         } catch (e) {
@@ -573,7 +582,8 @@ export function AppDataProvider({ children }) {
       await getAccessToken()
       const file = await ensureSpreadsheet()
       await ensureTabs(file.id)
-      await seedEmptyTabs(file.id)
+      // Only a brand-new spreadsheet gets seeded — never overwrite existing data.
+      if (file.createdNew) await seedEmptyTabs(file.id)
       return await loadAndApplyFromDrive(file, loadJSON())
     } catch (e) {
       setDriveError(e.message)
