@@ -166,7 +166,7 @@ export default function Courses({ courses }) {
             <option value="status">Status</option>
             <option value="quartile">Year + quartile</option>
             <option value="scope">Scope (curriculum/extra)</option>
-            <option value="ec">ECTS</option>
+            <option value="ec">EC</option>
             <option value="name">Name</option>
           </select>
         </div>

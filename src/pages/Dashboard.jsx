@@ -23,15 +23,18 @@ function splitByScope(courses) {
 function gradeStats(list, gradeMap) {
   const gradeOf = c => (c.grade != null ? c.grade : gradeMap?.[c.course]?.totalGrade ?? null)
   const completed = list.filter(c => gradeOf(c) != null)
+  const inProgress = list.filter(c => gradeOf(c) == null && c.start != null)
   // Average grade weighted by each course's ECs: sum(grade × EC) / sum(EC).
-  // With all courses at 5 EC this is a plain average (each course 1/Nth).
+  // Only courses that currently have a grade are considered — it grows as you
+  // enter grades, never a fixed count.
   const totalEc = completed.reduce((s, c) => s + (c.ec || 0), 0)
   const avg = totalEc > 0
     ? completed.reduce((s, c) => s + (gradeOf(c) || 0) * (c.ec || 0), 0) / totalEc
     : null
   return {
     completed: completed.length,
-    inProgress: list.filter(c => gradeOf(c) == null && c.start != null).length,
+    inProgress: inProgress.length,
+    planned: Math.max(0, list.length - completed.length - inProgress.length),
     ecEarned: completed.reduce((sum, c) => sum + (c.ec || 0), 0),
     ecPlanned: list.reduce((sum, c) => sum + (c.ec || 0), 0),
     avgGrade: avg,
@@ -105,31 +108,45 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-xs text-slate-500 uppercase tracking-wider">Courses</p>
           <p className="text-3xl font-bold text-slate-800 mt-1">
-            <span className="text-green-600">{stats.curriculum.completed}</span>
-            <span className="text-slate-300 text-xl mx-1">/</span>
             <span className="text-amber-600">{stats.curriculum.inProgress}</span>
+            <span className="text-slate-300 text-xl mx-1">active ·</span>
+            <span className="text-green-600">{stats.curriculum.completed}</span>
+            <span className="text-slate-300 text-xl mx-1">completed ·</span>
+            <span className="text-slate-400">{stats.curriculum.planned} planned</span>
           </p>
-          <p className="text-xs text-slate-400 mt-1">{stats.curriculum.completed} completed · {stats.curriculum.inProgress} in progress</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {stats.curriculum.inProgress} active · {stats.curriculum.completed} completed · {stats.curriculum.planned} planned
+          </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-xs text-slate-500 uppercase tracking-wider">ECTS</p>
+          <p className="text-xs text-slate-500 uppercase tracking-wider">EC</p>
           <p className="text-3xl font-bold text-slate-800 mt-1">
             {stats.curriculum.ecEarned.toFixed(0)}
             <span className="text-slate-300 text-xl mx-1">/</span>
             {stats.curriculum.ecPlanned.toFixed(0)}
+            <span className="text-sm text-slate-400 font-medium ml-2">curriculum</span>
           </p>
-          <p className="text-xs text-slate-400 mt-1">
-            Curriculum credits{stats.extra.ecPlanned > 0 ? ` · +${stats.extra.ecEarned.toFixed(0)}/${stats.extra.ecPlanned.toFixed(0)} extra` : ''}
-          </p>
+          {stats.extra.ecPlanned > 0 ? (
+            <p className="text-xs text-slate-400 mt-1">
+              +{stats.extra.ecEarned.toFixed(0)}/{stats.extra.ecPlanned.toFixed(0)} <span className="font-medium text-violet-600">extra EC</span>
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400 mt-1">Curriculum credits earned / planned</p>
+          )}
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-xs text-slate-500 uppercase tracking-wider">Avg Grade</p>
           <p className="text-3xl font-bold text-slate-800 mt-1">
             {stats.curriculum.avgGrade != null ? stats.curriculum.avgGrade.toFixed(2) : '—'}
+            <span className="text-sm text-slate-400 font-medium ml-2">curriculum</span>
           </p>
-          <p className="text-xs text-slate-400 mt-1">
-            Curriculum{stats.extra.avgGrade != null ? ` · ${stats.extra.avgGrade.toFixed(2)} extra` : ''}
-          </p>
+          {stats.extra.avgGrade != null ? (
+            <p className="text-xs text-slate-400 mt-1">
+              {stats.extra.avgGrade.toFixed(2)} <span className="font-medium text-violet-600">extra avg</span>
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400 mt-1">EC-weighted average of graded courses</p>
+          )}
         </div>
       </div>
 

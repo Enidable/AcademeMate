@@ -317,7 +317,10 @@ export function AppDataProvider({ children }) {
     const rowsByTab = {}
     for (const title of titles) rowsByTab[title] = serializeTabByTitle(title, data, planner)
     writeTabsBatch(driveRef.current.fileId, rowsByTab)
-      .catch(e => setDriveError(e.message))
+      .catch(e => {
+        console.error(`Failed to save ${keys.join(', ')} to Drive:`, e)
+        setDriveError(`Could not save: ${e.message}`)
+      })
       .finally(() => setSyncing(false))
   }
 
@@ -798,7 +801,10 @@ export function AppDataProvider({ children }) {
         if (examRep.get(r.course) !== r) continue
         r.lectureId = null
         const c = courseById.get(r.course) || {}
-        const examId = nextDeadlineId(r.course, c.abbrev, c.code, [...existingContent, ...gradeCompIds], 'exam')
+        // Reuse the exam component the user already entered (e.g. NLPE1) so the
+        // calendar event matches it instead of spawning a second exam.
+        const existingExamComp = (gradeCompIds || []).find(x => x.course === r.course && x.type === 'exam')
+        const examId = existingExamComp?.contentId || nextDeadlineId(r.course, c.abbrev, c.code, [...existingContent, ...gradeCompIds], 'exam')
         const kept = reconcileDeadline(r, examId)
         // Remove any stale standalone exam/review/resit scheduled entries.
         for (const i of existingContent) {

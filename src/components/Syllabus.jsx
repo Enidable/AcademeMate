@@ -182,7 +182,7 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
         )}
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${typeBadge(item.type)}`}>{TYPE_LABELS[item.type] || item.type}</span>
         <input
-          key={item.id + '::note'}
+          key={item.id + '::' + (item.description || '')}
           type="text"
           defaultValue={item.description || ''}
           onBlur={(e) => { const v = e.target.value.trim(); if (v !== (item.description || '')) onSaveNote(item, v) }}
@@ -246,7 +246,7 @@ function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSave
       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${typeBadge(item.type)}`}>{TYPE_LABELS[item.type] || item.type}</span>
       <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{dueStr}</span>
       <input
-        key={item.id + '::note'}
+        key={item.id + '::' + (item.description || '')}
         type="text"
         defaultValue={item.description || ''}
         onBlur={(e) => { const v = e.target.value.trim(); if (v !== (item.description || '')) onSaveNote(item, v) }}
@@ -269,18 +269,27 @@ function AddForm({ adding, setAdding, onSubmit, course, abbrev, code, content, g
     ...(gradeComponents || []).flatMap((g) => (g.components || []).map((c) => ({ course: g.course, contentId: c.id }))),
   ], [content, gradeComponents])
   const isLecture = adding?.mode === 'lecture'
-  // Existing project/component IDs, so a deadline can attach to a project that
-  // already has its own deadlines (multiple deadlines share one project ID).
+  // The graded components of THIS course (projects / assignments / exams) plus
+  // its existing deadlines — so a deadline can attach to one of them. Never the
+  // lectures or other courses.
   const projectIds = useMemo(() => {
     if (adding?.mode === 'lecture') return []
     const seen = new Set()
     const ids = []
-    for (const i of combined) {
-      const id = i.contentId || i.id
+    for (const g of gradeComponents || []) {
+      if (g.course !== course) continue
+      for (const c of g.components || []) {
+        const id = c.id || c.name
+        if (id && !seen.has(id)) { seen.add(id); ids.push(id) }
+      }
+    }
+    for (const i of content || []) {
+      if (i.course !== course || !i.deadline) continue
+      const id = i.contentId
       if (id && !seen.has(id)) { seen.add(id); ids.push(id) }
     }
     return ids
-  }, [adding, combined])
+  }, [adding, course, content, gradeComponents])
   if (!adding) return null
   const placeholder = isLecture
     ? nextScheduledId(course, abbrev, code, combined, adding.type)
@@ -465,6 +474,10 @@ export default function Syllabus({ course, abbrev, code }) {
           <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Scheduled</p>
           <span className="text-[9px] text-slate-300 mb-1">Each class gets a generated ID (e.g. ML1-L-01) · double-click an ID to view/change its calendar element</span>
         </div>
+        {adding?.mode === 'lecture' && (
+          <AddForm adding={adding} setAdding={setAdding} onSubmit={submitAdd}
+            course={course} abbrev={abbrev} code={code} content={content} gradeComponents={gradeComponents} />
+        )}
         {scheduled.length === 0 && !adding && <p className="text-[11px] text-slate-300 italic">No classes yet — import your .ics files in the Calendar tab to auto-fill these.</p>}
         <div className="space-y-0.5">
           {scheduled.map((item) => {
@@ -481,14 +494,14 @@ export default function Syllabus({ course, abbrev, code }) {
             )
           })}
         </div>
-        {adding?.mode === 'lecture' && (
-          <AddForm adding={adding} setAdding={setAdding} onSubmit={submitAdd}
-            course={course} abbrev={abbrev} code={code} content={content} gradeComponents={gradeComponents} />
-        )}
       </div>
 
       <div>
         <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Deadlines</p>
+        {(adding?.mode === 'project' || adding?.mode === 'deadline') && (
+          <AddForm adding={adding} setAdding={setAdding} onSubmit={submitAdd}
+            course={course} abbrev={abbrev} code={code} content={content} gradeComponents={gradeComponents} />
+        )}
         {deadlines.length === 0 && !adding && <p className="text-[11px] text-slate-300 italic">No deadlines yet — add projects or deadlines above. They'll appear Tomato-red in the calendar.</p>}
         <div className="space-y-0.5">
           {deadlines.map((item) => (
@@ -498,10 +511,6 @@ export default function Syllabus({ course, abbrev, code }) {
               onSaveNote={handleSaveNote} onSaveId={handleSaveId} />
           ))}
         </div>
-        {(adding?.mode === 'project' || adding?.mode === 'deadline') && (
-          <AddForm adding={adding} setAdding={setAdding} onSubmit={submitAdd}
-            course={course} abbrev={abbrev} code={code} content={content} gradeComponents={gradeComponents} />
-        )}
       </div>
     </div>
   )
