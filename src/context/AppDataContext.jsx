@@ -229,9 +229,11 @@ function assignLectureIds(rows, courses) {
     // Readable abbreviation (stored or derived) over the numeric code.
     const abbrev = (c.abbrev || deriveAbbrev(courseName) || c.code).replace(/\s+/g, '-')
     // One incremental sequence per course across ALL scheduled types
-    // (ML1-L-01, then a practical becomes ML1-P-02). Both the current
-    // (ABBR-L-01) and legacy (ABBR-L01) formats are matched so a re-import
-    // never reshuffles existing numbering. The letter is a label only.
+    // (ML1-L-01, then a practical becomes ML1-P-02). Only a lectureId that
+    // already matches the current base + letter format (ABBR-L-01 or legacy
+    // ABBR-L01) is kept — anything else (e.g. old code-based IDs like
+    // 202200109-01) is re-numbered against the current base, so re-imports
+    // converge on the readable abbreviation IDs instead of keeping the old ones.
     const pat = new RegExp(`^${escapeRe(abbrev)}[- ][A-Za-z]{1,2}[- ]?(\\d+)$`, 'i')
     const taken = new Set()
     let max = 0
@@ -246,7 +248,7 @@ function assignLectureIds(rows, courses) {
     evs.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || ''))
     let next = max + 1
     for (const r of evs) {
-      if (r.lectureId) continue
+      if (r.lectureId && pat.exec(String(r.lectureId))) continue
       while (taken.has(next)) next++
       taken.add(next)
       const letter = typeLetter(inferEventType(r.summary, r.description)) || ''
