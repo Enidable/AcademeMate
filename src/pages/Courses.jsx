@@ -185,7 +185,7 @@ export default function Courses({ courses }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="space-y-2">
         {displayed.map((c) => {
           const status = getStatus(c)
           const style = getCourseStyle(c.course, c.color)
@@ -209,9 +209,9 @@ export default function Courses({ courses }) {
               onDragEnd={onDrop}
               onDoubleClick={() => setViewing(c.course)}
               title="Double-click to open the course page"
-              className={`rounded-xl border ${style.border || 'border-slate-200'} ${style.soft} p-5 flex flex-col cursor-default transition-opacity ${dragging ? 'opacity-40' : ''}`}
+              className={`rounded-lg border ${style.border || 'border-slate-200'} ${style.soft} p-3 flex flex-col sm:flex-row sm:items-center gap-3 cursor-default transition-opacity ${dragging ? 'opacity-40' : ''}`}
               style={{ ...style.softCss, ...style.borderCss }}>
-              <div className="flex items-start justify-between mb-2">
+                <div className="flex items-start justify-between mb-2 sm:mb-0 sm:flex-1 sm:min-w-0">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="relative" data-colormenu>
@@ -270,7 +270,7 @@ export default function Courses({ courses }) {
                 </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+              <div className="mt-3 sm:mt-0 sm:flex sm:gap-4 sm:items-center text-xs">
                 <div>
                   <span className="text-slate-400">Hours logged</span>
                   <p className="text-slate-700 font-medium">{loggedHours.toFixed(1)}h</p>
@@ -292,7 +292,7 @@ export default function Courses({ courses }) {
               </div>
 
               {progress != null && (
-                <div className="mt-3">
+                <div className="mt-3 sm:mt-0 sm:w-40">
                   <div className="flex justify-between text-xs text-slate-400 mb-1">
                     <span>Progress</span>
                     <span>{loggedHours.toFixed(0)} / {estimatedHours.toFixed(0)}h</span>
@@ -305,7 +305,7 @@ export default function Courses({ courses }) {
               )}
 
               {gradeInfo && gradeInfo.components.length > 0 && (
-                <div className="mt-3 border-t border-slate-100 pt-2">
+                <div className="mt-3 sm:mt-0 sm:border-l sm:border-t-0 sm:border-slate-100 sm:pl-3 sm:pt-0 sm:max-w-xs">
                   <div className="text-xs text-slate-500 mb-1 font-medium">Grade Components</div>
                   <div className="space-y-1">
                     {gradeInfo.components.map((comp, idx) => (
@@ -326,9 +326,9 @@ export default function Courses({ courses }) {
                 </div>
               )}
 
-              {c.comment && <p className="mt-2 text-xs text-slate-400 italic">{c.comment}</p>}
+              {c.comment && <p className="mt-2 sm:mt-0 sm:max-w-[12rem] truncate text-xs text-slate-400 italic">{c.comment}</p>}
 
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 sm:mt-0 sm:ml-auto flex items-center gap-2">
                 <button onClick={() => setViewing(c.course)}
                   className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer">
                   Open course page →

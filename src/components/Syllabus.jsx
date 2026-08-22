@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { deriveAbbrev } from '../drive/driveClient'
+import { nextScheduledId, nextDeadlineId } from '../utils/ids'
 
 const TYPE_LABELS = {
   lecture: 'Lecture',
@@ -18,42 +18,6 @@ const TYPE_LABELS = {
 }
 
 const SCHEDULED_TYPES = ['lecture', 'tutorial', 'lectorial', 'practical', 'presentation', 'selfstudy', 'seminar']
-
-function escapeRe(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-// The prefix used to build IDs: the course's abbreviation when set, else the
-// course code, else a derived abbreviation (never the full course name).
-function idBase(course, abbrev, code) {
-  return (abbrev || code || deriveAbbrev(course)).replace(/\s+/g, '-')
-}
-
-// Lecture IDs are {abbrev}-NN (e.g. ASDfR-01).
-function nextContentId(course, abbrev, code, items) {
-  const a = idBase(course, abbrev, code)
-  const pat = new RegExp(`^${escapeRe(a)}[- ]?(\\d+)$`, 'i')
-  let max = 0
-  for (const i of items || []) {
-    if (i.course !== course) continue
-    const m = i.contentId && pat.exec(String(i.contentId))
-    if (m) max = Math.max(max, parseInt(m[1], 10))
-  }
-  return `${a}-${String(max + 1).padStart(2, '0')}`
-}
-
-// Project/deadline IDs are {abbrev}{n} without padding (e.g. ASDfR1).
-function nextProjectId(course, abbrev, code, items) {
-  const a = idBase(course, abbrev, code)
-  const pat = new RegExp(`^${escapeRe(a)}[- ]?(\\d+)$`, 'i')
-  let max = 0
-  for (const i of items || []) {
-    if (i.course !== course) continue
-    const m = i.contentId && pat.exec(String(i.contentId))
-    if (m) max = Math.max(max, parseInt(m[1], 10))
-  }
-  return `${a}${max + 1}`
-}
 
 function fmtDate(d) {
   if (!d) return '—'
@@ -76,15 +40,128 @@ function typeBadge(type) {
   return colors[type] || 'bg-indigo-100 text-indigo-700'
 }
 
+// A single syllabus row. Hoisted to module scope so it is NOT re-created on
+// every parent render — that used to remount the inputs and drop focus after
+// each keystroke.
+function Row({ item, isDeadline, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete }) {
+  const id = item.contentId || '—'
+  const dateStr = isDeadline
+    ? `due ${fmtDate(item.deadline)}`
+    : `${fmtDate(item.date)}${item.start ? ` ${item.start}${item.end ? `–${item.end}` : ''}` : ''}`
+  if (isEditing) {
+    return (
+      <div className="flex flex-col gap-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <input type="text" value={editing.contentId} onChange={(e) => setEditing((s) => ({ ...s, contentId: e.target.value }))}
+            placeholder="ID (e.g. AI4AR-L03)"
+            className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
+          <select value={editing.type} onChange={(e) => setEditing((s) => ({ ...s, type: e.target.value }))}
+            className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">
+            {Object.entries(TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <input type="date" value={editing.date} onChange={(e) => setEditing((s) => ({ ...s, date: e.target.value }))}
+            className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
+          {!isDeadline && (
+            <>
+              <input type="time" value={editing.start} onChange={(e) => setEditing((s) => ({ ...s, start: e.target.value }))}
+                className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
+              <input type="time" value={editing.end} onChange={(e) => setEditing((s) => ({ ...s, end: e.target.value }))}
+                className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <input type="text" value={editing.description} onChange={(e) => setEditing((s) => ({ ...s, description: e.target.value }))}
+            className="flex-1 text-[11px] px-2 py-1 border border-slate-200 rounded bg-white" placeholder="Description" />
+          <button onClick={onSaveEdit} className="text-[11px] px-2.5 py-1 bg-slate-700 text-white rounded cursor-pointer">Save</button>
+          <button onClick={() => setEditing(null)} className="text-[11px] px-2 py-1 border border-slate-200 text-slate-500 rounded cursor-pointer">Esc</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="group flex items-center gap-2 px-1 py-1 rounded hover:bg-slate-50">
+      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0">{id}</span>
+      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${typeBadge(item.type)}`}>{TYPE_LABELS[item.type] || item.type}</span>
+      <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{dateStr}</span>
+      <span className="text-[11px] text-slate-700 truncate">{item.description}</span>
+      {item.calId && <span className="text-[9px] text-emerald-500 shrink-0">· Google</span>}
+      <div className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
+        <button onClick={() => onStartEdit(item)} className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
+        <button onClick={() => { if (window.confirm(`Remove "${item.description}" from the syllabus?`)) onDelete(item) }}
+          className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
+      </div>
+    </div>
+  )
+}
+
+// The "add" form. Also hoisted so typing never loses focus.
+function AddForm({ adding, setAdding, onSubmit, course, abbrev, code, content, gradeComponents }) {
+  const combined = useMemo(() => [
+    ...(content || []),
+    ...(gradeComponents || []).flatMap((g) => (g.components || []).map((c) => ({ course: g.course, contentId: c.id }))),
+  ], [content, gradeComponents])
+  if (!adding) return null
+  const isLecture = adding.mode === 'lecture'
+  const placeholder = isLecture
+    ? nextScheduledId(course, abbrev, code, combined, adding.type)
+    : nextDeadlineId(course, abbrev, code, combined)
+  return (
+    <div className="flex flex-col gap-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50 mt-2">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <input type="text" value={adding.contentId} onChange={(e) => setAdding((a) => ({ ...a, contentId: e.target.value }))}
+          placeholder={placeholder}
+          className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
+        {isLecture ? (
+          <select value={adding.type} onChange={(e) => setAdding((a) => ({ ...a, type: e.target.value }))}
+            className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">
+            {SCHEDULED_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+          </select>
+        ) : (
+          <select value={adding.type} onChange={(e) => setAdding((a) => ({ ...a, type: e.target.value }))}
+            className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">
+            <option value="project">Project</option>
+            <option value="assignment">Assignment</option>
+            <option value="exam">Exam</option>
+            <option value="quiz">Quiz</option>
+            <option value="presentation">Presentation</option>
+            <option value="other">Other</option>
+          </select>
+        )}
+        <input type="date" value={adding.date} onChange={(e) => setAdding((a) => ({ ...a, date: e.target.value }))}
+          className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
+        {isLecture ? (
+          <>
+            <input type="time" value={adding.start} onChange={(e) => setAdding((a) => ({ ...a, start: e.target.value }))}
+              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
+            <input type="time" value={adding.end} onChange={(e) => setAdding((a) => ({ ...a, end: e.target.value }))}
+              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
+          </>
+        ) : (
+          <input type="time" value={adding.end} onChange={(e) => setAdding((a) => ({ ...a, end: e.target.value }))}
+            className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" title="Due time (e.g. 17:00)" />
+        )}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input type="text" value={adding.description} onChange={(e) => setAdding((a) => ({ ...a, description: e.target.value }))}
+          className="flex-1 text-[11px] px-2 py-1 border border-slate-200 rounded bg-white"
+          placeholder={isLecture ? 'Description (e.g. Intro to X)' : 'Description (e.g. Report part 1)'} />
+        <button onClick={onSubmit} className="text-[11px] px-2.5 py-1 bg-slate-700 text-white rounded cursor-pointer">Add</button>
+        <button onClick={() => setAdding(null)} className="text-[11px] px-2 py-1 border border-slate-200 text-slate-500 rounded cursor-pointer">Esc</button>
+      </div>
+    </div>
+  )
+}
+
 export default function Syllabus({ course, abbrev, code }) {
-  const { content, addContentItem, updateContentItem, deleteContentItem } = useAppData()
+  const { content, gradeComponents, addContentItem, updateContentItem, deleteContentItem } = useAppData()
   const [adding, setAdding] = useState(null)
   const [editing, setEditing] = useState(null)
 
-  const items = useMemo(() => (content || []).filter(i => i.course === course), [content, course])
-  const scheduled = items.filter(i => i.date && !i.deadline)
+  const items = useMemo(() => (content || []).filter((i) => i.course === course), [content, course])
+  const scheduled = items.filter((i) => i.date && !i.deadline)
     .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.start || '').localeCompare(b.start || ''))
-  const deadlines = items.filter(i => i.deadline)
+  const deadlines = items.filter((i) => i.deadline)
     .sort((a, b) => (a.deadline || '').localeCompare(b.deadline || ''))
 
   function openAdd(mode) {
@@ -103,9 +180,13 @@ export default function Syllabus({ course, abbrev, code }) {
   function submitAdd() {
     const a = adding
     const isLecture = a.mode === 'lecture'
+    const combined = [
+      ...items,
+      ...(gradeComponents || []).flatMap((g) => (g.components || []).map((c) => ({ course: g.course, contentId: c.id }))),
+    ]
     const id = a.contentId || (isLecture
-      ? nextContentId(course, abbrev, code, content)
-      : nextProjectId(course, abbrev, code, content))
+      ? nextScheduledId(course, abbrev, code, combined, a.type)
+      : nextDeadlineId(course, abbrev, code, combined))
     if (isLecture) {
       addContentItem({
         course,
@@ -144,7 +225,7 @@ export default function Syllabus({ course, abbrev, code }) {
 
   function saveEdit() {
     const e = editing
-    const isScheduled = scheduled.some(s => s.id === e.id)
+    const isScheduled = scheduled.some((s) => s.id === e.id)
     const payload = { description: e.description, type: e.type, contentId: e.contentId || null }
     if (isScheduled) {
       payload.schedDate = e.date || null
@@ -157,107 +238,7 @@ export default function Syllabus({ course, abbrev, code }) {
     setEditing(null)
   }
 
-  function Row({ item, isDeadline }) {
-    const id = item.contentId || '—'
-    const dateStr = isDeadline ? `due ${fmtDate(item.deadline)}` : `${fmtDate(item.date)}${item.start ? ` ${item.start}${item.end ? `–${item.end}` : ''}` : ''}`
-    const isEditing = editing?.id === item.id
-    if (isEditing) {
-      return (
-        <div className="flex flex-col gap-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <input type="text" value={editing.contentId} onChange={e => setEditing(s => ({ ...s, contentId: e.target.value }))}
-              placeholder="ID (e.g. AI4AR-03)"
-              className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
-            <select value={editing.type} onChange={e => setEditing(s => ({ ...s, type: e.target.value }))}
-              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">
-              {Object.entries(TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-            <input type="date" value={editing.date} onChange={e => setEditing(s => ({ ...s, date: e.target.value }))}
-              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
-            {!isDeadline && (
-              <>
-                <input type="time" value={editing.start} onChange={e => setEditing(s => ({ ...s, start: e.target.value }))}
-                  className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
-                <input type="time" value={editing.end} onChange={e => setEditing(s => ({ ...s, end: e.target.value }))}
-                  className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            <input type="text" value={editing.description} onChange={e => setEditing(s => ({ ...s, description: e.target.value }))}
-              className="flex-1 text-[11px] px-2 py-1 border border-slate-200 rounded bg-white" placeholder="Description" />
-            <button onClick={saveEdit} className="text-[11px] px-2.5 py-1 bg-slate-700 text-white rounded cursor-pointer">Save</button>
-            <button onClick={() => setEditing(null)} className="text-[11px] px-2 py-1 border border-slate-200 text-slate-500 rounded cursor-pointer">Esc</button>
-          </div>
-        </div>
-      )
-    }
-    return (
-      <div className="group flex items-center gap-2 px-1 py-1 rounded hover:bg-slate-50">
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0">{id}</span>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${typeBadge(item.type)}`}>{TYPE_LABELS[item.type] || item.type}</span>
-        <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{dateStr}</span>
-        <span className="text-[11px] text-slate-700 truncate">{item.description}</span>
-        {item.calId && <span className="text-[9px] text-emerald-500 shrink-0">· Google</span>}
-        <div className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
-          <button onClick={() => startEdit(item)} className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
-          <button onClick={() => { if (window.confirm(`Remove "${item.description}" from the syllabus?`)) deleteContentItem(item.id) }}
-            className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
-        </div>
-      </div>
-    )
-  }
-
-  const AddForm = () => {
-    if (!adding) return null
-    return (
-      <div className="flex flex-col gap-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50 mt-2">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <input type="text" value={adding.contentId} onChange={e => setAdding(a => ({ ...a, contentId: e.target.value }))}
-            placeholder={adding.mode === 'lecture'
-              ? nextContentId(course, abbrev, code, content)
-              : nextProjectId(course, abbrev, code, content)}
-            className="text-[10px] font-mono w-24 px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-600" />
-          {adding.mode === 'lecture' ? (
-            <select value={adding.type} onChange={e => setAdding(a => ({ ...a, type: e.target.value }))}
-              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">
-              {SCHEDULED_TYPES.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
-            </select>
-          ) : (
-            <select value={adding.type} onChange={e => setAdding(a => ({ ...a, type: e.target.value }))}
-              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white">
-              <option value="project">Project</option>
-              <option value="assignment">Assignment</option>
-              <option value="exam">Exam</option>
-              <option value="quiz">Quiz</option>
-              <option value="presentation">Presentation</option>
-              <option value="other">Other</option>
-            </select>
-          )}
-          <input type="date" value={adding.date} onChange={e => setAdding(a => ({ ...a, date: e.target.value }))}
-            className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
-          {adding.mode === 'lecture' ? (
-            <>
-              <input type="time" value={adding.start} onChange={e => setAdding(a => ({ ...a, start: e.target.value }))}
-                className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
-              <input type="time" value={adding.end} onChange={e => setAdding(a => ({ ...a, end: e.target.value }))}
-                className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" />
-            </>
-          ) : (
-            <input type="time" value={adding.end} onChange={e => setAdding(a => ({ ...a, end: e.target.value }))}
-              className="text-[11px] border border-slate-200 rounded px-1.5 py-1 bg-white" title="Due time (e.g. 17:00)" />
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <input type="text" value={adding.description} onChange={e => setAdding(a => ({ ...a, description: e.target.value }))}
-            className="flex-1 text-[11px] px-2 py-1 border border-slate-200 rounded bg-white"
-            placeholder={adding.mode === 'lecture' ? 'Description (e.g. Intro to X)' : 'Description (e.g. Report part 1)'} />
-          <button onClick={submitAdd} className="text-[11px] px-2.5 py-1 bg-slate-700 text-white rounded cursor-pointer">Add</button>
-          <button onClick={() => setAdding(null)} className="text-[11px] px-2 py-1 border border-slate-200 text-slate-500 rounded cursor-pointer">Esc</button>
-        </div>
-      </div>
-    )
-  }
+  const handleDelete = (item) => deleteContentItem(item.id)
 
   return (
     <div className="border-t border-slate-100 pt-3 space-y-3">
@@ -274,18 +255,32 @@ export default function Syllabus({ course, abbrev, code }) {
         <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Scheduled</p>
         {scheduled.length === 0 && !adding && <p className="text-[11px] text-slate-300 italic">No classes yet — import your .ics files in the Calendar tab to auto-fill these.</p>}
         <div className="space-y-0.5">
-          {scheduled.map(item => <Row key={item.id} item={item} isDeadline={false} />)}
+          {scheduled.map((item) => (
+            <Row key={item.id} item={item} isDeadline={false}
+              isEditing={editing?.id === item.id} editing={editing} setEditing={setEditing}
+              onStartEdit={startEdit} onSaveEdit={saveEdit} onDelete={handleDelete} />
+          ))}
         </div>
-        {adding?.mode === 'lecture' && <AddForm />}
+        {adding?.mode === 'lecture' && (
+          <AddForm adding={adding} setAdding={setAdding} onSubmit={submitAdd}
+            course={course} abbrev={abbrev} code={code} content={content} gradeComponents={gradeComponents} />
+        )}
       </div>
 
       <div>
         <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Deadlines</p>
         {deadlines.length === 0 && !adding && <p className="text-[11px] text-slate-300 italic">No deadlines yet — add projects or deadlines above. They'll appear Tomato-red in the calendar.</p>}
         <div className="space-y-0.5">
-          {deadlines.map(item => <Row key={item.id} item={item} isDeadline={true} />)}
+          {deadlines.map((item) => (
+            <Row key={item.id} item={item} isDeadline={true}
+              isEditing={editing?.id === item.id} editing={editing} setEditing={setEditing}
+              onStartEdit={startEdit} onSaveEdit={saveEdit} onDelete={handleDelete} />
+          ))}
         </div>
-        {(adding?.mode === 'project' || adding?.mode === 'deadline') && <AddForm />}
+        {(adding?.mode === 'project' || adding?.mode === 'deadline') && (
+          <AddForm adding={adding} setAdding={setAdding} onSubmit={submitAdd}
+            course={course} abbrev={abbrev} code={code} content={content} gradeComponents={gradeComponents} />
+        )}
       </div>
     </div>
   )

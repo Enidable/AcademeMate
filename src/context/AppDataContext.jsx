@@ -11,6 +11,7 @@ import {
   serializeCalendar,
 } from '../data/serialize'
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
+import { renameIdBase, typeLetter } from '../utils/ids'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -22,7 +23,6 @@ import {
   fetchIcsFile,
   ensureCalendar,
   toGcalEvent,
-  isExamEvent,
   inferEventType,
   deriveAbbrev,
   courseColorId,
@@ -198,39 +198,50 @@ function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// Give every scheduled (non-exam) calendar event a stable incremental id in the
-// form {course abbrev}-{NN}. Events that already carry a lecture id keep it, so
-// re-imports never reshuffle the numbering.
+// Give every calendar event (lectures, tutorials, practicals, exams, …) a
+// stable incremental id in the form {abbrev}-{LETTER}{NN} (scheduled) or
+// {abbrev}-{NN} (exams, which keep a distinct letter so they never collide with
+// plain deadline numbers). Events that already carry a lecture id keep it, so
+// re-imports never reshuffle the numbering. Numbering is per letter within a
+// course, so L01/L02 and T01/T02 advance independently.
 function assignLectureIds(rows, courses) {
   const courseById = {}
   for (const c of courses || []) courseById[c.course] = c
   const groups = {}
   for (const r of rows) {
-    if (!r.course || isExamEvent(r)) continue
+    if (!r.course) continue
     if (!groups[r.course]) groups[r.course] = []
     groups[r.course].push(r)
   }
   for (const [courseName, evs] of Object.entries(groups)) {
     const c = courseById[courseName]
-    const abbrev = c?.abbrev || c?.code || deriveAbbrev(courseName)
-    const pat = new RegExp(`^${escapeRe(abbrev)}[- ]?(\\d+)$`, 'i')
-    const taken = new Set()
-    let maxNum = 0
+    const abbrev = (c?.abbrev || c?.code || deriveAbbrev(courseName)).replace(/\s+/g, '-')
+    // Bucket events by the letter their type maps to ('' for plain numbers).
+    const buckets = {}
     for (const r of evs) {
-      const m = r.lectureId && pat.exec(String(r.lectureId))
-      if (m) {
-        const num = parseInt(m[1], 10)
-        taken.add(num)
-        maxNum = Math.max(maxNum, num)
-      }
+      const letter = typeLetter(inferEventType(r.summary, r.description)) || ''
+      if (!buckets[letter]) buckets[letter] = { taken: new Set(), max: 0, evs: [] }
+      buckets[letter].evs.push(r)
     }
-    evs.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || ''))
-    let next = maxNum + 1
-    for (const r of evs) {
-      if (r.lectureId) continue
-      while (taken.has(next)) next++
-      taken.add(next)
-      r.lectureId = `${abbrev}-${String(next).padStart(2, '0')}`
+    for (const letter of Object.keys(buckets)) {
+      const b = buckets[letter]
+      const pat = new RegExp(`^${escapeRe(abbrev)}[- ]?${escapeRe(letter)}(\\d+)$`, 'i')
+      for (const r of b.evs) {
+        const m = r.lectureId && pat.exec(String(r.lectureId))
+        if (m) {
+          const num = parseInt(m[1], 10)
+          b.taken.add(num)
+          b.max = Math.max(b.max, num)
+        }
+      }
+      b.evs.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || ''))
+      let next = b.max + 1
+      for (const r of b.evs) {
+        if (r.lectureId) continue
+        while (b.taken.has(next)) next++
+        b.taken.add(next)
+        r.lectureId = `${abbrev}-${letter}${String(next).padStart(2, '0')}`
+      }
     }
   }
 }
@@ -792,15 +803,12 @@ export function AppDataProvider({ children }) {
     syncTabs(['studyLog'])
   }
 
-  // Renames an ID like "202400250-01"/"2024002501" to "ASDfR-01"/"ASDfR1"
-  // when the abbreviation (or code) used as its prefix changes.
-  function renameIdPrefix(contentId, oldBase, newBase) {
-    if (!contentId || typeof contentId !== 'string') return contentId
-    const re = new RegExp(`^${oldBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([- ]?(\\d+))$`, 'i')
-    const m = re.exec(contentId)
-    if (!m) return contentId
-    return newBase + m[1]
-  }
+// Renames the prefix of an ID (e.g. "202400250-01" -> "ASDfR-L01") when the
+// abbreviation (or code) used as its prefix changes. The letter + number suffix
+// is preserved exactly via the shared helper.
+function renameIdPrefix(contentId, oldBase, newBase) {
+  return renameIdBase(contentId, oldBase, newBase)
+}
 
   function updateCourse(id, course) {
     const { _gradeComponents, ...courseData } = course
@@ -1038,17 +1046,68 @@ export function AppDataProvider({ children }) {
       gradeComponents.push(entry)
     }
 
-    // Mirror component type/id changes back onto linked syllabus items
-    // (matched by contentId === component id), so the two never disagree on
-    // whether something is an exam, assignment, or lecture.
-    const content = (prev.content || []).map(i => {
+    // Reconcile the syllabus (Course Content) with the grade components:
+    //  • mirror a component's type onto its linked syllabus item, and
+    //  • when a component has a due date, automatically create/update a
+    //    deadline item (contentId === component id, calId null) that the next
+    //    calendar Sync will push to Google Calendar. Components that drop their
+    //    due date (or are removed) lose their auto-deadline only if it has no
+    //    logged hours, so manual work is never silently deleted.
+    const existingContent = prev.content || []
+    const contentIds = new Set(entry.components.filter(c => c.id != null).map(c => c.id))
+    let content = existingContent.map(i => {
       if (i.course !== course) return i
-      const comp = entry.components.find(c => c.id === i.contentId && c.id != null)
+      const comp = entry.components.find(c => c.id != null && c.id === i.contentId)
       if (!comp) return i
-      const type = comp.type === 'exam' ? 'exam' : comp.type === 'assignment' ? 'assignment' : null
-      if (!type || i.type === type) return i
-      return { ...i, type }
+      const next = { ...i }
+      const type = comp.type === 'exam' ? 'exam' : comp.type === 'assignment' ? 'assignment' : (i.type || comp.type)
+      if (type) next.type = type
+      if (comp.dueDate) {
+        next.deadline = comp.dueDate
+        next.date = null
+        next.description = i.description || comp.name || comp.id
+        next.topic = i.topic || comp.name || comp.id
+      }
+      return next
     })
+
+    // Add a deadline item for every component that has a due date but no
+    // matching syllabus entry yet.
+    const seen = new Set(content.filter(i => i.course === course && i.contentId).map(i => i.contentId))
+    for (const c of entry.components) {
+      if (c.id == null || !c.dueDate || seen.has(c.id)) continue
+      content.push({
+        id: `${course}||${c.id}|${c.dueDate}||${c.name || c.id}`,
+        course,
+        course2: null,
+        contentId: c.id,
+        type: c.type || 'assignment',
+        topic: c.name || c.id,
+        description: c.name || c.id,
+        date: null,
+        deadline: c.dueDate,
+        start: '',
+        end: '',
+        marker: c.urgency === 'High' ? 'Important' : '',
+        location: null,
+        hoursSpent: null,
+        materialHours: null,
+        content: null,
+        calId: null,
+        done: '',
+        urgency: 'Medium',
+        time: 0,
+      })
+    }
+
+    // Drop auto-created deadlines whose component was removed (and that have no
+    // logged hours), so removed assessments don't linger in the calendar.
+    content = content.filter(i => {
+      if (i.course !== course || !i.contentId || !i.deadline) return true
+      if (contentIds.has(i.contentId)) return true
+      return !(i.hoursSpent == null || i.hoursSpent === 0)
+    })
+
     const updated = { ...prev, gradeComponents, content }
     setAll(updated, plannerRef.current)
     syncTabs(['gradeComponents', 'courses', 'content'])

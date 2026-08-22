@@ -20,13 +20,29 @@ const pages = {
 
 function AppContent() {
   const [active, setActive] = useState('Dashboard')
-  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, driveError } = useAppData()
+  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, driveError, pushCalendarToGoogle } = useAppData()
   const [modal, setModal] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionPreset, setSessionPreset] = useState(null)
+  const [syncMsg, setSyncMsg] = useState(null)
 
   if (loading) {
     return <div className="flex h-screen bg-slate-50 items-center justify-center"><p className="text-slate-400 text-sm">Loading data…</p></div>
+  }
+
+  async function handleSync() {
+    if (!hasDrive) {
+      setSettingsOpen(true)
+      return
+    }
+    setSyncMsg('Syncing…')
+    try {
+      const r = await pushCalendarToGoogle()
+      setSyncMsg(`Synced (${r.inserted} added, ${r.updated} updated)`)
+    } catch (e) {
+      setSyncMsg('Sync failed: ' + e.message)
+    }
+    setTimeout(() => setSyncMsg(null), 5000)
   }
 
   if (error) {
@@ -73,10 +89,22 @@ function AppContent() {
       <AddCourseModal open={modal === 'course'} onClose={() => setModal(null)} />
       <DriveSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
-      <button
-        onClick={() => { setSessionPreset(null); setModal('session') }}
-        className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-slate-800 text-white text-2xl shadow-lg hover:bg-slate-700 active:scale-95 cursor-pointer flex items-center justify-center"
-        title="Add study session">+</button>
+      <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
+        {syncMsg && (
+          <span className="text-xs text-slate-600 bg-white border border-slate-200 rounded-full px-3 py-2 shadow-sm max-w-[16rem]">{syncMsg}</span>
+        )}
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="text-sm px-4 py-3 rounded-full border border-slate-300 bg-white text-slate-700 shadow-lg hover:bg-slate-100 active:scale-95 cursor-pointer disabled:opacity-50">
+          {syncing ? 'Syncing…' : 'Sync'}
+        </button>
+        <button
+          onClick={() => { setSessionPreset(null); setModal('session') }}
+          className="text-sm px-4 py-3 rounded-full bg-slate-800 text-white shadow-lg hover:bg-slate-700 active:scale-95 cursor-pointer">
+          Add Session
+        </button>
+      </div>
     </div>
   )
 }
