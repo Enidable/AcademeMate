@@ -222,6 +222,7 @@ const TYPE_KEYWORDS = [
   ['self study', 'selfstudy'],
   ['seminar', 'seminar'],
   ['project', 'project'],
+  ['meeting', 'meeting'],
   ['assignment', 'assignment'],
   ['exam', 'exam'],
 ]
@@ -247,6 +248,7 @@ export function deriveAbbrev(name) {
     'Machine Learning I': 'ML1',
     'Statistics and Probability': 'S&P',
     'Natural Language Processing': 'NLP',
+    'Professional and Personal Development': 'PPD',
   }
   if (customAbbrevs[name]) return customAbbrevs[name]
   const words = String(name).trim().split(/\s+/).filter(w => w.length > 1)

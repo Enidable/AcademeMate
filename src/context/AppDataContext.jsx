@@ -296,6 +296,28 @@ export function AppDataProvider({ children }) {
       .finally(() => setSyncing(false))
   }
 
+  // Fields a course row can silently lose when its Drive tab gets overwritten.
+  // Gaps are filled from the last-known-good localStorage snapshot and the
+  // bundled template (the user's own course backbone), so code / dates / notes
+  // / colours never stay missing after a bad write.
+  const COURSE_GAP_FIELDS = ['code', 'abbrev', 'year', 'quartile', 'start', 'finish', 'ec', 'status', 'estHours', 'notes', 'comment', 'scope', 'color', 'order']
+
+  // Fill empty fields on existing courses from a source list (same course name).
+  function fillCourseGaps(d, source) {
+    if (!Array.isArray(source) || source.length === 0) return
+    const byName = new Map()
+    for (const s of source) if (s.course) byName.set(s.course, s)
+    for (const c of d.courses || []) {
+      const s = byName.get(c.course)
+      if (!s) continue
+      for (const field of COURSE_GAP_FIELDS) {
+        if ((c[field] == null || c[field] === '') && s[field] != null && s[field] !== '') {
+          c[field] = s[field]
+        }
+      }
+    }
+  }
+
   // Drive is the source of truth, but a course that only exists in the last
   // known-good localStorage snapshot (its row was dropped from Drive at some
   // point) is re-added with its stored metadata, so nothing silently vanishes
@@ -303,6 +325,7 @@ export function AppDataProvider({ children }) {
   function healCoursesFromLocal(d, savedLocal) {
     const local = savedLocal?.data?.courses
     if (!Array.isArray(local) || local.length === 0) return
+    fillCourseGaps(d, local)
     const byName = new Map((d.courses || []).map(c => [c.course, c]))
     for (const c of local) {
       if (!c?.course || byName.has(c.course)) continue
@@ -311,13 +334,28 @@ export function AppDataProvider({ children }) {
     }
   }
 
+  // Fill any remaining gaps (localStorage may be equally damaged) from the
+  // bundled course template. Only fills empty fields of existing courses —
+  // never re-adds a course the user deleted, never overwrites a present value.
+  async function fillCourseGapsFromTemplate(d) {
+    try {
+      const template = await fetchTemplateRows()
+      fillCourseGaps(d, parseAll(template).courses)
+    } catch { /* template unreachable — skip */ }
+  }
+
+  async function healCourses(d, savedLocal) {
+    healCoursesFromLocal(d, savedLocal)
+    await fillCourseGapsFromTemplate(d)
+  }
+
   async function loadAndApplyFromDrive(file, savedLocal = null) {
     const info = { fileId: file.id, fileUrl: file.webViewLink, user: resolveUser() }
     setDrive(info)
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
     const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
-    healCoursesFromLocal(d, savedLocal)
+    await healCourses(d, savedLocal)
 
     dataRef.current = d
     plannerRef.current = p
@@ -444,7 +482,7 @@ export function AppDataProvider({ children }) {
     try {
       const rowsByTab = await readAllTabs(info.fileId)
       const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
-      healCoursesFromLocal(d, loadJSON())
+      await healCourses(d, loadJSON())
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt
@@ -516,17 +554,39 @@ export function AppDataProvider({ children }) {
     const rows = dedupeCalendarRows(parsed)
 
     // Link events to courses so each course keeps its own colour everywhere.
+    // Beyond an exact name/code match this also links events whose summary
+    // mentions the full course name or its abbreviation ("Exam Systems
+    // Engineering", "SE - Tutorial"), so exams and shorthand-titled events land
+    // in the right course instead of being dropped from the syllabus.
     const courses = dataRef.current?.courses || []
     const codeToCourse = new Map()
     for (const c of courses) if (c.code) codeToCourse.set(c.code, c.course)
+    const escapeRe2 = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     for (const r of rows) {
       if (!r.course) {
         const m = /\.?\s*(\d{6,9})\s*$/.exec(r.summary || '')
         if (m) r.course = codeToCourse.get(m[1]) || null
       }
       if (!r.course) {
-        const match = courses.find(c => (r.summary || '').trim().toLowerCase() === String(c.course || '').toLowerCase())
-        if (match) r.course = match.course
+        const summary = (r.summary || '').trim().toLowerCase()
+        const exact = courses.find(c => String(c.course || '').toLowerCase() === summary)
+        if (exact) { r.course = exact.course; continue }
+        // Full course name appears inside the summary (longest name wins).
+        let nameMatch = null
+        for (const c of courses) {
+          const name = String(c.course || '').toLowerCase()
+          if (name.length > 4 && summary.includes(name) && (!nameMatch || name.length > nameMatch.course.length)) {
+            nameMatch = c
+          }
+        }
+        if (nameMatch) { r.course = nameMatch.course; continue }
+        // Abbreviation appears as a standalone token (e.g. "SE - Lecture 1").
+        const abbrMatch = courses.find(c => {
+          const abbr = String(c.abbrev || '').toLowerCase()
+          if (!abbr || abbr.length < 2) return false
+          return new RegExp(`(^|[^a-z0-9])${escapeRe2(abbr)}([^a-z0-9]|$)`, 'i').test(r.summary || '')
+        })
+        if (abbrMatch) r.course = abbrMatch.course
       }
     }
 

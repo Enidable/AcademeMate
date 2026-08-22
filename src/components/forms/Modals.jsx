@@ -350,7 +350,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
         </div>
 
         <div>
-          <label className="text-xs text-slate-500 block mb-1">Assignment / Exam ID</label>
+          <label className="text-xs text-slate-500 block mb-1">Component / Lecture ID</label>
           <select value={form.lectureId || ''} onChange={e => setForm(f => ({ ...f, lectureId: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
             <option value="">None</option>
             {filteredLectureIds.map(a => <option key={a.id} value={a.id}>{a.id} — {a.course} ({a.type})</option>)}

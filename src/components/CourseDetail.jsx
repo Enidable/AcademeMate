@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo } from 'react'
-import { getStatus, getCourseStyle } from '../utils/helpers'
+import { getStatus, getCourseStyle, colorToHex } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { nextDeadlineId } from '../utils/ids'
 import Syllabus from './Syllabus'
@@ -257,7 +257,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-10 items-start">
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
@@ -346,7 +346,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
                 </Field>
                 <Field label="Colour">
                   <div className="flex items-center gap-2">
-                    <input type="color" value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.color || '') ? c.color : '#6366f1'}
+                    <input type="color" value={colorToHex(c.color, c.course)}
                       onChange={(e) => set({ color: e.target.value })}
                       className="w-10 h-10 cursor-pointer border border-slate-200 rounded" />
                     <span className="text-[11px] text-slate-400">Pick any colour with the wheel</span>

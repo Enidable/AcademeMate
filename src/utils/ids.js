@@ -21,6 +21,7 @@ export const TYPE_LETTER = {
   lectorial: 'L',
   tutorial: 'T',
   practical: 'P',
+  meeting: 'M',
   seminar: 'S',
   selfstudy: 'Ss',
   presentation: 'Pr',

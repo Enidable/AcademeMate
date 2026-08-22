@@ -8,6 +8,7 @@ const TYPE_LABELS = {
   lectorial: 'Lectorial',
   practical: 'Practical',
   presentation: 'Presentation',
+  meeting: 'Meeting',
   selfstudy: 'Self study',
   seminar: 'Seminar',
   project: 'Project',
@@ -17,7 +18,7 @@ const TYPE_LABELS = {
   other: 'Other',
 }
 
-const SCHEDULED_TYPES = ['lecture', 'tutorial', 'lectorial', 'practical', 'presentation', 'selfstudy', 'seminar']
+const SCHEDULED_TYPES = ['lecture', 'tutorial', 'lectorial', 'practical', 'presentation', 'meeting', 'selfstudy', 'seminar']
 
 function fmtDate(d) {
   if (!d) return '—'
@@ -171,7 +172,7 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
         <span
           title="Double-click to view / change the linked calendar element"
           onDoubleClick={openLink}
-          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0 cursor-pointer hover:bg-slate-300">
+          className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-700 text-white shrink-0 cursor-pointer hover:bg-slate-600">
           {id}
         </span>
       )}
@@ -184,8 +185,8 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
         onBlur={(e) => { const v = e.target.value.trim(); if (v !== (item.description || '')) onSaveNote(item, v) }}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
         placeholder="Lecture contents / notes…"
-        title="Lecture contents (e.g. from the syllabus)"
-        className="flex-1 min-w-0 text-[11px] px-1.5 py-0.5 rounded border border-transparent bg-transparent text-slate-700 placeholder-slate-300 focus:border-slate-300 focus:bg-white focus:outline-none" />
+        title="Lecture contents (e.g. from the syllabus) — auto-saves"
+        className="flex-1 min-w-0 text-[11px] px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-700 placeholder-slate-300 focus:border-slate-400 focus:outline-none" />
       <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0" title={timeTitle}>{timeLabel}</span>
       <div className="flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
         <button onClick={() => onStartEdit(item)} className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
@@ -208,7 +209,7 @@ function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSave
   const dueStr = `due ${fmtDate(item.deadline)}`
   return (
     <div className="group flex items-center gap-2 px-1 py-1 rounded hover:bg-slate-50">
-      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0">{id}</span>
+      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-700 text-white shrink-0">{id}</span>
       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${typeBadge(item.type)}`}>{TYPE_LABELS[item.type] || item.type}</span>
       <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{dueStr}</span>
       <input
@@ -218,7 +219,7 @@ function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSave
         onBlur={(e) => { const v = e.target.value.trim(); if (v !== (item.description || '')) onSaveNote(item, v) }}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
         placeholder="Notes…"
-        className="flex-1 min-w-0 text-[11px] px-1.5 py-0.5 rounded border border-transparent bg-transparent text-slate-700 placeholder-slate-300 focus:border-slate-300 focus:bg-white focus:outline-none" />
+        className="flex-1 min-w-0 text-[11px] px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-700 placeholder-slate-300 focus:border-slate-400 focus:outline-none" />
       <div className="flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
         <button onClick={() => onStartEdit(item)} className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
         <button onClick={() => { if (window.confirm(`Remove "${item.description || item.contentId}" from the syllabus?`)) onDelete(item) }}
@@ -395,8 +396,7 @@ export default function Syllabus({ course, abbrev, code }) {
       <div className="flex items-center justify-between">
         <p className="text-xs font-medium text-slate-700">Syllabus</p>
         <div className="flex items-center gap-1.5">
-          <button onClick={() => openAdd('lecture')} className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">+ Lecture</button>
-          <button onClick={() => openAdd('project')} className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">+ Project</button>
+          <button onClick={() => openAdd('lecture')} className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">+ Calendar element</button>
           <button onClick={() => openAdd('deadline')} className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">+ Deadline</button>
         </div>
       </div>

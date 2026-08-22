@@ -140,7 +140,13 @@ export function normalizeStatus(status) {
 export const COLOR_NAMES = Object.keys(colorMap)
 
 export function colorToHex(color, courseName = null) {
-  if (!color) return courseName ? colorFromName(courseName) : '#6366f1'
+  // No stored colour: match what getCourseStyle shows for the card — a static
+  // named colour for known courses, else a stable hash colour.
+  if (!color) {
+    const entry = courseName ? courseColors.find(c => c.course === courseName) : null
+    if (entry?.color) return NAMED_COLOR_HEX[entry.color]
+    return courseName ? colorFromName(courseName) : '#6366f1'
+  }
   if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) return color
   return NAMED_COLOR_HEX[color] || (courseName ? colorFromName(courseName) : '#6366f1')
 }
