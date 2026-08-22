@@ -169,7 +169,7 @@ export default function Courses({ courses }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
+      <div className="space-y-2">
         {displayed.map((c) => {
           const status = getStatus(c)
           const style = getCourseStyle(c.course, c.color)
@@ -194,7 +194,7 @@ export default function Courses({ courses }) {
               onDragEnd={onDrop}
               onDoubleClick={() => setViewing(c.course)}
               title="Double-click to open the course page"
-              className={`rounded-xl border ${style.border || 'border-slate-200'} ${style.soft} p-4 flex flex-col gap-3 h-full min-h-[230px] cursor-default transition-opacity ${dragging ? 'opacity-40' : ''}`}
+              className={`rounded-lg border ${style.border || 'border-slate-200'} ${style.soft} p-3 flex flex-col gap-2.5 min-h-[200px] transition-opacity ${dragging ? 'opacity-40' : ''}`}
               style={{ ...style.softCss, ...style.borderCss }}>
 
               <div className="flex items-start justify-between gap-2">
@@ -274,16 +274,18 @@ export default function Courses({ courses }) {
 
               <div className="mt-auto">
                 {gradeInfo && gradeInfo.components.length > 0 ? (
-                  <div className="max-h-[4.75rem] overflow-hidden">
-                    <div className="flex flex-wrap gap-1">
-                      {gradeInfo.components.map((comp, idx) => (
-                        <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 whitespace-nowrap">
-                          {comp.id || TYPE_LABELS[comp.type] || 'Assignment'}{comp.weight != null ? ` · ${(comp.weight * 100).toFixed(0)}%` : ''}
-                        </span>
-                      ))}
+                  <div>
+                    <div className="flex h-2.5 rounded-full overflow-hidden bg-slate-100">
+                      {gradeInfo.components.map((comp, idx) => {
+                        const totalW = gradeInfo.components.reduce((s, x) => s + (parseFloat(x.weight) || 0), 0)
+                        const pct = totalW > 0 ? (parseFloat(comp.weight) || 0) / totalW * 100 : 100 / gradeInfo.components.length
+                        const isExam = comp.type === 'exam'
+                        const bg = isExam ? '#ef4444' : ((style.dotCss && style.dotCss.backgroundColor) || '#64748b')
+                        return <div key={idx} style={{ width: `${pct}%`, backgroundColor: bg }} title={(comp.id || TYPE_LABELS[comp.type] || 'Assignment') + (comp.weight != null ? ` ${(comp.weight * 100).toFixed(0)}%` : '')} />
+                      })}
                     </div>
                     {gradeInfo.totalGrade != null && (
-                      <div className="text-[10px] font-medium text-slate-500 mt-1">Total {gradeInfo.totalGrade.toFixed(3)}</div>
+                      <div className="text-[10px] font-medium text-slate-500 mt-1">Weighted {gradeInfo.totalGrade.toFixed(3)}</div>
                     )}
                   </div>
                 ) : (
