@@ -440,24 +440,32 @@ export default function Syllabus({ course, abbrev, code }) {
   }
 
   function saveEdit() {
-    const e = editing
-    const isScheduled = scheduled.some((s) => s.id === e.id)
-    const payload = { description: e.description, type: e.type, contentId: e.contentId || null }
-    if (isScheduled) {
-      payload.schedDate = e.date || null
-      payload.start = e.start
-      payload.end = e.end
-    } else {
-      payload.deadline = e.date || null
+    try {
+      const e = editing
+      const isScheduled = scheduled.some((s) => s.id === e.id)
+      const payload = { description: e.description, type: e.type, contentId: e.contentId || null }
+      if (isScheduled) {
+        payload.schedDate = e.date || null
+        payload.start = e.start
+        payload.end = e.end
+      } else {
+        payload.deadline = e.date || null
+      }
+      updateContentItem(e.id, payload)
+    } catch (err) {
+      console.error('Failed to save syllabus edit:', err)
+    } finally {
+      setEditing(null)
     }
-    updateContentItem(e.id, payload)
-    setEditing(null)
   }
 
+  const guard = (fn) => (...args) => {
+    try { fn(...args) } catch (err) { console.error('Failed to save:', err) }
+  }
   const handleDelete = (item) => deleteContentItem(item.id)
-  const handleSaveNote = (item, value) => updateContentItem(item.id, { description: value })
-  const handleSaveLink = (item, calId) => updateContentItem(item.id, { calId })
-  const handleSaveId = (item, contentId) => updateContentItem(item.id, { contentId })
+  const handleSaveNote = guard((item, value) => updateContentItem(item.id, { description: value }))
+  const handleSaveLink = guard((item, calId) => updateContentItem(item.id, { calId }))
+  const handleSaveId = guard((item, contentId) => updateContentItem(item.id, { contentId }))
 
   return (
     <div className="border-t border-slate-100 pt-3 space-y-3">

@@ -301,7 +301,12 @@ export function attachCourseGrades(courses, gradeComponents) {
 
 // rowsByTab maps canonical tab title -> 2D array (from Drive or bundled CSVs).
 export function parseAll(rowsByTab) {
-  const courses = parseCourses(parseCSVRows(rowsByTab[TAB_COURSES] || []))
+  let courses = parseCourses(parseCSVRows(rowsByTab[TAB_COURSES] || []))
+  // Drop garbage "courses" whose name is purely the numeric course code (a bug
+  // produced rows like "191211110,191211110" next to the real course). Keeping
+  // them would shadow the real course in the code→name lookup and steal its
+  // grade components.
+  courses = courses.filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
   const resolveCourse = resolveCourseFor(courses)
   const gradeComponents = parseGradeComponents(parseCSVRows(rowsByTab[TAB_GRADES] || []), resolveCourse)
   attachCourseGrades(courses, gradeComponents)

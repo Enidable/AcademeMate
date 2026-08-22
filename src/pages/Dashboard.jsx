@@ -52,9 +52,12 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
 
     const recent = [...inputLog].sort((a, b) => b.date.localeCompare(a.date) || b.startTime.localeCompare(a.startTime)).slice(0, 5)
 
+    const today = new Date().toISOString().slice(0, 10)
     const upcoming = (deadlines || [])
       .filter(d => !d.done)
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
+      .map(d => ({ ...d, when: d.deadline || d.date || '' }))
+      .filter(d => d.when >= today)
+      .sort((a, b) => a.when.localeCompare(b.when))
       .slice(0, 5)
 
     const totalHours = inputLog.reduce((s, e) => s + e.durationHours, 0)
@@ -200,7 +203,7 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
                   <div key={i} className="flex items-center justify-between text-sm">
                     <div className="min-w-0 flex-1">
                       <p className="text-slate-700 truncate">{d.description}</p>
-                      <p className="text-xs text-slate-400">{formatDate(d.date)} · {d.time}h</p>
+                      <p className="text-xs text-slate-400">{formatDate(d.when)} · {d.time}h</p>
                     </div>
                     <span className={`ml-3 text-xs px-2 py-0.5 rounded-full shrink-0 ${urgencyColors[d.urgency] || 'bg-slate-100 text-slate-600'}`}>
                       {d.urgency}

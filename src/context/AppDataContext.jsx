@@ -58,10 +58,19 @@ function loadJSON() {
   } catch { return null }
 }
 
+// Save a lightweight snapshot to localStorage (a cache, not the source of
+// truth). calendarEvents is excluded — it's the largest table, fully
+// regenerable from Drive / the .ics import, and dropping it keeps the snapshot
+// well under the browser's ~5 MB quota so saves never silently fail.
 function saveJSON(state) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  } catch { /* quota exceeded */ }
+    const d = state?.data ? { ...state.data } : state?.data
+    if (d) delete d.calendarEvents
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, data: d }))
+  } catch (e) {
+    // Quota exceeded — surface it instead of silently dropping saves.
+    console.error('localStorage save failed (quota?):', e)
+  }
 }
 
 // Track what was last written to Google Calendar so a re-push can skip events
@@ -94,6 +103,8 @@ function ensureDefaultRows(planner) {
 // Re-create a course row whenever it is still referenced anywhere else (study
 // log, grade components or syllabus) but its row is missing — a safeguard so a
 // course that lost its Courses-tab row never silently disappears from the app.
+// References that are unresolved course CODES (all digits) are skipped: they'd
+// only spawn garbage rows named after the code.
 function synthCourses(parsed) {
   const referenced = new Set()
   for (const e of parsed.studyLog || []) if (e.course) referenced.add(e.course)
@@ -101,21 +112,25 @@ function synthCourses(parsed) {
   for (const i of parsed.content || []) if (i.course) referenced.add(i.course)
   const existingNames = new Set((parsed.courses || []).map(c => c.course))
   for (const name of referenced) {
-    if (name && !existingNames.has(name)) {
-      parsed.courses.push({
-        id: name,
-        course: name,
-        code: null, abbrev: null, year: null, quartile: null,
-        start: null, finish: null, ec: null, status: null,
-        estHours: null, notes: null, grade: null,
-        color: null, scope: null, order: null,
-      })
-    }
+    if (!name || /^\d{5,9}$/.test(name)) continue
+    if (existingNames.has(name)) continue
+    parsed.courses.push({
+      id: name,
+      course: name,
+      code: null, abbrev: null, year: null, quartile: null,
+      start: null, finish: null, ec: null, status: null,
+      estHours: null, notes: null, grade: null,
+      color: null, scope: null, order: null,
+    })
   }
 }
 
 function buildState(rowsByTab) {
   const data = parseAll(rowsByTab)
+  // Drop garbage rows created by earlier bugs: a "course" whose name is purely
+  // the numeric course code (e.g. "191211110" next to the real "Modelling and
+  // Simulation"). The next Courses write removes them from Drive for good.
+  data.courses = (data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
   synthCourses(data)
   linkGradeComponents(data)
   const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides)
