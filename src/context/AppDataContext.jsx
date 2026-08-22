@@ -374,7 +374,33 @@ export function AppDataProvider({ children }) {
 
   async function healCourses(d, savedLocal) {
     healCoursesFromLocal(d, savedLocal)
+    healContentFromLocal(d, savedLocal)
     await fillCourseGapsFromTemplate(d)
+  }
+
+  // Recover syllabus content that only exists in the last-known-good
+  // localStorage snapshot (e.g. a Drive write failed): merge newer local
+  // notes/hours/done onto matching Drive rows, and re-add rows Drive is missing
+  // entirely. Intentional deletions are never resurrected (they remove the row
+  // from localStorage too).
+  function healContentFromLocal(d, savedLocal) {
+    const local = savedLocal?.data?.content
+    if (!Array.isArray(local) || local.length === 0) return
+    const byKey = new Map()
+    const keyOf = i => `${i.course || ''}|${i.contentId || ''}|${i.date || ''}|${i.deadline || ''}`
+    for (const i of d.content || []) byKey.set(keyOf(i), i)
+    for (const l of local) {
+      if (!l.course) continue
+      const key = keyOf(l)
+      const existing = byKey.get(key)
+      if (existing) {
+        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done']) {
+          if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
+        }
+      } else {
+        d.content.push({ ...l })
+      }
+    }
   }
 
   async function loadAndApplyFromDrive(file, savedLocal = null) {
@@ -747,31 +773,28 @@ export function AppDataProvider({ children }) {
       return fresh
     }
 
-    // Reconcile a deadline (exam) entry that is keyed by a grade-component ID
-    // like NLPE1 instead of a scheduled lecture ID.
-    const reconcileDeadline = (r, id) => {
+    // Reconcile a deadline (exam) entry keyed by a grade-component ID. If an
+    // existing entry points at the same calendar element, its ID is kept (so a
+    // re-import never renames NLPE1 into NLPE2); a fresh one is only created
+    // when nothing matches.
+    const reconcileDeadline = (r, suggestedId) => {
       if (!r.course) return null
       const candidates = []
       const seen = new Set()
       const consider = i => { if (i && !seen.has(i.id)) { seen.add(i.id); candidates.push(i) } }
-      consider(contentByLecture.get(`${r.course}|${id}`))
+      consider(contentByLecture.get(`${r.course}|${suggestedId}`))
       if (r.calId) for (const i of contentByCal.get(`${r.course}|${r.calId}`) || []) consider(i)
       for (const i of contentByOccurrence.get(`${r.course}|${r.date}|${r.startTime}`) || []) consider(i)
       const chosen = candidates.find(i => !consumed.has(i.id))
       for (const c of candidates) if (c !== chosen) consumed.add(c.id)
       if (chosen) {
-        if (chosen.contentId !== id) {
-          chosen.contentId = id
-          chosen.id = `${r.course}||${id}|${r.date}||${chosen.topic || id}`
-          contentByLecture.set(`${r.course}|${id}`, chosen)
-        }
         chosen.deadline = r.date
         chosen.date = null
         chosen.type = 'exam'
         chosen.calId = r.calId
         return chosen
       }
-      const fresh = makeExamItem(r, id)
+      const fresh = makeExamItem(r, suggestedId)
       content.push(fresh)
       return fresh
     }

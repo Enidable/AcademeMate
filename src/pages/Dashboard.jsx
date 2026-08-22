@@ -107,16 +107,14 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-xs text-slate-500 uppercase tracking-wider">Courses</p>
-          <p className="text-3xl font-bold text-slate-800 mt-1">
-            <span className="text-amber-600">{stats.curriculum.inProgress}</span>
-            <span className="text-slate-300 text-xl mx-1">active ·</span>
-            <span className="text-green-600">{stats.curriculum.completed}</span>
-            <span className="text-slate-300 text-xl mx-1">completed ·</span>
-            <span className="text-slate-400">{stats.curriculum.planned} planned</span>
-          </p>
-          <p className="text-xs text-slate-400 mt-1">
-            {stats.curriculum.inProgress} active · {stats.curriculum.completed} completed · {stats.curriculum.planned} planned
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="text-amber-600 font-semibold">{stats.curriculum.inProgress} active</span>
+            <span className="text-slate-300">·</span>
+            <span className="text-green-600 font-semibold">{stats.curriculum.completed} completed</span>
+            <span className="text-slate-300">·</span>
+            <span className="text-slate-400 font-semibold">{stats.curriculum.planned} planned</span>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Curriculum courses</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-xs text-slate-500 uppercase tracking-wider">EC</p>
