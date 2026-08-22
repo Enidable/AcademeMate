@@ -926,8 +926,15 @@ export function AppDataProvider({ children }) {
     const fpKey = id => `${calendarId}::${id}`
     const ops = []
     const plan = []
+    const failReason = (res) => {
+      const status = res?.status
+      const msg = res?.data?.error?.message || res?.data?.error?.errors?.[0]?.message
+      return status ? (msg ? `${status} ${msg}` : String(status)) : (msg || 'no response')
+    }
+    const isDate = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '')
 
     for (const ev of events) {
+      if (!isDate(ev.date)) continue
       const gcal = toGcalEvent(ev, courseColorMap)
       if (ev.calId) {
         const f = JSON.stringify(gcal)
@@ -942,6 +949,7 @@ export function AppDataProvider({ children }) {
 
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
     for (const item of deadlines) {
+      if (!isDate(item.deadline)) continue
       const summary = item.description || item.topic || item.contentId
       // Deadlines usually carry a due time (e.g. 17:00, 09:00) in the item's
       // start/end columns — push them as timed events, all-day only as fallback.
@@ -994,7 +1002,7 @@ export function AppDataProvider({ children }) {
           // Event was deleted on the calendar since the last push — re-insert.
           retryList.push(p)
         } else {
-          errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${res?.status || 'error'}`)
+          errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${failReason(res)}`)
         }
       })
     }
@@ -1016,7 +1024,7 @@ export function AppDataProvider({ children }) {
             updatedDeadlines.push({ ...p.ref, calId: id })
           }
         } else {
-          errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${res?.status || 'error'}`)
+          errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${failReason(res)}`)
         }
       })
     }
@@ -1401,6 +1409,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       const next = { ...i }
       const type = comp.type === 'exam' ? 'exam' : comp.type === 'assignment' ? 'assignment' : (i.type || comp.type)
       if (type) next.type = type
+      if (comp.done) next.done = comp.done
       if (comp.dueDate) {
         next.deadline = comp.dueDate
         next.date = null
@@ -1424,6 +1433,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         type: c.type || 'assignment',
         topic: c.notes ? `${c.name || c.id} · ${c.notes}` : (c.name || c.id),
         description: c.notes ? `${c.name || c.id} · ${c.notes}` : (c.name || c.id),
+        done: c.done || '',
         date: null,
         deadline: c.dueDate,
         start: '',
@@ -1434,7 +1444,6 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         materialHours: null,
         content: null,
         calId: null,
-        done: '',
         urgency: 'Medium',
         time: 0,
       })

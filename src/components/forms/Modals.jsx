@@ -162,11 +162,11 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     const ids = []
     for (const g of gradeComponents || []) {
       for (const c of g.components || []) {
-        if (c.id) ids.push({ course: g.course, id: c.id, type: c.type })
+        if (c.id && !c.done) ids.push({ course: g.course, id: c.id, type: c.type })
       }
     }
     for (const i of content || []) {
-      if (i.contentId && i.course) ids.push({ course: i.course, id: i.contentId, type: i.type })
+      if (i.contentId && i.course && !i.done) ids.push({ course: i.course, id: i.contentId, type: i.type })
     }
     return ids
   }, [gradeComponents, content])
@@ -181,7 +181,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
 
   const projectOptions = useMemo(() =>
     (content || []).filter(i =>
-      allowedCourses.has(i.course) && i.contentId && (i.deadline || DEADLINE_TYPES.has(i.type))
+      allowedCourses.has(i.course) && i.contentId && !i.done && (i.deadline || DEADLINE_TYPES.has(i.type))
     ),
   [content, allowedCourses])
 

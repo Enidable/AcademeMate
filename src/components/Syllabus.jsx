@@ -105,7 +105,7 @@ function EditPanel({ editing, setEditing, isDeadline, onSaveEdit }) {
 // is an inline auto-saving input. On the right: future items show the duration
 // pulled from the calendar times, past items sum the session-logger hours that
 // were logged against this ID.
-function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSaveLink }) {
+function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSaveLink, onToggleDone }) {
   const id = item.contentId || '—'
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkVal, setLinkVal] = useState('')
@@ -147,8 +147,11 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
     : (dateStr || 'No calendar element linked — double-click the ID to link one.')
 
   return (
-    <div className="group px-1 py-1 rounded hover:bg-slate-50">
+    <div className={`group px-1 py-1 rounded hover:bg-slate-50 ${item.done ? 'opacity-50' : ''}`}>
       <div className="flex items-center gap-2">
+        <input type="checkbox" checked={!!item.done} onChange={(e) => onToggleDone(item, e.target.checked)}
+          title={item.done ? 'Marked as done' : 'Mark as done'}
+          className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer shrink-0" />
         {linkOpen ? (
           <span className="flex items-center gap-1.5 shrink-0">
             <input
@@ -208,7 +211,7 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
 // A deadline / grade-component row. Inline note like lectures, but no calendar
 // link or time column (deadlines are shown by their due date). Double-click the
 // ID chip to rename the project/assignment ID.
-function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSaveId }) {
+function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSaveId, onToggleDone }) {
   const [idEdit, setIdEdit] = useState(false)
   const [idVal, setIdVal] = useState('')
   if (isEditing) {
@@ -219,7 +222,10 @@ function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSave
   const id = item.contentId || '—'
   const dueStr = `due ${fmtDate(item.deadline)}`
   return (
-    <div className="group flex items-center gap-2 px-1 py-1 rounded hover:bg-slate-50">
+    <div className={`group flex items-center gap-2 px-1 py-1 rounded hover:bg-slate-50 ${item.done ? 'opacity-50' : ''}`}>
+      <input type="checkbox" checked={!!item.done} onChange={(e) => onToggleDone(item, e.target.checked)}
+        title={item.done ? 'Marked as done' : 'Mark as done'}
+        className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer shrink-0" />
       {idEdit ? (
         <span className="flex items-center gap-1 shrink-0">
           <input
@@ -466,6 +472,7 @@ export default function Syllabus({ course, abbrev, code }) {
   const handleSaveNote = guard((item, value) => updateContentItem(item.id, { description: value }, { course: item.course, contentId: item.contentId }))
   const handleSaveLink = guard((item, calId) => updateContentItem(item.id, { calId }, { course: item.course, contentId: item.contentId }))
   const handleSaveId = guard((item, contentId) => updateContentItem(item.id, { contentId }, { course: item.course, contentId }))
+  const handleToggleDone = guard((item, done) => updateContentItem(item.id, { done: done ? 'done' : '' }, { course: item.course, contentId: item.contentId }))
 
   return (
     <div className="border-t border-slate-100 pt-3 space-y-3">
@@ -498,7 +505,7 @@ export default function Syllabus({ course, abbrev, code }) {
                 loggedHours={log.hours} loggedSessions={log.sessions} linkedEvent={linkedEvent}
                 isEditing={editing?.id === item.id} editing={editing} setEditing={setEditing}
                 onStartEdit={startEdit} onSaveEdit={saveEdit} onDelete={handleDelete}
-                onSaveNote={handleSaveNote} onSaveLink={handleSaveLink} />
+                onSaveNote={handleSaveNote} onSaveLink={handleSaveLink} onToggleDone={handleToggleDone} />
             )
           })}
         </div>
@@ -516,7 +523,7 @@ export default function Syllabus({ course, abbrev, code }) {
             <DeadlineRow key={item.id} item={item}
               isEditing={editing?.id === item.id} editing={editing} setEditing={setEditing}
               onStartEdit={startEdit} onSaveEdit={saveEdit} onDelete={handleDelete}
-              onSaveNote={handleSaveNote} onSaveId={handleSaveId} />
+              onSaveNote={handleSaveNote} onSaveId={handleSaveId} onToggleDone={handleToggleDone} />
           ))}
         </div>
       </div>

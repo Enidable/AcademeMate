@@ -52,11 +52,12 @@ function GradeEditor({ course, abbrev, code }) {
       id: c.id || '',
       name: c.name || c.id || '',
       notes: c.notes || '',
+      done: c.done || '',
       dueDate: c.dueDate || '',
       weight: c.weight != null ? String(c.weight) : '',
       grade: c.grade != null ? String(c.grade) : '',
     })) || [
-      { type: 'assignment', id: '', name: '', notes: '', dueDate: '', weight: '', grade: '' },
+      { type: 'assignment', id: '', name: '', notes: '', done: '', dueDate: '', weight: '', grade: '' },
     ]
   )
 
@@ -100,6 +101,7 @@ function GradeEditor({ course, abbrev, code }) {
       id: c.id || null,
       name: c.name || c.id || null,
       notes: c.notes || null,
+      done: c.done || '',
       weight: parseFloat(c.weight) || null,
       grade: c.grade ? parseFloat(c.grade) : null,
       dueDate: c.dueDate || null,
@@ -108,7 +110,7 @@ function GradeEditor({ course, abbrev, code }) {
   }
 
   function addComp() {
-    const next = assignIds([...comps, { type: 'assignment', id: '', name: '', notes: '', dueDate: '', weight: '', grade: '' }])
+    const next = assignIds([...comps, { type: 'assignment', id: '', name: '', notes: '', done: '', dueDate: '', weight: '', grade: '' }])
     setComps(next)
     persist(next)
   }
@@ -143,17 +145,18 @@ function GradeEditor({ course, abbrev, code }) {
   return (
     <div className="border-t border-slate-100 pt-3 space-y-2">
       <p className="text-xs font-medium text-slate-700">Grade Components</p>
-      <div className="grid grid-cols-[1fr_auto_1fr_auto_auto_auto_auto] items-center gap-1.5">
+      <div className="grid grid-cols-[1fr_auto_1fr_auto_auto_auto_auto_auto] items-center gap-1.5">
         <div className="text-[10px] uppercase tracking-wider text-slate-400">Type</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400 w-28">Project ID</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400">Description</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400 w-32">Deadline</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Weight</div>
         <div className="text-[10px] uppercase tracking-wider text-slate-400 w-14">Grade</div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 w-6">Done</div>
         <div className="w-5" />
       </div>
       {comps.map((comp, i) => (
-        <div key={i} className="grid grid-cols-[1fr_auto_1fr_auto_auto_auto_auto] items-center gap-1.5">
+        <div key={i} className={`grid grid-cols-[1fr_auto_1fr_auto_auto_auto_auto_auto] items-center gap-1.5 ${comp.done ? 'opacity-60' : ''}`}>
           <select value={comp.type} onChange={(e) => updateComp(i, 'type', e.target.value)}
             className="text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400 bg-white w-full">
             <option value="exam">Exam</option>
@@ -179,6 +182,9 @@ function GradeEditor({ course, abbrev, code }) {
           <input type="text" inputMode="decimal" placeholder="-" value={comp.grade}
             onChange={(e) => updateComp(i, 'grade', e.target.value)}
             className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
+          <input type="checkbox" checked={!!comp.done} onChange={(e) => updateComp(i, 'done', e.target.checked ? 'done' : '')}
+            title={comp.done ? 'Marked as done' : 'Mark as done'}
+            className="w-4 h-4 accent-emerald-600 cursor-pointer" />
           {comps.length > 1
             ? <button onClick={() => removeComp(i)} className="w-5 text-xs text-red-400 hover:text-red-600 cursor-pointer">x</button>
             : <div className="w-5" />}

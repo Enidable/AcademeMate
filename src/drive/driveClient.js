@@ -440,6 +440,13 @@ export async function batchCalendarEvents(ops, calendarId) {
       throw new Error(`Google API ${status}: ${text.slice(0, 240)}`)
     }
     const parsed = parseBatchBody(text, boundary)
+    // If the batch HTTP request succeeded but the response carried no
+    // recognizable sub-responses, surface the raw response — that's the real
+    // Google error (e.g. a rejected/over-quota batch), not "error" per event.
+    const parsedCount = chunk.reduce((n, op, j) => n + (parsed[j] ? 1 : 0), 0)
+    if (parsedCount === 0) {
+      throw new Error(`Calendar batch rejected: ${text.slice(0, 300)}`)
+    }
     chunk.forEach((op, j) => results.push(parsed[j] || { status: 0, data: null }))
     if (i + CHUNK < ops.length) await sleep(200)
   }
