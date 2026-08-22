@@ -206,11 +206,11 @@ function escapeRe(s) {
 }
 
 // Give every calendar event (lectures, tutorials, practicals, exams, …) a
-// stable incremental id in the form {abbrev}-{LETTER}{NN} (scheduled) or
-// {abbrev}-{NN} (exams, which keep a distinct letter so they never collide with
-// plain deadline numbers). Events that already carry a lecture id keep it, so
-// re-imports never reshuffle the numbering. Numbering is per letter within a
-// course, so L01/L02 and T01/T02 advance independently.
+// stable incremental id in the form {abbrev}-{LETTER}-{NN} (e.g. ML1-L-01).
+// One sequence per course across ALL scheduled types, so the number just keeps
+// counting (ML1-L-01, ML1-T-02, ML1-P-03…) — the letter is the calendar type.
+// Events that already carry a lecture id keep it, so re-imports never reshuffle
+// the numbering; both the new (ABBR-L-01) and legacy (ABBR-L01) forms match.
 function assignLectureIds(rows, courses) {
   const courseById = {}
   for (const c of courses || []) courseById[c.course] = c
@@ -223,32 +223,29 @@ function assignLectureIds(rows, courses) {
   for (const [courseName, evs] of Object.entries(groups)) {
     const c = courseById[courseName]
     const abbrev = (c?.abbrev || c?.code || deriveAbbrev(courseName)).replace(/\s+/g, '-')
-    // Bucket events by the letter their type maps to ('' for plain numbers).
-    const buckets = {}
+    // One incremental sequence per course across ALL scheduled types
+    // (ML1-L-01, then a practical becomes ML1-P-02). Both the current
+    // (ABBR-L-01) and legacy (ABBR-L01) formats are matched so a re-import
+    // never reshuffles existing numbering. The letter is a label only.
+    const pat = new RegExp(`^${escapeRe(abbrev)}[- ][A-Za-z]{1,2}[- ]?(\\d+)$`, 'i')
+    const taken = new Set()
+    let max = 0
     for (const r of evs) {
-      const letter = typeLetter(inferEventType(r.summary, r.description)) || ''
-      if (!buckets[letter]) buckets[letter] = { taken: new Set(), max: 0, evs: [] }
-      buckets[letter].evs.push(r)
+      const m = r.lectureId && pat.exec(String(r.lectureId))
+      if (m) {
+        const num = parseInt(m[1], 10)
+        taken.add(num)
+        max = Math.max(max, num)
+      }
     }
-    for (const letter of Object.keys(buckets)) {
-      const b = buckets[letter]
-      const pat = new RegExp(`^${escapeRe(abbrev)}[- ]?${escapeRe(letter)}(\\d+)$`, 'i')
-      for (const r of b.evs) {
-        const m = r.lectureId && pat.exec(String(r.lectureId))
-        if (m) {
-          const num = parseInt(m[1], 10)
-          b.taken.add(num)
-          b.max = Math.max(b.max, num)
-        }
-      }
-      b.evs.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || ''))
-      let next = b.max + 1
-      for (const r of b.evs) {
-        if (r.lectureId) continue
-        while (b.taken.has(next)) next++
-        b.taken.add(next)
-        r.lectureId = `${abbrev}-${letter}${String(next).padStart(2, '0')}`
-      }
+    evs.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || ''))
+    let next = max + 1
+    for (const r of evs) {
+      if (r.lectureId) continue
+      while (taken.has(next)) next++
+      taken.add(next)
+      const letter = typeLetter(inferEventType(r.summary, r.description)) || ''
+      r.lectureId = `${abbrev}-${letter}-${String(next).padStart(2, '0')}`
     }
   }
 }
@@ -931,7 +928,8 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       if (payload.type != null) updated.type = payload.type
       if (payload.start != null) updated.start = payload.start
       if (payload.end != null) updated.end = payload.end
-      if (payload.calId != null) updated.calId = payload.calId
+      // calId uses an undefined check so passing null clears the link.
+      if (payload.calId !== undefined) updated.calId = payload.calId
       if (payload.location != null) updated.location = payload.location
       if (payload.time != null) {
         updated.hoursSpent = payload.time

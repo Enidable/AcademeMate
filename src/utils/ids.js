@@ -1,27 +1,31 @@
 ﻿// Shared helpers for generating and rewriting course-component IDs.
 //
-// ID scheme (chosen for AcademeMate):
-//   - Scheduled sessions (lecture, tutorial, practical, ...) -> {abbrev}-{LETTER}{NN}
-//     e.g. ASDfR-L01, ASDfR-P02, ASDfR-T01
-//   - Projects AND assessments (assignment, exam, quiz, presentation, ...) ->
-//     {abbrev}-{NN}  (no letter, two-digit, starting at 01)
-//     e.g. ASDfR-01, ASDfR-02
+// ID scheme (AcademeMate):
+//   - Scheduled sessions (lecture, tutorial, practical, ...) -> {abbrev}-{LETTER}-{NN}
+//     e.g. ML1-L-01, ML1-T-02, ML1-P-03. The number increments across ALL
+//     scheduled types within a course (one shared sequence), so the letter is
+//     only the calendar type — a practical that follows a lecture just gets the
+//     next number. The legacy {abbrev}{LETTER}{NN} form (ML1-L01) is also
+//     matched so existing IDs keep their numbering.
+//   - Grade components (assignment, project, quiz, presentation, ...) ->
+//     {abbrev}{NN}  (no dash, no padding)  e.g. ML11, ML12
+//   - Exams -> {abbrev}E{NN}  (own sequence per course)  e.g. ML1E1
 //
 // The abbreviation is mandatory when a course is created; code/derived
 // abbreviation is the fallback. Spaces in the base are replaced with dashes.
 
 // Only scheduled session types carry a letter. Everything else (projects,
-// assessments, etc.) stays a plain number.
+// assessments, etc.) is a plain number or (for exams) {ABBR}E{NN}.
 export const TYPE_LETTER = {
   lecture: 'L',
-  lectorial: 'Lr',
+  lectorial: 'L',
   tutorial: 'T',
   practical: 'P',
   seminar: 'S',
   selfstudy: 'Ss',
   presentation: 'Pr',
   // Calendar exam events are scheduled occurrences, so they get a distinct
-  // letter to avoid colliding with plain deadline numbers (ABBR-NN).
+  // letter to avoid colliding with grade-component exam IDs (ABBR-E-NN).
   exam: 'E',
 }
 
@@ -48,43 +52,52 @@ function deriveAbbrevFallback(name) {
   return initials.slice(0, 8)
 }
 
-// Next scheduled ID for a given type: {abbrev}-{LETTER}{NN}, numbered per
-// letter within the course so lectures, tutorials and practicals each start
-// their own 01.. sequence. `items` is the existing content list.
+// Next scheduled ID for a course: {abbrev}-{LETTER}-{NN}. One incremental
+// sequence per course across ALL scheduled types, so lectures, tutorials and
+// practicals share the numbering. `items` is the existing content list.
 export function nextScheduledId(course, abbrev, code, items, type) {
   const base = idBase(course, abbrev, code)
   const letter = typeLetter(type) || ''
-  const pat = new RegExp('^' + escapeRe(base) + '[- ]?' + escapeRe(letter) + '(\\d+)$', 'i')
+  // Scheduled IDs always carry a letter + separator (ABBR-L-01 or legacy
+  // ABBR-L01); plain-numbered deadlines are never counted.
+  const pat = new RegExp('^' + escapeRe(base) + '[- ][A-Za-z]{1,2}[- ]?(\\d+)$', 'i')
   let max = 0
   for (const i of items || []) {
     if (i.course !== course) continue
     const m = i.contentId && pat.exec(String(i.contentId))
     if (m) max = Math.max(max, parseInt(m[1], 10))
   }
-  return base + '-' + letter + String(max + 1).padStart(2, '0')
+  return base + '-' + letter + '-' + String(max + 1).padStart(2, '0')
 }
 
-// Next plain deadline/project ID: {abbrev}-{NN} (two-digit, starting 01),
-// shared across all non-scheduled components of a course so the numbers stay
-// unique. Pass the combined list of content items + grade components.
-export function nextDeadlineId(course, abbrev, code, items) {
+// Next grade-component ID for a course: {abbrev}{NN} (e.g. ML11) for anything
+// but exams, {abbrev}E{NN} (e.g. ML1E1) for exams. Exams and non-exams keep
+// separate sequences. Legacy {abbrev}-{NN} deadlines are matched too so
+// existing IDs keep their numbers. Pass the combined content list + grade
+// components of the course.
+export function nextDeadlineId(course, abbrev, code, items, type) {
   const base = idBase(course, abbrev, code)
-  const pat = new RegExp('^' + escapeRe(base) + '[- ]?(\\d+)$', 'i')
+  const isExam = type === 'exam'
+  const pat = new RegExp('^' + escapeRe(base) + '([A-Z]?)[- ]?(\\d+)$', 'i')
   let max = 0
   for (const i of items || []) {
     if (i.course !== course) continue
     const m = i.contentId && pat.exec(String(i.contentId))
-    if (m) max = Math.max(max, parseInt(m[1], 10))
+    if (!m) continue
+    const isExamId = !!m[1]
+    if (isExam !== isExamId) continue
+    max = Math.max(max, parseInt(m[2], 10))
   }
-  return base + '-' + String(max + 1).padStart(2, '0')
+  return base + (isExam ? 'E' : '') + String(max + 1)
 }
 
 // Rewrite only the prefix of an ID when a course's abbreviation (or code)
-// changes, keeping the letter + number suffix exactly as it was. Returns the
+// changes, keeping the suffix (letter + number) exactly as it was. Returns the
 // original id when it does not start with oldBase.
 export function renameIdBase(id, oldBase, newBase) {
   if (!id || typeof id !== 'string') return id
-  const re = new RegExp('^' + escapeRe(oldBase) + '([- ][A-Za-z]{0,2}\\d+)?$', 'i')
+  // scheduled: ABBR-L-01 / ABBR-L01 · deadlines: ABBR01 / ABBRE1 / ABBR-01
+  const re = new RegExp('^' + escapeRe(oldBase) + '([- ][A-Za-z]{1,2}[- ]?\\d+|[- ]?[A-Za-z]?\\d+)?$', 'i')
   const m = re.exec(id)
   if (!m) return id
   return newBase + (m[1] || '')

@@ -1,6 +1,7 @@
 ﻿import { useState, useMemo } from 'react'
 import { getStatus, getCourseStyle } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
+import { nextDeadlineId } from '../utils/ids'
 import Syllabus from './Syllabus'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -39,9 +40,10 @@ const inputCls = 'text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 w-ful
 // Grade component editor. Hoisted to module scope and auto-saving on every
 // add / change / remove, so nothing disappears and there is no separate Save
 // step. A component with a due date automatically creates a calendar deadline
-// via updateGradeComponents.
-function GradeEditor({ course }) {
-  const { gradeComponents, updateGradeComponents } = useAppData()
+// via updateGradeComponents. Blank IDs are auto-filled in the new scheme
+// (ML11 for assignments/projects, ML1E1 for exams).
+function GradeEditor({ course, abbrev, code }) {
+  const { gradeComponents, content, updateGradeComponents } = useAppData()
   const existing = gradeComponents.find((g) => g.course === course)
   const [comps, setComps] = useState(
     existing?.components?.map((c) => ({
@@ -56,6 +58,19 @@ function GradeEditor({ course }) {
     ]
   )
 
+  // Combined list of every existing ID for this course, so nextDeadlineId can
+  // suggest/assign the next free number.
+  const combined = useMemo(() => [
+    ...(content || []).filter((i) => i.course === course),
+    ...(gradeComponents || []).flatMap((g) => (g.components || []).map((c) => ({ course: g.course, contentId: c.id, type: c.type }))),
+    ...comps.filter((c) => c.id).map((c) => ({ course, contentId: c.id, type: c.type })),
+  ], [course, content, gradeComponents, comps])
+
+  const placeholderIds = useMemo(() => ({
+    normal: nextDeadlineId(course, abbrev, code, combined, 'assignment'),
+    exam: nextDeadlineId(course, abbrev, code, combined, 'exam'),
+  }), [course, abbrev, code, combined])
+
   function persist(next) {
     const parsed = next.map((c) => ({
       type: c.type,
@@ -65,6 +80,16 @@ function GradeEditor({ course }) {
       grade: c.grade ? parseFloat(c.grade) : null,
       dueDate: c.dueDate || null,
     })).filter((c) => c.id || c.name || c.weight != null || c.dueDate)
+    const running = [
+      ...combined,
+      ...parsed.filter((c) => c.id).map((c) => ({ course, contentId: c.id, type: c.type })),
+    ]
+    for (const c of parsed) {
+      if (c.id) continue
+      c.id = nextDeadlineId(course, abbrev, code, running, c.type)
+      running.push({ course, contentId: c.id, type: c.type })
+      if (!c.name) c.name = c.id
+    }
     updateGradeComponents(course, parsed)
   }
 
@@ -119,7 +144,7 @@ function GradeEditor({ course }) {
           </select>
           <input type="text" list={'project-ids-' + course} value={comp.id}
             onChange={(e) => updateComp(i, 'id', e.target.value)}
-            placeholder="e.g. ASDfR-01"
+            placeholder={comp.type === 'exam' ? placeholderIds.exam : placeholderIds.normal}
             className="w-28 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
           <input type="date" value={comp.dueDate} onChange={(e) => updateComp(i, 'dueDate', e.target.value)}
             className="w-32 text-xs border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-slate-400" />
@@ -338,7 +363,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
                 </Field>
               </div>
 
-              <GradeEditor course={c.course} />
+              <GradeEditor course={c.course} abbrev={c.abbrev} code={c.code} />
 
               <Syllabus course={c.course} abbrev={c.abbrev} code={c.code} />
             </div>
