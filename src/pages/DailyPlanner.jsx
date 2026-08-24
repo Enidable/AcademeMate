@@ -93,10 +93,36 @@ function AddCellForm({ form, setForm, onSave, onCancel }) {
   )
 }
 
+// Always-visible quick-add field for a course/day cell: type a task (and an
+// hour estimate), press Enter, done — no click needed first.
+function QuickAddCell({ onSave }) {
+  const [task, setTask] = useState('')
+  const [hours, setHours] = useState('')
+  const submit = () => {
+    if (!task.trim()) return
+    onSave(task.trim(), parseFloat(hours) || 0)
+    setTask('')
+    setHours('')
+  }
+  return (
+    <div className="flex items-center gap-0.5">
+      <input value={task} onChange={e => setTask(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit() }}
+        className="flex-1 min-w-0 text-[10px] px-1 py-0.5 bg-transparent border border-transparent hover:border-slate-200 focus:border-slate-400 focus:bg-white rounded outline-none placeholder:text-slate-300"
+        placeholder="Type to plan…" />
+      <input value={hours} onChange={e => setHours(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit() }}
+        className="w-7 shrink-0 text-[10px] px-0.5 py-0.5 bg-transparent border border-transparent hover:border-slate-200 focus:border-slate-400 focus:bg-white rounded text-center outline-none placeholder:text-slate-300"
+        placeholder="h" inputMode="decimal" title="Estimated hours (optional)" />
+    </div>
+  )
+}
+
 function CourseRow({
   course, style, isActive, total, isEmptyExtra, dates, today,
   cellTasks, hoursOf, editId, editForm, setEditForm, addCell, cellForm, setCellForm,
   onEdit, onSaveEdit, onCancelEdit, onToggle, onDelete, onOpenAdd, onSaveAdd, onCancelAdd, onRemoveExtraRow,
+  onQuickAdd,
 }) {
   return (
     <tr className={`border-b border-slate-100 ${style.soft}`} style={style.softCss}>
@@ -124,8 +150,12 @@ function CourseRow({
             {addCell?.course === course && addCell?.date === date ? (
               <AddCellForm form={cellForm} setForm={setCellForm} onSave={onSaveAdd} onCancel={onCancelAdd} />
             ) : (
-              <button onClick={() => onOpenAdd(course, date)}
-                className="text-[10px] text-slate-300 hover:text-slate-500 text-left cursor-pointer leading-none">+</button>
+              <div className="flex items-center gap-0.5 group/add">
+                <button onClick={() => onOpenAdd(course, date)}
+                  className="text-[10px] text-slate-300 hover:text-slate-500 cursor-pointer leading-none shrink-0 w-3"
+                  title="Add with note…">+</button>
+                <QuickAddCell onSave={(task, h) => onQuickAdd(course, date, task, h)} />
+              </div>
             )}
           </div>
         </td>
@@ -320,6 +350,14 @@ export default function DailyPlanner({ onLogTask }) {
     setAddCell(null)
   }
 
+  function quickAddTask(course, date, task, hours) {
+    if (ADDITIONAL_SET.has(course)) {
+      addAdditionalEntry({ date, category: course, task, hours, notes: null })
+    } else {
+      addPlannerTask({ date, course, task, plannedHours: hours, notes: null })
+    }
+  }
+
   function addRow(course) {
     if (!course) return
     setExtraRows(r => (r.includes(course) ? r : [...r, course]))
@@ -384,11 +422,12 @@ export default function DailyPlanner({ onLogTask }) {
                   onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
                   onToggle={toggleDone} onDelete={deleteTask}
                   onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
+                  onQuickAdd={quickAddTask}
                   onRemoveExtraRow={removeExtraRow} />
               ))}
               {week.study.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-4 text-center text-slate-300 text-sm">No study tasks planned this week — use “+” in a day column to plan one.</td>
+                  <td colSpan={9} className="px-3 py-4 text-center text-slate-300 text-sm">No study tasks planned this week — type into a course row below, or use “+” in a day column.</td>
                 </tr>
               )}
 
@@ -431,6 +470,7 @@ export default function DailyPlanner({ onLogTask }) {
                   onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
                   onToggle={toggleDone} onDelete={deleteTask}
                   onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
+                  onQuickAdd={quickAddTask}
                   onRemoveExtraRow={removeExtraRow} />
               ))}
               <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
@@ -456,7 +496,7 @@ export default function DailyPlanner({ onLogTask }) {
       </div>
 
       <div className="text-xs text-slate-400 italic">
-        Add tasks per course per day with “+”. Hours sit on the right of each to-do. Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Press Enter to confirm, Escape to cancel. Additional-time rows (Work, Other Obligations, Commute, Exercise) are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
+        Type straight into a course row to plan a task (Enter confirms, optional “h” field sets the estimate). “+” opens a form with a note field for an extra entry. Hours sit on the right of each to-do. Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Press Enter to confirm, Escape to cancel. Additional-time rows (Work, Other Obligations, Commute, Exercise) are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
       </div>
     </div>
   )
