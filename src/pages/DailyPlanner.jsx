@@ -53,6 +53,20 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete }) {
   )
 }
 
+// Read-only entry derived from a calendar event (lecture, tutorial, imported
+// personal calendar item). Shows the syllabus note under the summary.
+function AutoTask({ entry }) {
+  return (
+    <div className="flex items-start gap-1 px-0.5 py-0.5" title={entry.note ? `${entry.task} — ${entry.note}` : entry.task}>
+      <div className="flex-1 min-w-0">
+        <div className="text-[10px] leading-tight text-slate-600 truncate">{entry.task}</div>
+        {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
+      </div>
+      <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">{entry.hours > 0 ? `${entry.hours.toFixed(1)}h` : ''}</span>
+    </div>
+  )
+}
+
 function EditForm({ row, form, setForm, onSave, onCancel }) {
   return (
     <div className="flex flex-col gap-1 border border-slate-300 rounded bg-white p-1">
@@ -120,9 +134,9 @@ function QuickAddCell({ onSave }) {
 
 function CourseRow({
   course, style, isActive, total, isEmptyExtra, dates, today,
-  cellTasks, hoursOf, editId, editForm, setEditForm, addCell, cellForm, setCellForm,
+  cellTasks, autoTasks, hoursOf, editId, editForm, setEditForm, addCell, cellForm, setCellForm,
   onEdit, onSaveEdit, onCancelEdit, onToggle, onDelete, onOpenAdd, onSaveAdd, onCancelAdd, onRemoveExtraRow,
-  onQuickAdd,
+  onQuickAdd, readOnly,
 }) {
   return (
     <tr className={`border-b border-slate-100 ${style.soft}`} style={style.softCss}>
@@ -147,9 +161,12 @@ function CourseRow({
                 ? <EditForm key={row.id} row={row} form={editForm} setForm={setEditForm} onSave={onSaveEdit} onCancel={onCancelEdit} />
                 : <TaskRow key={row.id} row={row} hoursOf={hoursOf} onToggle={onToggle} onEdit={onEdit} onDelete={() => onDelete(row.id)} />
             ))}
+            {(autoTasks ? autoTasks(course, date) : []).map(entry => (
+              <AutoTask key={entry.id} entry={entry} />
+            ))}
             {addCell?.course === course && addCell?.date === date ? (
               <AddCellForm form={cellForm} setForm={setCellForm} onSave={onSaveAdd} onCancel={onCancelAdd} />
-            ) : (
+            ) : readOnly ? null : (
               <div className="flex items-center gap-0.5 group/add">
                 <button onClick={() => onOpenAdd(course, date)}
                   className="text-[10px] text-slate-300 hover:text-slate-500 cursor-pointer leading-none shrink-0 w-3"
@@ -167,7 +184,7 @@ function CourseRow({
 
 export default function DailyPlanner({ onLogTask }) {
   const {
-    dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog,
+    dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog, content,
     addPlannerTask, updatePlannerTask, deletePlannerTask,
     addAdditionalEntry, updateAdditionalEntry, deleteAdditionalEntry,
   } = useAppData()
@@ -238,6 +255,50 @@ export default function DailyPlanner({ onLogTask }) {
     return s
   }, [masterCourses, today])
 
+  // Syllabus notes by course + component/lecture ID, so calendar entries can
+  // show their syllabus description as the note.
+  const noteById = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) {
+      if (!i.course || !i.contentId) continue
+      const k = `${i.course}|${i.contentId}`
+      if (!m.has(k)) m.set(k, i)
+    }
+    return m
+  }, [content])
+
+  // Calendar events of the viewed week as read-only plan entries. Course
+  // events land in their course's row; events without a course match (imported
+  // personal calendars, e.g. "Gym Time") are grouped under the calendar name.
+  const autoByCell = useMemo(() => {
+    const map = {}
+    const durHours = e => {
+      const toMin = t => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '').trim()); return m ? +m[1] * 60 + +m[2] : null }
+      const s = toMin(e.startTime)
+      const en = toMin(e.endTime)
+      return s == null || en == null || en <= s ? 0 : Math.round(((en - s) / 60) * 10) / 10
+    }
+    const personal = new Set()
+    const courseRows = new Set()
+    for (const e of calendarEvents) {
+      if (!e.date || !dates.includes(e.date)) continue
+      const noteItem = e.course && e.lectureId ? noteById.get(`${e.course}|${e.lectureId}`) : null
+      if (e.course) { courseRows.add(e.course) } else { personal.add(e.source || 'Personal') }
+      const rowName = e.course || e.source || 'Personal'
+      const k = `${rowName}|${e.date}`
+      if (!map[k]) map[k] = []
+      map[k].push({
+        id: `auto|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}|${e.summary}`,
+        task: e.summary,
+        hours: e.allDay ? 0 : durHours(e),
+        note: noteItem?.content || noteItem?.description || '',
+      })
+    }
+    map.__personal = [...personal]
+    map.__courses = [...courseRows]
+    return map
+  }, [calendarEvents, dates, noteById])
+
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the
   // additional-time categories (work / other obligations / commute / exercise)
@@ -269,6 +330,11 @@ export default function DailyPlanner({ onLogTask }) {
     // Every currently-active course is listed by default (as an empty row you
     // can plan into) — no need to add courses manually each week.
     for (const c of activeSet) studySet.add(c)
+    // Calendar-derived rows: courses with scheduled events join the study rows
+    // (even inactive ones, e.g. when viewing an old week); personal calendars
+    // (e.g. "Gym Time") get their own read-only band.
+    const personalRows = autoByCell.__personal || []
+    for (const c of autoByCell.__courses || []) studySet.add(c)
     const study = [...studySet].sort((a, b) => ((activeSet.has(b) ? 1 : 0) - (activeSet.has(a) ? 1 : 0)) || a.localeCompare(b))
     // "Other University Stuff" always sits at the bottom of the study rows.
     const otherIdx = study.findIndex(c => c === 'Other University Stuff')
@@ -279,12 +345,14 @@ export default function DailyPlanner({ onLogTask }) {
     for (const c of workSet) if (!ADDITIONAL_SET.has(c) && !additional.includes(c)) additional.push(c)
     const hoursOf = r => r.plannedHours || r.actualHours || r.hours || 0
     const cellTasks = (course, date) => byCell[`${course}|${date}`] || []
+    const autoTasks = (course, date) => autoByCell[`${course}|${date}`] || []
     const hasTasks = course => dates.some(date => cellTasks(course, date).length > 0)
-    return { study, additional, cellTasks, hoursOf, hasTasks }
-  }, [dates, byDate, addByDate, extraRows, activeSet])
+    return { study, additional, personalRows, cellTasks, autoTasks, hoursOf, hasTasks }
+  }, [dates, byDate, addByDate, extraRows, activeSet, autoByCell])
 
-  const rowHours = course => dates.reduce((s, date) => s + week.cellTasks(course, date).reduce((t, r) => t + week.hoursOf(r), 0), 0)
-  const dayHours = date => week.study.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0), 0)
+  const autoHours = course => dates.reduce((s, date) => s + week.autoTasks(course, date).reduce((t, r) => t + (r.hours || 0), 0), 0)
+  const rowHours = course => dates.reduce((s, date) => s + week.cellTasks(course, date).reduce((t, r) => t + week.hoursOf(r), 0), 0) + autoHours(course)
+  const dayHours = date => week.study.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0) + week.autoTasks(c, date).reduce((t, r) => t + (r.hours || 0), 0), 0)
   const additionalDayHours = date => week.additional.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0), 0)
   const studyTotal = week.study.reduce((s, c) => s + rowHours(c), 0)
   const additionalTotal = week.additional.reduce((s, c) => s + rowHours(c), 0)
@@ -405,7 +473,7 @@ export default function DailyPlanner({ onLogTask }) {
                     <div className={`text-[10px] font-normal ${dates[i] === today ? 'text-indigo-400' : 'text-slate-400'}`}>{formatDateShort(dates[i])}</div>
                   </th>
                 ))}
-                <th className="text-right px-3 py-2 font-medium text-slate-500">Total</th>
+                <th className="text-right px-3 py-2 font-medium text-slate-500 w-16">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -416,7 +484,7 @@ export default function DailyPlanner({ onLogTask }) {
                   total={rowHours(course)}
                   isEmptyExtra={extraRows.includes(course) && !week.hasTasks(course)}
                   dates={dates} today={today}
-                  cellTasks={week.cellTasks} hoursOf={week.hoursOf}
+                  cellTasks={week.cellTasks} autoTasks={week.autoTasks} hoursOf={week.hoursOf}
                   editId={editId} editForm={editForm} setEditForm={setEditForm}
                   addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
                   onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
@@ -436,7 +504,7 @@ export default function DailyPlanner({ onLogTask }) {
                 {dates.map(date => (
                   <td key={date} className="px-2 py-2 text-center tabular-nums">{dayHours(date) > 0 ? `${dayHours(date).toFixed(1)}` : ''}</td>
                 ))}
-                <td className="px-3 py-2 text-right tabular-nums">{studyTotal.toFixed(1)}h</td>
+                <td className="px-3 py-2 text-right tabular-nums w-16">{studyTotal.toFixed(1)}h</td>
               </tr>
 
               <tr>
@@ -478,8 +546,32 @@ export default function DailyPlanner({ onLogTask }) {
                 {dates.map(date => (
                   <td key={date} className="px-2 py-2 text-center tabular-nums">{additionalDayHours(date) > 0 ? `${additionalDayHours(date).toFixed(1)}` : ''}</td>
                 ))}
-                <td className="px-3 py-2 text-right tabular-nums">{additionalTotal.toFixed(1)}h</td>
+                <td className="px-3 py-2 text-right tabular-nums w-16">{additionalTotal.toFixed(1)}h</td>
               </tr>
+
+              {week.personalRows.map(name => (
+                <CourseRow key={name} course={name}
+                  style={getCourseStyle(name, colorByCourse[name])}
+                  isActive={false}
+                  total={rowHours(name)}
+                  isEmptyExtra={false} readOnly
+                  dates={dates} today={today}
+                  cellTasks={week.cellTasks} autoTasks={week.autoTasks} hoursOf={week.hoursOf}
+                  editId={editId} editForm={editForm} setEditForm={setEditForm}
+                  addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
+                  onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
+                  onToggle={toggleDone} onDelete={deleteTask}
+                  onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
+                  onQuickAdd={quickAddTask}
+                  onRemoveExtraRow={removeExtraRow} />
+              ))}
+              {week.personalRows.length > 0 && (
+                <tr>
+                  <td colSpan={9} className="px-3 pb-2 pt-0.5 text-[10px] uppercase tracking-wider text-slate-400">
+                    From your calendars — imported events (Gym Time etc.), read-only
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -490,13 +582,21 @@ export default function DailyPlanner({ onLogTask }) {
           <h3 className="text-sm font-semibold text-slate-700">Week timetable</h3>
           <span className="text-xs text-slate-400">Classes and deadlines for this week (06:00–22:00)</span>
         </div>
-        <div className="min-w-[720px]">
-          <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} />
+        {/* Same column geometry as the planner table above: course column
+            (w-56) / 7 equal days / total column (w-16), so Mon sits above Mon. */}
+        <div className="min-w-[960px]">
+          <div className="flex items-stretch">
+            <div className="w-56 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} />
+            </div>
+            <div className="w-16 shrink-0" />
+          </div>
         </div>
       </div>
 
       <div className="text-xs text-slate-400 italic">
-        Type straight into a course row to plan a task (Enter confirms, optional “h” field sets the estimate). “+” opens a form with a note field for an extra entry. Hours sit on the right of each to-do. Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Press Enter to confirm, Escape to cancel. Additional-time rows (Work, Other Obligations, Commute, Exercise) are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
+        Type straight into a course row to plan a task (Enter confirms, optional “h” field sets the estimate). “+” opens a form with a note field for an extra entry. Hours sit on the right of each to-do. Scheduled classes and imported calendar events (lectures, Gym Time, …) appear automatically as read-only entries with their duration; lectures also show their syllabus note (hover for the full text). Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Additional-time rows are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
       </div>
     </div>
   )
