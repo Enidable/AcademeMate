@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { getCourseStyle } from '../utils/helpers'
+import { typeSymbol, inferEventType } from '../drive/driveClient'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const DAY_START = 6 * 60
@@ -55,7 +56,7 @@ function layoutTimed(items) {
 // Fixed-scale weekly timetable. University day runs 06:00-22:00; timed events
 // are positioned proportionally so gaps between classes are visible. Deadlines
 // and all-day items sit in a chip row above the grid.
-export default function WeekGrid({ week, byDay, masterCourses, hourHeight = 44 }) {
+export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, hourHeight = 44 }) {
   const today = useMemo(() => new Date(), [])
   const GRID_H = hourHeight * (DAY_LEN / 60)
 
@@ -106,8 +107,10 @@ export default function WeekGrid({ week, byDay, masterCourses, hourHeight = 44 }
                 const style = e.isDeadline
                   ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' }
                   : eventColor(e.course)
+                const symbol = typeSymbol(e.isDeadline ? (e.type || 'deadline') : inferEventType(e.summary, e.description))
                 return (
                   <div key={e.id || `${e.date}|${e.summary}`} className={`rounded border border-transparent ${style.bg} ${style.text} px-1.5 py-0.5 text-[10px] leading-tight truncate`} style={{ ...style.bgCss, ...style.textCss }} title={e.summary}>
+                    <span className="mr-0.5">{symbol}</span>
                     {e.isDeadline ? `Due: ${e.description || e.summary}` : e.summary}
                   </div>
                 )
@@ -140,6 +143,8 @@ export default function WeekGrid({ week, byDay, masterCourses, hourHeight = 44 }
               const style = ev.isDeadline
                 ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' }
                 : eventColor(ev.course)
+              const symbol = typeSymbol(ev.isDeadline ? (ev.type || 'deadline') : inferEventType(ev.summary, ev.description))
+              const note = !ev.isDeadline && ev.lectureId && noteMap ? noteMap.get(`${ev.course}|${ev.lectureId}`) : ''
               return (
                 <div key={ev.id || `${ev.date}|${ev.summary}|${ev.startTime}`}
                   className="absolute flex overflow-hidden rounded"
@@ -148,9 +153,11 @@ export default function WeekGrid({ week, byDay, masterCourses, hourHeight = 44 }
                   <span className={`w-1 shrink-0 rounded-l ${style.dot}`} style={style.dotCss} />
                   <div className={`flex-1 min-w-0 ${style.bg} ${style.text} px-1 py-0.5`} style={{ ...style.bgCss, ...style.textCss }}>
                     <div className="text-[10px] font-medium leading-tight truncate">
+                      <span className="mr-0.5">{symbol}</span>
                       {ev.isDeadline ? `Due: ${ev.description || ev.summary}` : ev.summary}
                     </div>
-                    {p.height > 14 && (
+                    {note && <div className="text-[9px] opacity-70 leading-tight truncate">{note}</div>}
+                    {p.height > 14 && !note && (
                       <div className="text-[9px] opacity-70 leading-tight truncate">
                         {ev.startTime}{ev.endTime ? `–${ev.endTime}` : ''}
                         {ev.location ? ` · ${ev.location}` : ''}

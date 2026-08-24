@@ -2,11 +2,13 @@ import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
-import { getCourseStyle, shortCourseName, formatDateShort, isCourseActive } from '../utils/helpers'
+import { getCourseStyle, formatDateShort, isCourseActive } from '../utils/helpers'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
+import { ADDITIONAL_CATEGORIES } from '../config'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const ADDITIONAL_SET = new Set(ADDITIONAL_CATEGORIES)
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -101,7 +103,7 @@ function CourseRow({
       <td className="px-3 py-2">
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
-          <span className="truncate font-medium text-slate-700" title={course}>{shortCourseName(course)}</span>
+          <span className="truncate font-medium text-slate-700" title={course}>{course}</span>
           {isActive && (
             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">active</span>
           )}
@@ -134,7 +136,11 @@ function CourseRow({
 }
 
 export default function DailyPlanner({ onLogTask }) {
-  const { dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, addPlannerTask, updatePlannerTask, deletePlannerTask } = useAppData()
+  const {
+    dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog,
+    addPlannerTask, updatePlannerTask, deletePlannerTask,
+    addAdditionalEntry, updateAdditionalEntry, deleteAdditionalEntry,
+  } = useAppData()
   const [weekKey, setWeekKey] = useState(() => mondayOf(todayISO()))
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({ task: '', hours: '', notes: '' })
@@ -157,6 +163,17 @@ export default function DailyPlanner({ onLogTask }) {
     }
     return map
   }, [dailyPlan])
+
+  // Additional Time Log rows (work / other obligations / commute / exercise).
+  const addByDate = useMemo(() => {
+    const map = {}
+    for (const a of additionalLog) {
+      if (!a.date) continue
+      if (!map[a.date]) map[a.date] = []
+      map[a.date].push(a)
+    }
+    return map
+  }, [additionalLog])
 
   const avgWeeklyHours = useMemo(() => getAverageWeeklyHours(weeklyHours), [weeklyHours])
 
@@ -191,8 +208,10 @@ export default function DailyPlanner({ onLogTask }) {
     return s
   }, [masterCourses, today])
 
-  // Rows of the plan matrix: one row per course (active first, then name),
-  // plus a separate band for WORK / Travel which is excluded from study totals.
+  // Rows of the plan matrix: one row per course (active first, then name, with
+  // "Other University Stuff" pinned to the bottom), plus a separate band for the
+  // additional-time categories (work / other obligations / commute / exercise)
+  // which is excluded from study totals but logged and counted toward capacity.
   const week = useMemo(() => {
     const byCell = {}
     const studySet = new Set()
@@ -206,28 +225,41 @@ export default function DailyPlanner({ onLogTask }) {
         if (!byCell[k]) byCell[k] = []
         byCell[k].push(r)
       }
+      for (const a of addByDate[date] || []) {
+        workSet.add(a.category)
+        const k = `${a.category}|${date}`
+        if (!byCell[k]) byCell[k] = []
+        byCell[k].push(a)
+      }
     }
     for (const c of extraRows) {
-      if (c === 'WORK' || c === 'Travel') workSet.add(c)
+      if (ADDITIONAL_SET.has(c) || c === 'WORK' || c === 'Travel') workSet.add(c)
       else studySet.add(c)
     }
     // Every currently-active course is listed by default (as an empty row you
     // can plan into) — no need to add courses manually each week.
     for (const c of activeSet) studySet.add(c)
     const study = [...studySet].sort((a, b) => ((activeSet.has(b) ? 1 : 0) - (activeSet.has(a) ? 1 : 0)) || a.localeCompare(b))
-    const work = [...workSet]
-    const hoursOf = r => r.plannedHours || r.actualHours || 0
+    // "Other University Stuff" always sits at the bottom of the study rows.
+    const otherIdx = study.findIndex(c => c === 'Other University Stuff')
+    if (otherIdx > -1) study.push(study.splice(otherIdx, 1)[0])
+    // The additional categories are always listed; legacy WORK/Travel rows (if
+    // any) follow them.
+    const additional = [...ADDITIONAL_CATEGORIES]
+    for (const c of workSet) if (!ADDITIONAL_SET.has(c) && !additional.includes(c)) additional.push(c)
+    const hoursOf = r => r.plannedHours || r.actualHours || r.hours || 0
     const cellTasks = (course, date) => byCell[`${course}|${date}`] || []
     const hasTasks = course => dates.some(date => cellTasks(course, date).length > 0)
-    return { study, work, cellTasks, hoursOf, hasTasks }
-  }, [dates, byDate, extraRows, activeSet])
+    return { study, additional, cellTasks, hoursOf, hasTasks }
+  }, [dates, byDate, addByDate, extraRows, activeSet])
 
   const rowHours = course => dates.reduce((s, date) => s + week.cellTasks(course, date).reduce((t, r) => t + week.hoursOf(r), 0), 0)
   const dayHours = date => week.study.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0), 0)
-  const workDayHours = date => week.work.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0), 0)
+  const additionalDayHours = date => week.additional.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0), 0)
   const studyTotal = week.study.reduce((s, c) => s + rowHours(c), 0)
-  const workTotal = week.work.reduce((s, c) => s + rowHours(c), 0)
-  const overCapacity = avgWeeklyHours > 0 && studyTotal > avgWeeklyHours * 1.1
+  const additionalTotal = week.additional.reduce((s, c) => s + rowHours(c), 0)
+  const totalHours = studyTotal + additionalTotal
+  const overCapacity = avgWeeklyHours > 0 && totalHours > avgWeeklyHours * 1.1
 
   function moveWeek(delta) {
     const d = new Date(weekKey + 'T12:00:00')
@@ -236,6 +268,10 @@ export default function DailyPlanner({ onLogTask }) {
   }
 
   function toggleDone(row) {
+    if (row.isAdditional) {
+      updateAdditionalEntry(row.id, { done: row.done ? null : 'done' })
+      return
+    }
     if (row.done) {
       updatePlannerTask(row.id, { done: null })
     } else {
@@ -246,12 +282,17 @@ export default function DailyPlanner({ onLogTask }) {
 
   function startEdit(row) {
     setEditId(row.id)
-    setEditForm({ task: row.task || '', hours: String(row.plannedHours || row.actualHours || ''), notes: row.notes || '' })
+    setEditForm({ task: row.task || '', hours: String(row.hours != null ? row.hours : (row.plannedHours || row.actualHours || '')), notes: row.notes || '' })
   }
 
   function saveEdit(id) {
     const h = parseFloat(editForm.hours) || 0
-    updatePlannerTask(id, { task: editForm.task, plannedHours: h, actualHours: null, notes: editForm.notes || null })
+    const target = (additionalLog || []).find(r => r.id === id)
+    if (target) {
+      updateAdditionalEntry(id, { task: editForm.task, hours: h, notes: editForm.notes || null })
+    } else {
+      updatePlannerTask(id, { task: editForm.task, plannedHours: h, actualHours: null, notes: editForm.notes || null })
+    }
     setEditId(null)
   }
 
@@ -271,7 +312,11 @@ export default function DailyPlanner({ onLogTask }) {
   function saveCellAdd() {
     if (!addCell) return
     const h = parseFloat(cellForm.hours) || 0
-    addPlannerTask({ date: addCell.date, course: addCell.course, task: cellForm.task, plannedHours: h, notes: cellForm.notes || null })
+    if (ADDITIONAL_SET.has(addCell.course)) {
+      addAdditionalEntry({ date: addCell.date, category: addCell.course, task: cellForm.task, hours: h, notes: cellForm.notes || null })
+    } else {
+      addPlannerTask({ date: addCell.date, course: addCell.course, task: cellForm.task, plannedHours: h, notes: cellForm.notes || null })
+    }
     setAddCell(null)
   }
 
@@ -283,6 +328,12 @@ export default function DailyPlanner({ onLogTask }) {
 
   function removeExtraRow(course) {
     setExtraRows(r => r.filter(c => c !== course))
+  }
+
+  function deleteTask(id) {
+    if (!window.confirm('Delete this task?')) return
+    if ((additionalLog || []).some(r => r.id === id)) deleteAdditionalEntry(id)
+    else deletePlannerTask(id)
   }
 
   return (
@@ -300,7 +351,7 @@ export default function DailyPlanner({ onLogTask }) {
             className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Today</button>
         </div>
         <div className={`text-sm px-3 py-1.5 rounded-full ${overCapacity ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-          Study {studyTotal.toFixed(1)}h{workTotal > 0 ? ` · Work/commute ${workTotal.toFixed(1)}h` : ''} · Capacity {avgWeeklyHours.toFixed(1)}h
+          Study {studyTotal.toFixed(1)}h · Additional {additionalTotal.toFixed(1)}h · Capacity {avgWeeklyHours.toFixed(1)}h
         </div>
       </div>
 
@@ -309,7 +360,7 @@ export default function DailyPlanner({ onLogTask }) {
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-3 py-2 font-medium text-slate-500 w-44">Course</th>
+                <th className="text-left px-3 py-2 font-medium text-slate-500 w-56">Course</th>
                 {DAYS.map((day, i) => (
                   <th key={day} className={`px-2 py-2 font-medium text-center ${dates[i] === today ? 'text-indigo-700' : 'text-slate-500'}`}>
                     <div>{day}</div>
@@ -331,7 +382,7 @@ export default function DailyPlanner({ onLogTask }) {
                   editId={editId} editForm={editForm} setEditForm={setEditForm}
                   addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
                   onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
-                  onToggle={toggleDone} onDelete={id => { if (window.confirm('Delete this task?')) deletePlannerTask(id) }}
+                  onToggle={toggleDone} onDelete={deleteTask}
                   onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
                   onRemoveExtraRow={removeExtraRow} />
               ))}
@@ -362,37 +413,33 @@ export default function DailyPlanner({ onLogTask }) {
                 </td>
               </tr>
 
-              {week.work.length > 0 && (
-                <>
-                  <tr>
-                    <td colSpan={9} className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400">
-                      Work & commute — kept separate from study hours
-                    </td>
-                  </tr>
-                  {week.work.map(course => (
-                    <CourseRow key={course} course={course}
-                      style={getCourseStyle(course, colorByCourse[course])}
-                      isActive={false}
-                      total={rowHours(course)}
-                      isEmptyExtra={extraRows.includes(course) && !week.hasTasks(course)}
-                      dates={dates} today={today}
-                      cellTasks={week.cellTasks} hoursOf={week.hoursOf}
-                      editId={editId} editForm={editForm} setEditForm={setEditForm}
-                      addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
-                      onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
-                      onToggle={toggleDone} onDelete={id => { if (window.confirm('Delete this task?')) deletePlannerTask(id) }}
-                      onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
-                      onRemoveExtraRow={removeExtraRow} />
-                  ))}
-                  <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
-                    <td className="px-3 py-2">Work & commute total</td>
-                    {dates.map(date => (
-                      <td key={date} className="px-2 py-2 text-center tabular-nums">{workDayHours(date) > 0 ? `${workDayHours(date).toFixed(1)}` : ''}</td>
-                    ))}
-                    <td className="px-3 py-2 text-right tabular-nums">{workTotal.toFixed(1)}h</td>
-                  </tr>
-                </>
-              )}
+              <tr>
+                <td colSpan={9} className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400">
+                  Additional time — Work, Other Obligations, Commute &amp; Exercise (logged, never counted as study)
+                </td>
+              </tr>
+              {week.additional.map(course => (
+                <CourseRow key={course} course={course}
+                  style={getCourseStyle(course, colorByCourse[course])}
+                  isActive={false}
+                  total={rowHours(course)}
+                  isEmptyExtra={false}
+                  dates={dates} today={today}
+                  cellTasks={week.cellTasks} hoursOf={week.hoursOf}
+                  editId={editId} editForm={editForm} setEditForm={setEditForm}
+                  addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
+                  onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
+                  onToggle={toggleDone} onDelete={deleteTask}
+                  onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
+                  onRemoveExtraRow={removeExtraRow} />
+              ))}
+              <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
+                <td className="px-3 py-2">Additional total</td>
+                {dates.map(date => (
+                  <td key={date} className="px-2 py-2 text-center tabular-nums">{additionalDayHours(date) > 0 ? `${additionalDayHours(date).toFixed(1)}` : ''}</td>
+                ))}
+                <td className="px-3 py-2 text-right tabular-nums">{additionalTotal.toFixed(1)}h</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -409,7 +456,7 @@ export default function DailyPlanner({ onLogTask }) {
       </div>
 
       <div className="text-xs text-slate-400 italic">
-        Add tasks per course per day with “+”. Hours sit on the right of each to-do. Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Press Enter to confirm, Escape to cancel. “Work & commute” rows never count toward your study total or capacity.
+        Add tasks per course per day with “+”. Hours sit on the right of each to-do. Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Press Enter to confirm, Escape to cancel. Additional-time rows (Work, Other Obligations, Commute, Exercise) are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
       </div>
     </div>
   )

@@ -213,6 +213,32 @@ export function isExamEvent(ev) {
   return /exam/i.test(`${ev.summary || ''} ${ev.description || ''}`)
 }
 
+// A symbol per event type, used to make different types recognisable at a
+// glance even when every event of a course shares one Google Calendar colour.
+export const TYPE_SYMBOL = {
+  lecture: '📖',
+  lectorial: '📘',
+  tutorial: '✏️',
+  practical: '🔬',
+  seminar: '🧑🏫',
+  selfstudy: '🧠',
+  project: '🛠️',
+  meeting: '👥',
+  assignment: '📄',
+  exam: '🎓',
+  'exam review': '📝',
+  resit: '🔁',
+  quiz: '❓',
+  'q&a': '💬',
+  presentation: '📽️',
+  deadline: '⏰',
+  other: '📅',
+}
+
+export function typeSymbol(type) {
+  return TYPE_SYMBOL[type] || '📅'
+}
+
 const TYPE_KEYWORDS = [
   ['lectorial', 'lectorial'],
   ['tutorial', 'tutorial'],
@@ -312,7 +338,7 @@ export function toGcalEvent(ev, courseColorMap = null) {
     ? { date: ev.date }
     : { dateTime: `${ev.date}T${endTime}:00`, timeZone }
   const body = {
-    summary: ev.summary,
+    summary: `${typeSymbol(inferEventType(ev.summary, ev.description))} ${ev.summary}`.trim(),
     location: ev.location || '',
     description: ev.description || '',
     start,
@@ -332,6 +358,52 @@ export async function insertCalendarEvent(event, calendarId = 'primary') {
     body: JSON.stringify(event),
   })
   return res?.id || null
+}
+
+// The user's own Google calendars (calendarList), for the "import a calendar"
+// flow. The AcademeMate calendar itself is excluded by the caller.
+export async function listUserCalendars() {
+  const res = await authedFetch(
+    `${CALENDAR_BASE}/users/me/calendarList?fields=items(id,summary,backgroundColor,accessRole,primary)&maxResults=250`,
+  )
+  return (res.items || []).filter(c => c.accessRole === 'owner' || c.accessRole === 'writer' || c.accessRole === 'reader')
+}
+
+// Fetch (expanded) events from one of the user's calendars within a date window
+// (ISO yyyy-mm-dd, inclusive). Used to import work/personal calendars into the
+// AcademeMate calendar view.
+export async function fetchCalendarEvents(calendarId, timeMin, timeMax) {
+  const params = new URLSearchParams({
+    singleEvents: 'true',
+    maxResults: '2500',
+    orderBy: 'startTime',
+    fields: 'items(id,summary,start,end,location,description,status)',
+  })
+  if (timeMin) params.set('timeMin', `${timeMin}T00:00:00Z`)
+  if (timeMax) params.set('timeMax', `${timeMax}T23:59:59Z`)
+  const res = await authedFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+  )
+  return (res.items || []).filter(e => e.status !== 'cancelled')
+}
+
+// List events in a calendar within a date window (ISO yyyy-mm-dd, inclusive).
+// Used by the push to find events that already exist on the AcademeMate
+// calendar — e.g. duplicates left behind by earlier bugs — so it can adopt
+// their id instead of inserting fresh copies.
+export async function listCalendarEvents(calendarId, timeMin, timeMax) {
+  const params = new URLSearchParams({
+    singleEvents: 'true',
+    maxResults: '2500',
+    orderBy: 'startTime',
+    fields: 'items(id,summary,start,status)',
+  })
+  if (timeMin) params.set('timeMin', `${timeMin}T00:00:00Z`)
+  if (timeMax) params.set('timeMax', `${timeMax}T23:59:59Z`)
+  const res = await authedFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+  )
+  return (res.items || []).filter(e => e.status !== 'cancelled')
 }
 
 // Update an event. Returns the event id, or null when the target event no
@@ -386,17 +458,19 @@ function buildBatchBody(ops, calendarId, boundary) {
   return parts.join('\r\n') + `\r\n--${boundary}--\r\n`
 }
 
-function parseBatchBody(text, boundary) {
+function parseBatchBody(text) {
   const out = {}
-  for (const seg of text.split(`--${boundary}`)) {
-    // Google echoes the request Content-ID as <response-itemN> — match any
-    // Content-ID whose tag ends in a number.
-    const idm = /Content-ID:\s*<[^>]*?(\d+)>/i.exec(seg)
-    if (!idm) continue
-    const idx = parseInt(idm[1], 10)
-    const statusm = /HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(seg)
+  // Don't rely on the response echoing our exact boundary (Google doesn't
+  // always). Just split on every sub-response: each one starts with a
+  // "Content-ID: <...N>" header, and runs until the next one (or end of text).
+  const partRe = /Content-ID:\s*<[^>]*?(\d+)>([\s\S]*?)(?=Content-ID:\s*<[^>]*?\d+>|$)/gi
+  let m
+  while ((m = partRe.exec(text))) {
+    const idx = parseInt(m[1], 10)
+    const body = m[2]
+    const statusm = /HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(body)
     let data = null
-    const jsonm = /\{[\s\S]*\}/.exec(seg)
+    const jsonm = /\{[\s\S]*\}/.exec(body)
     if (jsonm) {
       try { data = JSON.parse(jsonm[0]) } catch { /* not json */ }
     }
@@ -442,7 +516,7 @@ export async function batchCalendarEvents(ops, calendarId) {
     if (status < 200 || status >= 300) {
       throw new Error(`Google API ${status}: ${text.slice(0, 240)}`)
     }
-    const parsed = parseBatchBody(text, boundary)
+    const parsed = parseBatchBody(text)
     // If the batch HTTP request succeeded but the response carried no
     // recognizable sub-responses, surface the raw response — that's the real
     // Google error (e.g. a rejected/over-quota batch), not "error" per event.

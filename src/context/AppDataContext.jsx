@@ -9,6 +9,7 @@ import {
   serializeDailyPlan,
   serializeWeeklyOverrides,
   serializeCalendar,
+  serializeAdditionalLog,
 } from '../data/serialize'
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
@@ -25,9 +26,14 @@ import {
   ensureCalendar,
   toGcalEvent,
   inferEventType,
+  typeSymbol,
   deriveAbbrev,
   courseColorId,
   batchCalendarEvents,
+  listCalendarEvents,
+  listUserCalendars,
+  fetchCalendarEvents,
+  deleteCalendarEvent,
 } from '../drive/driveClient'
 import { fetchTemplateRows } from '../drive/template'
 import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn, initGis } from '../drive/gis'
@@ -39,6 +45,7 @@ import {
   TAB_DAILY,
   TAB_HOURS,
   TAB_CALENDAR,
+  TAB_ADDITIONAL,
   ASSET_BASE,
 } from '../config'
 
@@ -146,6 +153,7 @@ function dedupeContent(items) {
 
 function buildState(rowsByTab) {
   const data = parseAll(rowsByTab)
+  const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides, data.additionalLog)
   // Drop garbage rows created by earlier bugs: a "course" whose name is purely
   // the numeric course code (e.g. "191211110" next to the real "Modelling and
   // Simulation"). The next Courses write removes them from Drive for good.
@@ -153,7 +161,6 @@ function buildState(rowsByTab) {
   data.content = dedupeContent(data.content)
   synthCourses(data)
   linkGradeComponents(data)
-  const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
   return { data, weeklyHours, plannerWeeks }
 }
@@ -194,6 +201,7 @@ const TITLE_BY_KEY = {
   dailyPlan: TAB_DAILY,
   weeklyTotals: TAB_HOURS,
   calendarEvents: TAB_CALENDAR,
+  additionalLog: TAB_ADDITIONAL,
 }
 
 function serializeTabByTitle(title, data, _planner) {
@@ -207,6 +215,7 @@ function serializeTabByTitle(title, data, _planner) {
     case TAB_HOURS: return serializeWeeklyOverrides(data?.weeklyOverrides)
     case TAB_DAILY: return serializeDailyPlan(data?.dailyPlan, codeMap)
     case TAB_CALENDAR: return serializeCalendar(data?.calendarEvents, codeMap)
+    case TAB_ADDITIONAL: return serializeAdditionalLog(data?.additionalLog)
     default: return []
   }
 }
@@ -367,7 +376,7 @@ export function AppDataProvider({ children }) {
   }
 
   function setAll(d, p) {
-    const wt = deriveWeeklyTotals(d.studyLog, d.weeklyOverrides)
+    const wt = deriveWeeklyTotals(d.studyLog, d.weeklyOverrides, d.additionalLog)
     dataRef.current = d
     plannerRef.current = p
     weeklyRef.current = wt
@@ -459,7 +468,9 @@ export function AppDataProvider({ children }) {
       const k = `${l.course}|${l.contentId || ''}`
       const existing = driveById.get(k)
       if (existing) {
-        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done']) {
+        // calId is included so an event that was pushed to Google Calendar but
+        // whose Drive write failed isn't re-inserted as a duplicate on reload.
+        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done', 'calId']) {
           if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
         }
       } else {
@@ -509,7 +520,7 @@ export function AppDataProvider({ children }) {
       const planner = ensureDefaultRows(saved.plannerWeeks || [])
       dataRef.current = saved.data
       plannerRef.current = planner
-      weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides)
+      weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides, saved.data.additionalLog)
       setData(saved.data)
       setPlannerWeeks(planner)
       setWeeklyHours(weeklyRef.current)
@@ -921,6 +932,100 @@ export function AppDataProvider({ children }) {
     return { imported: merged.length, files: files.length }
   }
 
+  // Import the events of one of the user's own Google calendars (work, personal,
+  // …) into the AcademeMate Calendar tab, so planned non-study hours show up in
+  // the week grid and get pushed to the AcademeMate calendar too. Re-importing
+  // is idempotent: rows are keyed by the source event id + date + start time.
+  async function importGoogleCalendar(calendarId, calendarSummary) {
+    const info = driveRef.current
+    if (!info) throw new Error('Connect to Drive first')
+    const now = new Date()
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const timeMin = iso(new Date(now.getFullYear(), now.getMonth() - 3, 1))
+    const timeMax = iso(new Date(now.getFullYear(), now.getMonth() + 12, 1))
+    const items = await fetchCalendarEvents(calendarId, timeMin, timeMax)
+    if (items.length === 0) throw new Error('That calendar has no events in the import window.')
+
+    const toLocalTime = isoDateTime => {
+      const d = new Date(isoDateTime)
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    }
+
+    const courses = dataRef.current?.courses || []
+    const codeToCourse = new Map()
+    for (const c of courses) if (c.code) codeToCourse.set(c.code, c.course)
+    const escapeRe2 = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+    const rows = items.map(ev => {
+      const allDay = !!(ev.start && ev.start.date)
+      const date = allDay ? ev.start.date : (ev.start?.dateTime ? ev.start.dateTime.slice(0, 10) : null)
+      if (!date) return null
+      const startTime = allDay ? '' : toLocalTime(ev.start.dateTime)
+      const endTime = allDay ? '' : (ev.end?.dateTime ? toLocalTime(ev.end.dateTime) : '')
+      const summary = ev.summary || 'Busy'
+      let course = null
+      const cm = /\.?\s*(\d{6,9})\s*$/.exec(summary)
+      if (cm) course = codeToCourse.get(cm[1]) || null
+      if (!course) {
+        const s = summary.trim().toLowerCase()
+        const exact = courses.find(c => String(c.course || '').toLowerCase() === s)
+        if (exact) course = exact.course
+        if (!course) {
+          let nameMatch = null
+          for (const c of courses) {
+            const name = String(c.course || '').toLowerCase()
+            if (name.length > 4 && s.includes(name) && (!nameMatch || name.length > nameMatch.course.length)) nameMatch = c
+          }
+          if (nameMatch) course = nameMatch.course
+        }
+        if (!course) {
+          const abbrMatch = courses.find(c => {
+            const abbr = String(c.abbrev || '').toLowerCase()
+            if (!abbr || abbr.length < 2) return false
+            return new RegExp(`(^|[^a-z0-9])${escapeRe2(abbr)}([^a-z0-9]|$)`, 'i').test(summary || '')
+          })
+          if (abbrMatch) course = abbrMatch.course
+        }
+      }
+      return {
+        id: `${ev.id}|${date}|${startTime}`,
+        date,
+        startTime,
+        endTime,
+        allDay,
+        summary,
+        course,
+        location: (ev.location || '').trim() || null,
+        description: (ev.description || '').trim() || null,
+        source: calendarSummary || calendarId,
+        uid: ev.id,
+        status: null,
+        lectureId: null,
+        calId: null,
+      }
+    }).filter(Boolean)
+
+    const existing = dataRef.current?.calendarEvents || []
+    const existingKeys = new Set(existing.map(e => `${e.uid}|${e.date}|${e.startTime}`))
+    const seen = new Set()
+    let added = 0
+    for (const r of rows) {
+      const k = `${r.uid}|${r.date}|${r.startTime}`
+      if (existingKeys.has(k) || seen.has(k)) continue
+      seen.add(k)
+      existing.push(r)
+      added += 1
+    }
+
+    const d = { ...(dataRef.current || {}), calendarEvents: existing }
+    setAll(d, plannerRef.current)
+    const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
+    await writeTabsBatch(info.fileId, {
+      [TAB_CALENDAR]: serializeCalendar(existing, codeMap),
+    })
+    return { imported: rows.length, added, source: calendarSummary || calendarId }
+  }
+
   // Export the Calendar tab into the user's dedicated "AcademeMate" Google
   // Calendar (never the primary calendar). Writes are batched (up to 50 events
   // per HTTP request) so the whole sync stays within the Calendar API rate
@@ -958,6 +1063,56 @@ export function AppDataProvider({ children }) {
       return status ? (msg ? `${status} ${msg}` : String(status)) : (msg || 'no response')
     }
     const isDate = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '')
+    // Unique key for an event payload: summary + start (date or date-time).
+    // Used to spot events that already exist on the calendar. Leading type
+    // symbols (emoji) are stripped so a symbol-less event pushed by an older
+    // version still matches its newly-symbol-prefixed counterpart.
+    const gcalKey = g => {
+      const s = g.start.date || g.start.dateTime || ''
+      const summary = String(g.summary || '').replace(/\p{Extended_Pictographic}/gu, '').replace(/\s+/g, ' ').trim()
+      return `${summary}::${s.slice(0, 16)}`
+    }
+
+    // Existing events that already live on the AcademeMate calendar. An event
+    // about to be inserted whose exact match already exists adopts the existing
+    // id (update instead of a fresh insert), and surplus exact duplicates a past
+    // bug left behind get removed — so re-pushes converge instead of piling up.
+    const unlinked = [
+      ...events.filter(e => isDate(e.date) && !e.calId),
+      ...deadlines.filter(i => isDate(i.deadline) && !i.calId),
+    ]
+    const existingByKey = new Map()
+    const adopted = new Set()
+    if (unlinked.length > 0) {
+      try {
+        const dates = unlinked.map(i => i.date || i.deadline).filter(isDate).sort()
+        const shift = (iso, days) => {
+          const [y, m, d] = iso.split('-')
+          const dt = new Date(Date.UTC(+y, +m - 1, +d))
+          dt.setUTCDate(dt.getUTCDate() + days)
+          return dt.toISOString().slice(0, 10)
+        }
+        const timeMin = dates.length ? shift(dates[0], -1) : null
+        const timeMax = dates.length ? shift(dates[dates.length - 1], 1) : null
+        const listed = await listCalendarEvents(calendarId, timeMin, timeMax)
+        for (const ex of listed) {
+          const k = gcalKey(ex)
+          if (!existingByKey.has(k)) existingByKey.set(k, [])
+          existingByKey.get(k).push(ex)
+        }
+      } catch (e) {
+        // Best-effort: without the list the push simply inserts as before.
+        console.warn('Could not list existing calendar events; skipping duplicate adoption:', e.message)
+      }
+    }
+    // Reuse an existing event for an item about to be inserted. Returns the id
+    // of the first not-yet-adopted exact match, else null.
+    const adoptFor = (gcal) => {
+      const matches = (existingByKey.get(gcalKey(gcal)) || []).filter(ex => !adopted.has(ex.id))
+      if (matches.length === 0) return null
+      adopted.add(matches[0].id)
+      return matches[0].id
+    }
 
     for (const ev of events) {
       if (!isDate(ev.date)) continue
@@ -968,8 +1123,9 @@ export function AppDataProvider({ children }) {
         plan.push({ kind: 'event', ref: ev, gcal })
         ops.push({ method: 'PUT', eventId: ev.calId, body: gcal })
       } else {
+        const adoptedId = adoptFor(gcal)
         plan.push({ kind: 'event', ref: ev, gcal })
-        ops.push({ method: 'POST', body: gcal })
+        ops.push(adoptedId ? { method: 'PUT', eventId: adoptedId, body: gcal } : { method: 'POST', body: gcal })
       }
     }
 
@@ -983,7 +1139,7 @@ export function AppDataProvider({ children }) {
       const timed = /^\d{1,2}:\d{2}$/.test(dueTime)
       const start = timed ? { dateTime: `${item.deadline}T${dueTime}:00`, timeZone } : { date: item.deadline }
       const gcal = {
-        summary: `Due: ${summary}`,
+        summary: `Due: ${typeSymbol(item.type || 'deadline')} ${summary}`.trim(),
         location: item.location || '',
         description: summary,
         start,
@@ -996,17 +1152,30 @@ export function AppDataProvider({ children }) {
         plan.push({ kind: 'deadline', ref: item, gcal })
         ops.push({ method: 'PUT', eventId: item.calId, body: gcal })
       } else {
+        const adoptedId = adoptFor(gcal)
         plan.push({ kind: 'deadline', ref: item, gcal })
-        ops.push({ method: 'POST', body: gcal })
+        ops.push(adoptedId ? { method: 'PUT', eventId: adoptedId, body: gcal } : { method: 'POST', body: gcal })
       }
     }
 
     let inserted = 0
     let updated = 0
-    const updatedEvents = []
-    const updatedDeadlines = []
+    let deadlinesApplied = 0
+    const applied = new Set()
     const errors = []
     const retryList = []
+
+    // Write a successful result's cal_id straight back onto the source object.
+    // Referencing the object itself (never re-matching by id) means every
+    // deadline/event keeps its own link, even when rows share or lack an `id`.
+    const record = (p, id, method) => {
+      fp[fpKey(id)] = JSON.stringify(p.gcal)
+      p.ref.calId = id
+      applied.add(p)
+      if (p.kind === 'deadline') deadlinesApplied += 1
+      else if (method === 'POST') inserted += 1
+      else updated += 1
+    }
 
     if (ops.length > 0) {
       const results = await batchCalendarEvents(ops, calendarId)
@@ -1014,17 +1183,8 @@ export function AppDataProvider({ children }) {
         const p = plan[i]
         if (!p) return
         const ok = res?.data?.id && res.status >= 200 && res.status < 300
-        if (ok) {
-          const id = res.data.id
-          fp[fpKey(id)] = JSON.stringify(p.gcal)
-          if (p.kind === 'event') {
-            updatedEvents.push({ ...p.ref, calId: id })
-            if (ops[i].method === 'POST') inserted += 1
-            else updated += 1
-          } else {
-            updatedDeadlines.push({ ...p.ref, calId: id })
-          }
-        } else if (ops[i].method === 'PUT' && res?.status === 404) {
+        if (ok) record(p, res.data.id, ops[i].method)
+        else if (ops[i].method === 'PUT' && res?.status === 404) {
           // Event was deleted on the calendar since the last push — re-insert.
           retryList.push(p)
         } else {
@@ -1040,32 +1200,33 @@ export function AppDataProvider({ children }) {
       retryResults.forEach((res, i) => {
         const p = retryList[i]
         if (!p) return
-        if (res?.data?.id) {
-          const id = res.data.id
-          fp[fpKey(id)] = JSON.stringify(p.gcal)
-          if (p.kind === 'event') {
-            updatedEvents.push({ ...p.ref, calId: id })
-            updated += 1
-          } else {
-            updatedDeadlines.push({ ...p.ref, calId: id })
-          }
-        } else {
-          errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${failReason(res)}`)
-        }
+        if (res?.data?.id) record(p, res.data.id, 'POST')
+        else errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${failReason(res)}`)
       })
+    }
+
+    // Remove surplus exact duplicates — leftovers of the earlier duplicate-insert
+    // bug. A key is kept when at least one of its events maps to a real app item
+    // (freshly adopted OR already linked); the rest are exact duplicates and get
+    // deleted. Keys with no mapping are never touched.
+    const linkedIds = new Set([
+      ...events.filter(e => e.calId).map(e => e.calId),
+      ...deadlines.filter(i => i.calId).map(i => i.calId),
+    ])
+    for (const matches of existingByKey.values()) {
+      const keepIds = new Set(matches.filter(ex => adopted.has(ex.id) || linkedIds.has(ex.id)).map(ex => ex.id))
+      if (keepIds.size === 0) continue
+      for (const ex of matches) {
+        if (!keepIds.has(ex.id)) deleteCalendarEvent(ex.id, calendarId)
+      }
     }
 
     saveCalFp(fp)
 
-    if (updatedEvents.length > 0 || updatedDeadlines.length > 0) {
-      const byKey = new Map(updatedEvents.map(e => [`${e.uid}|${e.date}|${e.startTime}`, e.calId]))
-      const merged = events.map(e => {
-        const id = byKey.get(`${e.uid}|${e.date}|${e.startTime}`)
-        return id ? { ...e, calId: id } : e
-      })
-      const calById = new Map(updatedDeadlines.map(i => [i.id, i.calId]))
-      const content = (data.content || []).map(i => (calById.has(i.id) ? { ...i, calId: calById.get(i.id) } : i))
-      const d = { ...data, calendarEvents: merged, content }
+    if (applied.size > 0) {
+      // cal_ids were written onto the source objects above, so the in-memory
+      // data already carries them — no re-keying by id needed.
+      const d = { ...data }
       dataRef.current = d
       saveJSON({ data: d, plannerWeeks: plannerRef.current, weeklyHours: weeklyRef.current })
       setData(d)
@@ -1073,8 +1234,8 @@ export function AppDataProvider({ children }) {
       if (info) {
         const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
         await writeTabsBatch(info.fileId, {
-          [TAB_CALENDAR]: serializeCalendar(merged, codeMap),
-          [TAB_CONTENT]: serializeContent(content, codeMap),
+          [TAB_CALENDAR]: serializeCalendar(events, codeMap),
+          [TAB_CONTENT]: serializeContent(data.content, codeMap),
         })
       }
     }
@@ -1082,7 +1243,7 @@ export function AppDataProvider({ children }) {
     if (errors.length > 0) {
       throw new Error(`Some events failed to push (${errors.length}): ${errors.slice(0, 3).join('; ')}`)
     }
-    return { inserted, updated, deadlinesInserted: updatedDeadlines.length }
+    return { inserted, updated, deadlinesInserted: deadlinesApplied }
   }
 
   function addSession(entry) {
@@ -1142,6 +1303,9 @@ export function AppDataProvider({ children }) {
       done: deadline.done || '',
       time: deadline.time ?? 0,
     }
+    // Stable id (same shape addContentItem builds) so the row can be matched
+    // reliably for dedupe, React keys and calendar cal_id write-back.
+    item.id = `${item.course}||${item.contentId || ''}|${item.date || ''}|${item.deadline || ''}|${item.topic}`
     const updated = { ...prev, content: [...(prev.content || []), item] }
     setAll(updated, plannerRef.current)
     syncTabs(['content'])
@@ -1581,6 +1745,40 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     syncTabs(['dailyPlan'])
   }
 
+  // --- Additional Time Log (work / other / commute / exercise) -----------
+
+  function addAdditionalEntry(entry) {
+    const prev = dataRef.current || {}
+    const row = {
+      id: `${entry.date}|${String(entry.category || '').toLowerCase()}|${entry.task || ''}|${Date.now()}`,
+      date: entry.date,
+      course: entry.category || 'Other Obligations',
+      category: entry.category || 'Other Obligations',
+      task: entry.task || '',
+      hours: parseFloat(entry.hours) || 0,
+      notes: entry.notes || null,
+      done: entry.done || '',
+      isAdditional: true,
+    }
+    const updated = { ...prev, additionalLog: [...(prev.additionalLog || []), row] }
+    setAll(updated, plannerRef.current)
+    syncTabs(['additionalLog'])
+  }
+
+  function updateAdditionalEntry(id, updates) {
+    const prev = dataRef.current || {}
+    const additionalLog = (prev.additionalLog || []).map(r => r.id === id ? { ...r, ...updates } : r)
+    setAll({ ...prev, additionalLog }, plannerRef.current)
+    syncTabs(['additionalLog'])
+  }
+
+  function deleteAdditionalEntry(id) {
+    const prev = dataRef.current || {}
+    const additionalLog = (prev.additionalLog || []).filter(r => r.id !== id)
+    setAll({ ...prev, additionalLog }, plannerRef.current)
+    syncTabs(['additionalLog'])
+  }
+
   return (
     <AppDataContext.Provider value={{
       inputLog: data?.studyLog || [],
@@ -1593,6 +1791,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       plannerWeeks,
       dailyPlan: data?.dailyPlan || [],
       calendarEvents: data?.calendarEvents || [],
+      additionalLog: data?.additionalLog || [],
       loading,
       error,
       drive,
@@ -1606,6 +1805,8 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       refreshFromCSVs,
       importCSVToTab,
       importCalendarFromDrive,
+      importGoogleCalendar,
+      listUserCalendars,
       pushCalendarToGoogle,
       addSession,
       addCourse,
@@ -1626,6 +1827,9 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       addPlannerTask,
       updatePlannerTask,
       deletePlannerTask,
+      addAdditionalEntry,
+      updateAdditionalEntry,
+      deleteAdditionalEntry,
     }}>
       {children}
     </AppDataContext.Provider>

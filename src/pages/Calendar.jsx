@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getCourseStyle } from '../utils/helpers'
+import { typeSymbol, inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -61,8 +62,8 @@ function monthGrid(year, month) {
 
 export default function Calendar() {
   const {
-    calendarEvents, deadlines, hasDrive, driveError, masterCourses,
-    importCalendarFromDrive, pushCalendarToGoogle,
+    calendarEvents, deadlines, content, hasDrive, driveError, masterCourses,
+    importCalendarFromDrive, importGoogleCalendar, listUserCalendars, pushCalendarToGoogle,
   } = useAppData()
 
   const [mode, setMode] = useState('week')
@@ -70,6 +71,9 @@ export default function Calendar() {
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
   const [colorOpen, setColorOpen] = useState(false)
+  const [calImportOpen, setCalImportOpen] = useState(false)
+  const [calImportList, setCalImportList] = useState([])
+  const [calImportError, setCalImportError] = useState('')
   const [courseColors, setCourseColors] = useState(() => {
     try { return JSON.parse(localStorage.getItem('am_calendar_colors')) || {} } catch { return {} }
   })
@@ -100,6 +104,20 @@ export default function Calendar() {
       return map[name]
     }
   }, [masterCourses])
+
+  // Syllabus notes for each scheduled calendar element, keyed by course|lectureId,
+  // so a class's note shows in its calendar chip without distorting the layout.
+  const noteByLecture = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) {
+      if (i.course && i.contentId && i.description) m.set(`${i.course}|${i.contentId}`, i.description)
+    }
+    return m
+  }, [content])
+
+  const eventSymbol = e => e.isDeadline
+    ? typeSymbol(e.type || 'deadline')
+    : typeSymbol(inferEventType(e.summary, e.description))
 
   const byDay = useMemo(() => {
     const map = {}
@@ -148,6 +166,32 @@ export default function Calendar() {
     }
   }
 
+  async function openCalImport() {
+    setCalImportError('')
+    setCalImportOpen(true)
+    setCalImportList([])
+    try {
+      const cals = await listUserCalendars()
+      setCalImportList(cals.filter(c => c.summary !== 'AcademeMate'))
+    } catch (e) {
+      setCalImportError(`Could not list your calendars: ${e.message}`)
+    }
+  }
+
+  async function runCalImport(cal) {
+    setBusy('calimport')
+    setMessage('')
+    try {
+      const res = await importGoogleCalendar(cal.id, cal.summary)
+      setCalImportOpen(false)
+      setMessage(`Imported ${res.added} event${res.added === 1 ? '' : 's'} from "${res.source}". ${res.imported - res.added} were already present.`)
+    } catch (e) {
+      setCalImportError(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
   function nav(dir) {
     if (mode === 'week') setAnchor(addDays(mondayOf(anchor), dir * 7))
     else if (mode === 'month') setAnchor(addDays(anchor, dir * 30))
@@ -159,13 +203,19 @@ export default function Calendar() {
       ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', border: 'border-red-200' }
       : eventColor(e.course)
     const time = e.allDay ? 'All day' : (e.startTime ? `${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '')
+    const note = !e.isDeadline && e.lectureId ? noteByLecture.get(`${e.course}|${e.lectureId}`) : ''
+    const symbol = eventSymbol(e)
     return (
       <div key={e.id || `${e.date}|${e.summary}|${e.startTime}`}
-        className={`rounded border ${style.border || 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[11px] leading-tight truncate ${compact ? '' : 'mb-1'}`}
+        className={`rounded border ${style.border || 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[11px] leading-tight ${compact ? '' : 'mb-1'}`}
         style={{ ...style.borderCss, ...style.bgCss, ...style.textCss }} title={e.summary}>
-        {!compact && time && <span className="opacity-70 mr-1">{time}</span>}
-        {compact && e.startTime && <span className="opacity-70 mr-1">{e.startTime}</span>}
-        <span className="truncate">{e.isDeadline ? `Due: ${e.description}` : e.summary}</span>
+        <div className="truncate">
+          {!compact && time && <span className="opacity-70 mr-1">{time}</span>}
+          {compact && e.startTime && <span className="opacity-70 mr-1">{e.startTime}</span>}
+          <span className="mr-0.5">{symbol}</span>
+          <span className="truncate">{e.isDeadline ? `Due: ${e.description}` : e.summary}</span>
+        </div>
+        {note && <div className="truncate text-[9px] opacity-70">{note}</div>}
       </div>
     )
   }
@@ -202,6 +252,10 @@ export default function Calendar() {
             className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 cursor-pointer">
             {busy === 'import' ? 'Importing…' : '↧ Import .ics'}
           </button>
+          <button onClick={openCalImport} disabled={!hasDrive || busy !== ''}
+            className="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-500 disabled:opacity-50 cursor-pointer">
+            {busy === 'calimport' ? 'Importing…' : '⇄ Import Google calendar'}
+          </button>
           <button onClick={openColors} disabled={!hasDrive || calendarEvents.length === 0 || busy !== ''}
             className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 cursor-pointer">
             {busy === 'push' ? 'Pushing…' : '↥ Push to Google Calendar'}
@@ -213,6 +267,37 @@ export default function Calendar() {
       {message && (
         <div className={`text-xs rounded-lg px-3 py-2 border ${message.includes('failed') || message.includes('Failed') ? 'text-red-600 bg-red-50 border-red-100' : 'text-slate-600 bg-slate-50 border-slate-100'}`}>
           {message}
+        </div>
+      )}
+
+      {calImportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setCalImportOpen(false)}>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md mx-4 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+              <h2 className="font-semibold text-slate-800">Import a Google calendar</h2>
+              <button onClick={() => setCalImportOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none cursor-pointer">&times;</button>
+            </div>
+            <div className="p-5">
+              <p className="text-xs text-slate-500 mb-3">
+                Pick one of your calendars — its events are added to the AcademeMate calendar view (and pushed to the AcademeMate calendar on the next push). Re-importing is safe.
+              </p>
+              {calImportError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-3">{calImportError}</div>
+              )}
+              {calImportList.length === 0 && !calImportError && (
+                <div className="text-xs text-slate-400 text-center py-4">Loading your calendars…</div>
+              )}
+              <div className="space-y-1.5">
+                {calImportList.map(cal => (
+                  <button key={cal.id} onClick={() => runCalImport(cal)} disabled={busy !== ''}
+                    className="w-full text-left text-sm px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50 cursor-pointer">
+                    <span className="text-slate-700">{cal.summary}</span>
+                    {cal.primary && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">primary</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -270,7 +355,7 @@ export default function Calendar() {
       {mode === 'week' && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div className="min-w-[720px]">
-            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} />
+            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} />
           </div>
         </div>
       )}

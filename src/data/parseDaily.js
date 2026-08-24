@@ -3,13 +3,14 @@
 //   - planner grid: flat Daily Plan rows regrouped into the Mon-Sun week grid
 import { isoWeekOf, mondayOfWeek, weekdayIndex } from './normalize.js'
 
-// Effective weekly totals = Study Log per ISO week, plus manual overrides.
-// Each entry: { year, week, total, study, work, travel, other, notes }.
-export function deriveWeeklyTotals(studyLog, overrides) {
+// Effective weekly totals = Study Log per ISO week, plus the Additional Time
+// Log (work / other obligations / commute / exercise) and manual overrides.
+// Each entry: { year, week, total, study, work, travel, other, commute, exercise, notes }.
+export function deriveWeeklyTotals(studyLog, overrides, additionalLog = []) {
   const weeks = new Map()
   const addHours = (key, field, hours) => {
     if (!weeks.has(key)) {
-      weeks.set(key, { year: key.split('-')[0], week: parseInt(key.split('-')[1], 10), total: 0, study: 0, work: 0, travel: 0, other: 0, notes: '' })
+      weeks.set(key, { year: key.split('-')[0], week: parseInt(key.split('-')[1], 10), total: 0, study: 0, work: 0, travel: 0, other: 0, commute: 0, exercise: 0, notes: '' })
     }
     weeks.get(key)[field] += hours || 0
   }
@@ -28,9 +29,27 @@ export function deriveWeeklyTotals(studyLog, overrides) {
     }
   }
 
+  // Additional Time Log hours count toward total weekly capacity (burnout
+  // tracking) but never toward study sessions.
+  const fieldFor = cat => {
+    const c = String(cat || '').toLowerCase()
+    if (c === 'work' || c === 'other') return c
+    if (c === 'obligations') return 'other'
+    if (c === 'commute' || c === 'travel') return 'commute'
+    if (c === 'exercise' || c === 'sport') return 'exercise'
+    return 'other'
+  }
+  for (const a of additionalLog || []) {
+    const wk = isoWeekOf(a.date)
+    if (!wk) continue
+    const key = `${wk.year}-${wk.week}`
+    addHours(key, 'total', a.hours)
+    addHours(key, fieldFor(a.category), a.hours)
+  }
+
   for (const override of Object.values(overrides || {})) {
     const key = `${override.year}-${override.week}`
-    const entry = weeks.get(key) || { year: override.year, week: override.week, total: 0, study: 0, work: 0, travel: 0, other: 0, notes: '' }
+    const entry = weeks.get(key) || { year: override.year, week: override.week, total: 0, study: 0, work: 0, travel: 0, other: 0, commute: 0, exercise: 0, notes: '' }
     if (override.total != null) entry.total = override.total
     if (override.notes) entry.notes = override.notes
     weeks.set(key, entry)

@@ -46,6 +46,7 @@ export const TAB_CONTENT = 'Course Content'
 export const TAB_DAILY = 'Daily Plan'
 export const TAB_HOURS = 'Weekly Totals'
 export const TAB_CALENDAR = 'Calendar'
+export const TAB_ADDITIONAL = 'Additional Time Log'
 
 // Content item types: lectures/lectorials/tutorials/practicals are *scheduled*
 // (they have a `date`), assessments are *due* (they have a `deadline`).
@@ -77,7 +78,12 @@ export const DEADLINE_TYPES = new Set([
   'presentation',
 ])
 
-export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR]
+export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR, TAB_ADDITIONAL]
+
+// Categories logged in the "Additional Time Log" tab (work, other obligations,
+// commute, exercise). These hours are logged and count toward total weekly
+// capacity (burnout tracking) but never toward study sessions.
+export const ADDITIONAL_CATEGORIES = ['Work', 'Other Obligations', 'Commute', 'Exercise']
 
 // Default pick-lists for the session logger. Users can extend/customise these
 // in the "Manage options" panel of the session modal; overrides are kept in

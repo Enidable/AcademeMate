@@ -8,6 +8,7 @@ import {
   TAB_DAILY,
   TAB_HOURS,
   TAB_CALENDAR,
+  TAB_ADDITIONAL,
   CONTENT_TYPES,
 } from '../config'
 import { toFloat, toInt, parseDateDDMMYYYY } from './normalize.js'
@@ -262,6 +263,29 @@ function parseWeeklyOverrides(rows) {
   return map
 }
 
+// --- Additional Time Log (work / other / commute / exercise) -------------
+
+function parseAdditionalLog(rows) {
+  return rows
+    .filter(r => (r.date || '').trim() && (r.category || '').trim())
+    .map((r, i) => {
+      const category = (r.category || '').trim()
+      const date = parseDateDDMMYYYY((r.date || '').trim())
+      const done = (r.done || '').trim()
+      return {
+        id: `${date}|${category.toLowerCase()}|${(r.task || '').trim()}|${i}`,
+        date,
+        course: category,
+        category,
+        task: (r.task || '').trim(),
+        hours: toFloat((r.hours || '').trim()) ?? 0,
+        notes: (r.notes || '').trim() || null,
+        done,
+        isAdditional: true,
+      }
+    })
+}
+
 // --- Calendar (flattened timetable events) -------------------------------
 
 function parseCalendar(rows, resolveCourse) {
@@ -318,6 +342,7 @@ export function parseAll(rowsByTab) {
     dailyPlan: parseDailyPlan(parseCSVRows(rowsByTab[TAB_DAILY] || []), resolveCourse),
     weeklyOverrides: parseWeeklyOverrides(parseCSVRows(rowsByTab[TAB_HOURS] || [])),
     calendarEvents: parseCalendar(parseCSVRows(rowsByTab[TAB_CALENDAR] || []), resolveCourse),
+    additionalLog: parseAdditionalLog(parseCSVRows(rowsByTab[TAB_ADDITIONAL] || [])),
   }
 }
 

@@ -12,6 +12,7 @@ export const CONTENT_HEADER = 'course_id,course_2,content_id,type,topic,date,dea
 export const DAILY_PLAN_HEADER = 'date,course_id,task,planned_hours,actual_hours,done,notes'
 export const WEEKLY_TOTALS_HEADER = 'year,week,total_hours,notes'
 export const CALENDAR_HEADER = 'date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id'
+export const ADDITIONAL_HEADER = 'date,category,task,hours,notes,done'
 
 const splitHeader = h => h.split(',')
 
@@ -129,6 +130,20 @@ export function serializeWeeklyOverrides(overrides) {
     o.notes || '',
   ])
   return [splitHeader(WEEKLY_TOTALS_HEADER), ...rows]
+}
+
+export function serializeAdditionalLog(rows) {
+  return [
+    splitHeader(ADDITIONAL_HEADER),
+    ...(rows || []).map(r => [
+      isoDateToDDMMYYYY(r.date),
+      r.category || '',
+      r.task || '',
+      num(r.hours, 2),
+      r.notes || '',
+      r.done || '',
+    ]),
+  ]
 }
 
 export function serializeCalendar(events, codeMap) {
