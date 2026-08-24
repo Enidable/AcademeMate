@@ -853,70 +853,61 @@ export function AppDataProvider({ children }) {
       return fresh
     }
 
-    // Reconcile a deadline (exam) entry keyed by a grade-component ID. If an
-    // existing entry points at the same calendar element, its ID is kept (so a
-    // re-import never renames NLPE1 into NLPE2); a fresh one is only created
-    // when nothing matches.
-    const reconcileDeadline = (r, suggestedId) => {
-      if (!r.course) return null
-      const candidates = []
-      const seen = new Set()
-      const consider = i => { if (i && !seen.has(i.id)) { seen.add(i.id); candidates.push(i) } }
-      consider(contentByLecture.get(`${r.course}|${suggestedId}`))
-      if (r.calId) for (const i of contentByCal.get(`${r.course}|${r.calId}`) || []) consider(i)
-      for (const i of contentByOccurrence.get(`${r.course}|${r.date}|${r.startTime}`) || []) consider(i)
-      const chosen = candidates.find(i => !consumed.has(i.id))
-      for (const c of candidates) if (c !== chosen) consumed.add(c.id)
+    // Reconcile one exam/review/resit occurrence. Every occurrence keeps its
+    // own syllabus row (own date), but they all share the course's single exam
+    // component ID (e.g. NLPE1). A row matches when it already points at the
+    // same component ID and date, or at the same calendar element.
+    const reconcileExamOccurrence = (r, examId) => {
+      const sameOccurrence = i =>
+        i.course === r.course &&
+        i.contentId === examId &&
+        (i.date === r.date || i.deadline === r.date || (r.calId && i.calId === r.calId))
+      const chosen = content.find(i => !consumed.has(i.id) && sameOccurrence(i))
       if (chosen) {
+        chosen.contentId = examId
         chosen.deadline = r.date
         chosen.date = null
         chosen.type = 'exam'
         chosen.calId = r.calId
         return chosen
       }
-      const fresh = makeExamItem(r, suggestedId)
-      content.push(fresh)
-      return fresh
+      return content.push(makeExamItem(r, examId))
     }
 
     const courseById = new Map(courses.map(c => [c.course, c]))
     const gradeCompIds = (dataRef.current?.gradeComponents || [])
       .flatMap(g => (g.components || []).map(x => ({ course: g.course, contentId: x.id, type: x.type })))
 
-    // Pick one representative event per course for the exam family (prefer the
-    // actual exam, else the earliest of review/resit).
-    const examRep = new Map()
-    for (const r of merged) {
-      if (!r.course) continue
-      const t = inferEventType(r.summary, r.description)
-      if (!EXAM_FAMILY.has(t)) continue
-      const cur = examRep.get(r.course)
-      const curIsExam = cur ? inferEventType(cur.summary, cur.description) === 'exam' : false
-      const take = !cur || (t === 'exam' && !curIsExam) || (t !== 'exam' && !curIsExam && r.date < cur.date)
-      if (take) examRep.set(r.course, r)
+    // Resolve the course's single exam component ID once per course, then give
+    // every exam/review/resit occurrence its own syllabus row under that ID.
+    const examIdByCourse = new Map()
+    const resolveExamId = r => {
+      if (!examIdByCourse.has(r.course)) {
+        const c = courseById.get(r.course) || {}
+        // Reuse the exam component the user already entered (e.g. NLPE1) so
+        // the calendar events match it instead of spawning a second exam.
+        const existingExamComp = (gradeCompIds || []).find(x => x.course === r.course && x.type === 'exam')
+        examIdByCourse.set(r.course, existingExamComp?.contentId || nextDeadlineId(r.course, c.abbrev, c.code, [...existingContent, ...gradeCompIds], 'exam'))
+      }
+      return examIdByCourse.get(r.course)
     }
 
     for (const r of merged) {
       if (!r.course) continue
       const type = inferEventType(r.summary, r.description)
       if (EXAM_FAMILY.has(type)) {
-        // The exam becomes ONE deadline keyed by the exam grade-component ID.
-        if (examRep.get(r.course) !== r) continue
         r.lectureId = null
-        const c = courseById.get(r.course) || {}
-        // Reuse the exam component the user already entered (e.g. NLPE1) so the
-        // calendar event matches it instead of spawning a second exam.
-        const existingExamComp = (gradeCompIds || []).find(x => x.course === r.course && x.type === 'exam')
-        const examId = existingExamComp?.contentId || nextDeadlineId(r.course, c.abbrev, c.code, [...existingContent, ...gradeCompIds], 'exam')
-        const kept = reconcileDeadline(r, examId)
-        // Remove any stale standalone exam/review/resit scheduled entries.
-        for (const i of existingContent) {
-          if (i.course === r.course && i.date && !i.deadline && EXAM_FAMILY.has(i.type) && i !== kept) consumed.add(i.id)
-        }
+        reconcileExamOccurrence(r, resolveExamId(r))
         continue
       }
       if (!r.lectureId) continue
       reconcile(r, type)
+    }
+
+    // Exam-family syllabus rows are deadline-shaped (date: null); any row of
+    // that family still carrying a scheduled date is a stale leftover.
+    for (const i of existingContent) {
+      if (EXAM_FAMILY.has(i.type) && i.date && !i.deadline) consumed.add(i.id)
     }
 
     const contentFinal = content.filter(i => !consumed.has(i.id))
@@ -1056,7 +1047,7 @@ export function AppDataProvider({ children }) {
     const fp = loadCalFp()
     const fpKey = id => `${calendarId}::${id}`
     const ops = []
-    const plan = []
+    const opGroups = []
     const failReason = (res) => {
       const status = res?.status
       const msg = res?.data?.error?.message || res?.data?.error?.errors?.[0]?.message
@@ -1114,24 +1105,55 @@ export function AppDataProvider({ children }) {
       return matches[0].id
     }
 
+    // Exam days are already on Google Calendar via their timetable events
+    // (pushed Tomato-red). Mirrored exam syllabus rows (one per occurrence,
+    // sharing the exam component ID) must not create a second copy — skip any
+    // exam-type content row that falls on a day the timetable already covers.
+    const examEventDays = new Set(
+      events.filter(e => isDate(e.date)).map(e => `${e.course || ''}|${e.date}`),
+    )
+    // Leftover safety net: a content row that shares an event's Google id
+    // would PUT the same resource twice in one batch (400).
+    const deadlineCalIds = new Set(
+      deadlines.filter(i => isDate(i.deadline) && i.calId).map(i => i.calId),
+    )
+
+    // Never insert more than one fresh copy of the same payload per push:
+    // extra local rows that match an already-planned insert are internal
+    // duplicates — they get dropped locally instead of multiplying on Google.
+    const plannedPosts = new Map()
+    const dupRefs = new Set()
+
+    const queueOp = (kind, ref, gcal) => {
+      if (ref.calId) {
+        const f = JSON.stringify(gcal)
+        if (fp[fpKey(ref.calId)] === f) return
+        opGroups.push([{ kind, ref, gcal }])
+        ops.push({ method: 'PUT', eventId: ref.calId, body: gcal })
+        return
+      }
+      const adoptedId = adoptFor(gcal)
+      if (!adoptedId) {
+        const k = gcalKey(gcal)
+        const n = plannedPosts.get(k) || 0
+        if (n >= 1) { dupRefs.add(ref); return }
+        plannedPosts.set(k, n + 1)
+      }
+      opGroups.push([{ kind, ref, gcal }])
+      ops.push(adoptedId ? { method: 'PUT', eventId: adoptedId, body: gcal } : { method: 'POST', body: gcal })
+    }
+
     for (const ev of events) {
       if (!isDate(ev.date)) continue
-      const gcal = toGcalEvent(ev, courseColorMap)
-      if (ev.calId) {
-        const f = JSON.stringify(gcal)
-        if (fp[fpKey(ev.calId)] === f) continue
-        plan.push({ kind: 'event', ref: ev, gcal })
-        ops.push({ method: 'PUT', eventId: ev.calId, body: gcal })
-      } else {
-        const adoptedId = adoptFor(gcal)
-        plan.push({ kind: 'event', ref: ev, gcal })
-        ops.push(adoptedId ? { method: 'PUT', eventId: adoptedId, body: gcal } : { method: 'POST', body: gcal })
-      }
+      if (ev.calId && deadlineCalIds.has(ev.calId)) continue
+      queueOp('event', ev, toGcalEvent(ev, courseColorMap))
     }
 
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
     for (const item of deadlines) {
       if (!isDate(item.deadline)) continue
+      if (item.type === 'exam' && examEventDays.has(`${item.course || ''}|${item.deadline}`)) continue
+      if (item.calId && deadlineCalIds.has(item.calId) && events.some(e => e.calId === item.calId)) continue
       const summary = item.description || item.topic || item.contentId
       // Deadlines usually carry a due time (e.g. 17:00, 09:00) in the item's
       // start/end columns — push them as timed events, all-day only as fallback.
@@ -1146,17 +1168,27 @@ export function AppDataProvider({ children }) {
         end: { ...start },
         colorId: '11',
       }
-      if (item.calId) {
-        const f = JSON.stringify(gcal)
-        if (fp[fpKey(item.calId)] === f) continue
-        plan.push({ kind: 'deadline', ref: item, gcal })
-        ops.push({ method: 'PUT', eventId: item.calId, body: gcal })
-      } else {
-        const adoptedId = adoptFor(gcal)
-        plan.push({ kind: 'deadline', ref: item, gcal })
-        ops.push(adoptedId ? { method: 'PUT', eventId: adoptedId, body: gcal } : { method: 'POST', body: gcal })
-      }
+      queueOp('deadline', item, gcal)
     }
+
+    // Safety net: Google rejects a batch that touches the same event id twice.
+    // Merge any ops that still share a target (e.g. two local rows pointing at
+    // one cal_id) — the survivors piggyback on the single operation's result.
+    const targetClaims = new Map()
+    const dedupOps = []
+    const dedupGroups = []
+    opGroups.forEach((group, i) => {
+      const op = ops[i]
+      if (!op.eventId) { dedupOps.push(op); dedupGroups.push(group); return }
+      const key = `put:${op.eventId}`
+      if (!targetClaims.has(key)) {
+        targetClaims.set(key, group)
+        dedupOps.push(op)
+        dedupGroups.push(group)
+      } else {
+        targetClaims.get(key).push(...group)
+      }
+    })
 
     let inserted = 0
     let updated = 0
@@ -1171,24 +1203,26 @@ export function AppDataProvider({ children }) {
     const record = (p, id, method) => {
       fp[fpKey(id)] = JSON.stringify(p.gcal)
       p.ref.calId = id
-      applied.add(p)
+      applied.add(p.ref)
       if (p.kind === 'deadline') deadlinesApplied += 1
       else if (method === 'POST') inserted += 1
       else updated += 1
     }
 
-    if (ops.length > 0) {
-      const results = await batchCalendarEvents(ops, calendarId)
+    if (dedupOps.length > 0) {
+      const results = await batchCalendarEvents(dedupOps, calendarId)
       results.forEach((res, i) => {
-        const p = plan[i]
-        if (!p) return
+        const group = dedupGroups[i]
+        if (!group || group.length === 0) return
         const ok = res?.data?.id && res.status >= 200 && res.status < 300
-        if (ok) record(p, res.data.id, ops[i].method)
-        else if (ops[i].method === 'PUT' && res?.status === 404) {
+        if (ok) group.forEach(p => record(p, res.data.id, dedupOps[i].method))
+        else if (dedupOps[i].method === 'PUT' && res?.status === 404) {
           // Event was deleted on the calendar since the last push — re-insert.
-          retryList.push(p)
+          retryList.push(...group)
         } else {
-          errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${failReason(res)}`)
+          for (const p of group) {
+            errors.push(`"${p.ref.summary || p.ref.description || '?'}" → ${failReason(res)}`)
+          }
         }
       })
     }
@@ -1221,12 +1255,17 @@ export function AppDataProvider({ children }) {
       }
     }
 
+    // Internal duplicates spotted before insert are dropped from the local
+    // data too, so the next load/push doesn't resurrect them.
+    const eventsFinal = dupRefs.size > 0 ? events.filter(e => !dupRefs.has(e)) : events
+    const contentFinal = dupRefs.size > 0 ? (data.content || []).filter(i => !dupRefs.has(i)) : data.content
+
     saveCalFp(fp)
 
-    if (applied.size > 0) {
+    if (applied.size > 0 || dupRefs.size > 0) {
       // cal_ids were written onto the source objects above, so the in-memory
       // data already carries them — no re-keying by id needed.
-      const d = { ...data }
+      const d = { ...data, calendarEvents: eventsFinal, content: contentFinal }
       dataRef.current = d
       saveJSON({ data: d, plannerWeeks: plannerRef.current, weeklyHours: weeklyRef.current })
       setData(d)
@@ -1234,8 +1273,8 @@ export function AppDataProvider({ children }) {
       if (info) {
         const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
         await writeTabsBatch(info.fileId, {
-          [TAB_CALENDAR]: serializeCalendar(events, codeMap),
-          [TAB_CONTENT]: serializeContent(data.content, codeMap),
+          [TAB_CALENDAR]: serializeCalendar(eventsFinal, codeMap),
+          [TAB_CONTENT]: serializeContent(contentFinal, codeMap),
         })
       }
     }
