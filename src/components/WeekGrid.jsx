@@ -56,7 +56,11 @@ function layoutTimed(items) {
 // Fixed-scale weekly timetable. University day runs 06:00-22:00; timed events
 // are positioned proportionally so gaps between classes are visible. Deadlines
 // and all-day items sit in a chip row above the grid.
-export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, hourHeight = 44 }) {
+//
+// axisOutside: omit the internal hour-axis gutter and hang the hour labels
+// outside the left edge instead. Used by the Daily Planner so the seven day
+// columns occupy exactly the same width as the planner table's day columns.
+export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, hourHeight = 44, axisOutside = false }) {
   const today = useMemo(() => new Date(), [])
   const GRID_H = hourHeight * (DAY_LEN / 60)
 
@@ -87,7 +91,7 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, h
   return (
     <div>
       <div className="flex">
-        <div className="w-10 shrink-0" />
+        {!axisOutside && <div className="w-10 shrink-0" />}
         {days.map((d, i) => (
           <div key={d.key} className="flex-1 min-w-0">
             <div className={`text-center text-xs font-medium pb-1.5 border-b mb-1.5 ${d.isToday ? 'text-indigo-600' : 'text-slate-500'}`}>
@@ -100,7 +104,7 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, h
 
       {hasAllDay && (
         <div className="flex mb-1">
-          <div className="w-10 shrink-0" />
+          {!axisOutside && <div className="w-10 shrink-0" />}
           {days.map(d => (
             <div key={d.key} className="flex-1 min-w-0 pr-1 space-y-0.5">
               {d.top.map(e => {
@@ -120,17 +124,30 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, h
         </div>
       )}
 
-      <div className="flex">
-        <div className="w-10 shrink-0 relative" style={{ height: GRID_H }}>
-          {Array.from({ length: 17 }, (_, i) => {
-            const h = DAY_START / 60 + i
-            return (
-              <div key={h} className="absolute right-1.5 text-[10px] text-slate-400 -translate-y-1/2" style={{ top: ((h * 60 - DAY_START) / DAY_LEN) * 100 + '%' }}>
-                {hourLabel(h)}
-              </div>
-            )
-          })}
-        </div>
+      <div className={`flex ${axisOutside ? 'relative' : ''}`}>
+        {!axisOutside ? (
+          <div className="w-10 shrink-0 relative" style={{ height: GRID_H }}>
+            {Array.from({ length: 17 }, (_, i) => {
+              const h = DAY_START / 60 + i
+              return (
+                <div key={h} className="absolute right-1.5 text-[10px] text-slate-400 -translate-y-1/2" style={{ top: ((h * 60 - DAY_START) / DAY_LEN) * 100 + '%' }}>
+                  {hourLabel(h)}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="absolute bottom-0 top-0 w-10 pointer-events-none" style={{ left: '-2.5rem' }}>
+            {Array.from({ length: 17 }, (_, i) => {
+              const h = DAY_START / 60 + i
+              return (
+                <div key={h} className="absolute right-1.5 text-[10px] text-slate-400 -translate-y-1/2" style={{ top: ((h * 60 - DAY_START) / DAY_LEN) * 100 + '%' }}>
+                  {hourLabel(h)}
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         {days.map(d => (
           <div key={d.key} className="flex-1 min-w-0 relative border-l border-slate-100" style={{ height: GRID_H }}>
