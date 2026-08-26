@@ -74,20 +74,6 @@ function pearson(xs, ys) {
   return den === 0 ? null : num / den
 }
 
-function median(list) {
-  if (!list.length) return null
-  const s = [...list].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
-}
-
-function percentile(list, p) {
-  if (!list.length) return null
-  const s = [...list].sort((a, b) => a - b)
-  const idx = Math.min(s.length - 1, Math.floor((p / 100) * s.length))
-  return s[idx]
-}
-
 // Buckets (sorted) -> rolling-average series. The window ADAPTS to the amount
 // of data: short ranges stay responsive, multi-year ranges still show a smooth
 // long-term line — while always plotting the FULL selected range.
@@ -283,19 +269,17 @@ export default function Analysis() {
     ]
   }, [entries])
 
-  // --- Workload prediction (TOTAL load, not just studying) -----------------
+  // --- Workload guidance (study hours) -------------------------------------
   const prediction = useMemo(() => {
     // Weekly aggregates over ALL history: study hours, additional commitments
-    // (work / exercise / commute / obligations) and study-session efficiency.
+    // (work / exercise / commute / obligations).
     const weeks = new Map()
-    const weekOf = () => ({ study: 0, add: 0, effs: [] })
+    const weekOf = () => ({ study: 0, add: 0 })
     for (const e of inputLog || []) {
       if (!e.date) continue
       const k = mondayOf(e.date)
       if (!weeks.has(k)) weeks.set(k, weekOf())
-      const w = weeks.get(k)
-      w.study += e.durationHours || 0
-      if (e.efficiency != null) w.effs.push(e.efficiency)
+      weeks.get(k).study += e.durationHours || 0
     }
     for (const a of additionalLog || []) {
       if (!a.date) continue
@@ -303,31 +287,18 @@ export default function Analysis() {
       if (!weeks.has(k)) weeks.set(k, weekOf())
       weeks.get(k).add += a.hours || 0
     }
-    const weekList = [...weeks.entries()]
-      .map(([k, w]) => ({
-        key: k,
-        study: w.study,
-        add: w.add,
-        total: w.study + w.add,
-        eff: w.effs.length ? w.effs.reduce((s, v) => s + v, 0) / w.effs.length : null,
-      }))
-      .sort((a, b) => a.key.localeCompare(b.key))
+    const weekList = [...weeks.values()]
+      .map(w => ({ study: w.study, add: w.add }))
+      .filter(w => w.study > 0 || w.add > 0)
 
-    const effs = weekList.map(w => w.eff).filter(v => v != null)
-    const baselineEff = median(effs)
-    // Rule: your sustainable TOTAL load is the heaviest week (study + work +
-    // workouts + everything) in which study efficiency stayed within ~10% of
-    // your historical baseline. Fallback: 75th percentile of total load.
-    let sustainableTotal = null
-    if (baselineEff != null) {
-      const ok = weekList.filter(w => w.eff == null || w.eff >= baselineEff * 0.9)
-      if (ok.length > 0) sustainableTotal = Math.max(...ok.map(w => w.total))
-    }
-    if (!sustainableTotal) sustainableTotal = percentile(weekList.map(w => w.total), 75) || 0
-
-    // Typical non-study commitments per week (median, so one holiday week
-    // doesn't skew it).
-    const typicalAdditional = median(weekList.map(w => w.add)) || 0
+    const mean = list => list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0
+    const studyHours = weekList.map(w => w.study)
+    // Average weekly study load…
+    const avgStudy = mean(studyHours)
+    // …and a maximum recommendation taken from the OUTLIER weeks (every week
+    // above your own average): what a push-week looks like for you.
+    const outlierWeeks = weekList.filter(w => w.study > avgStudy)
+    const maxRecommendedStudy = outlierWeeks.length ? mean(outlierWeeks.map(w => w.study)) : avgStudy
 
     // Current week's plan.
     const monday = mondayOf(todayISO())
@@ -337,16 +308,17 @@ export default function Analysis() {
     let plannedAdditional = 0
     for (const a of additionalLog || []) if (weekDates.has(a.date)) plannedAdditional += a.hours || 0
 
-    const plannedTotal = plannedStudy + plannedAdditional
     return {
-      sustainableTotal,
-      typicalAdditional,
-      recommendedStudy: Math.max(0, sustainableTotal - typicalAdditional),
+      avgStudy,
+      maxRecommendedStudy,
+      historyWeeks: weekList.length,
+      outlierWeeks: outlierWeeks.length,
       plannedStudy,
       plannedAdditional,
-      plannedTotal,
-      over: sustainableTotal > 0 && plannedTotal > sustainableTotal * 1.1,
-      historyWeeks: weekList.length,
+      // Red once the plan goes past your proven push-week level, amber when
+      // merely above your average.
+      over: plannedStudy > maxRecommendedStudy,
+      aboveAvg: plannedStudy > avgStudy && plannedStudy <= maxRecommendedStudy,
     }
   }, [inputLog, additionalLog, dailyPlan])
 
@@ -382,49 +354,48 @@ export default function Analysis() {
         </div>
       </div>
 
-      {/* Workload prediction — TOTAL load */}
-      <div className={`rounded-xl border p-4 ${prediction.over ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
+      {/* Study load guidance */}
+      <div className={`rounded-xl border p-4 ${prediction.over ? 'border-red-200 bg-red-50' : prediction.aboveAvg ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
         <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-slate-400">Sustainable total load / week</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400">Average weekly study</p>
             <p className="text-2xl font-bold text-slate-800 tabular-nums">
-              {prediction.sustainableTotal > 0 ? `${prediction.sustainableTotal.toFixed(1)}h` : '—'}
-              <span className="text-xs text-slate-400 font-medium ml-2">study + work + workouts + everything</span>
+              {prediction.avgStudy.toFixed(1)}h
+              <span className="text-xs text-slate-400 font-medium ml-2">your normal week</span>
             </p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-slate-400">Typical fixed commitments</p>
-            <p className="text-2xl font-bold text-slate-800 tabular-nums">
-              {prediction.typicalAdditional.toFixed(1)}h
-              <span className="text-xs text-slate-400 font-medium ml-2">work, exercise, commute…</span>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400">Max recommended weekly study</p>
+            <p className="text-2xl font-bold text-indigo-600 tabular-nums">
+              {prediction.maxRecommendedStudy.toFixed(1)}h
+              <span className="text-xs text-slate-400 font-medium ml-2">average of your above-average weeks</span>
             </p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-slate-400">Suggested study cap</p>
-            <p className="text-2xl font-bold text-indigo-600 tabular-nums">{prediction.recommendedStudy.toFixed(1)}h</p>
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-wider text-slate-400">Planned this week</p>
             <p className={`text-2xl font-bold tabular-nums ${prediction.over ? 'text-red-600' : 'text-slate-800'}`}>
-              {prediction.plannedTotal.toFixed(1)}h
-              <span className="text-xs text-slate-400 font-medium ml-2">{prediction.plannedStudy.toFixed(1)}h study + {prediction.plannedAdditional.toFixed(1)}h other</span>
+              {prediction.plannedStudy.toFixed(1)}h
+              <span className="text-xs text-slate-400 font-medium ml-2">study · +{prediction.plannedAdditional.toFixed(1)}h other commitments</span>
             </p>
           </div>
           <div className="ml-auto">
             {prediction.over ? (
               <span className="inline-block text-xs px-3 py-1.5 rounded-full bg-red-600 text-white font-semibold">
-                ⚠ Planned total exceeds your sustainable load
+                ⚠ Above your proven maximum — dial back
+              </span>
+            ) : prediction.aboveAvg ? (
+              <span className="inline-block text-xs px-3 py-1.5 rounded-full bg-amber-500 text-white font-semibold">
+                Push week — above average, within limits
               </span>
             ) : (
               <span className="inline-block text-xs px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
-                Within sustainable load
+                Within a normal study week
               </span>
             )}
           </div>
         </div>
         <p className="text-[10px] text-slate-400 mt-2">
-          Heuristic: the heaviest TOTAL week (study + all additional commitments) in which your study efficiency stayed
-          within ~10% of your historical baseline · based on {prediction.historyWeeks} tracked weeks · rule-based for now.
+          Based on {prediction.historyWeeks} tracked weeks ({prediction.outlierWeeks} of them above-average "push" weeks).
         </p>
       </div>
 
