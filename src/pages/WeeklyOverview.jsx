@@ -34,37 +34,48 @@ const MENU_TAG_PREFIX = 'menu:'
 const menuTagOf = menuId => `${MENU_TAG_PREFIX}${menuId}`
 
 const KIND_STYLES = {
-  class: 'bg-indigo-100 text-indigo-700',
   deadline: 'bg-red-100 text-red-700',
   prep: 'bg-orange-100 text-orange-700',
 }
 
-function MenuRow({ item, assignedDate, dates, today, onAssign }) {
-  const style = getCourseStyle(item.course)
+function ItemCard({ item, assignedDate, dates, today, onAssign }) {
   const selected = assignedDate ? String(dates.indexOf(assignedDate)) : ''
-  const doneToday = assignedDate === today
+  const isToday = item.fixedDow != null && dates[item.fixedDow] === today
   return (
-    <div className={`group flex items-center gap-2 px-2 py-1.5 rounded-lg border ${doneToday ? 'border-indigo-200 bg-indigo-50/50' : 'border-slate-100 hover:bg-slate-50'}`}>
-      <span className="text-[11px] shrink-0">{item.symbol}</span>
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} title={item.course || 'No course'} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className={`text-[11px] font-medium truncate ${item.kind === 'prep' ? 'text-slate-600' : 'text-slate-700'}`} title={item.title}>{item.title}</span>
-          <span className={`text-[9px] px-1.5 py-px rounded-full shrink-0 font-medium ${KIND_STYLES[item.kind]}`}>{item.kindLabel}</span>
-        </div>
-        <div className="text-[10px] text-slate-400 truncate">{item.when}</div>
+    <div className={`rounded-lg border px-2 py-1.5 ${isToday ? 'border-indigo-200 bg-indigo-50/50' : assignedDate ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] shrink-0">{item.symbol}</span>
+        <span className={`text-[11px] font-medium truncate flex-1 ${item.kind === 'prep' ? 'text-slate-600' : 'text-slate-700'}`} title={item.title}>{item.title}</span>
       </div>
-      {assignedDate && (
-        <span className="text-[10px] text-emerald-600 shrink-0" title={`Planned on ${formatDateShort(assignedDate)}`}>
-          → {DAYS[dates.indexOf(assignedDate)]}
-        </span>
-      )}
-      <select value={selected} onChange={e => onAssign(item, e.target.value)}
-        title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
-        className={`shrink-0 text-[10px] border rounded px-1.5 py-1 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
-        <option value="">Sort to day…</option>
-        {DAYS.map((d, i) => <option key={d} value={i}>{d} {formatDateShort(dates[i])}</option>)}
-      </select>
+      <div className="flex items-center gap-1 mt-0.5">
+        <span className={`text-[9px] px-1.5 py-px rounded-full font-medium shrink-0 ${KIND_STYLES[item.kind] || 'bg-slate-100 text-slate-500'}`}>{item.kindLabel}</span>
+        <span className="text-[10px] text-slate-400 truncate" title={item.when}>{item.when}</span>
+      </div>
+      <div className="mt-1">
+        {/* Classes and appointments are already on their calendar day — show
+            the fixed day instead of a dropdown. Prep work and deadline work
+            are plannable: sort them into a weekday freely. */}
+        {item.fixedDow != null ? (
+          <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+            <span className="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-white font-semibold">{DAYS[item.fixedDow]}</span>
+            <span className="text-slate-400">on the calendar</span>
+          </span>
+        ) : (
+          <>
+            {assignedDate && (
+              <span className="text-[10px] text-emerald-600 mr-1" title={`Planned on ${formatDateShort(assignedDate)}`}>
+                → {DAYS[dates.indexOf(assignedDate)]}
+              </span>
+            )}
+            <select value={selected} onChange={e => onAssign(item, e.target.value)}
+              title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
+              className={`w-full text-[10px] border rounded px-1 py-0.5 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
+              <option value="">Sort to day…</option>
+              {DAYS.map((d, i) => <option key={d} value={i}>{d} {formatDateShort(dates[i])}</option>)}
+            </select>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -102,24 +113,26 @@ export default function WeeklyOverview() {
   }
   const dowOf = iso => (new Date(iso + 'T12:00:00').getDay() + 6) % 7
 
-  // The week "menu": every class, deadline and lecture prep of the selected
-  // week — what it is, when it takes place / is due, and when its work has to
-  // be finished.
+  // The week "menu": every class/appointment, deadline and lecture prep of the
+  // selected week. Calendar items (classes AND private appointments) sit
+  // locked on their own weekday; prep and deadline work is sortable into any
+  // day of the week.
   const items = useMemo(() => {
     const inWeek = d => d && dates.includes(d)
     const out = []
     for (const e of calendarEvents || []) {
       if (!inWeek(e.date)) continue
+      const isCourseItem = !!e.course
       const type = inferEventType(e.summary, e.description)
       out.push({
         menuId: `evt|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}`,
-        kind: 'class',
-        kindLabel: type ? type.replace(/\b\w/g, c => c.toUpperCase()) : 'Class',
+        kind: isCourseItem ? 'class' : 'other',
+        kindLabel: isCourseItem ? (type ? type.replace(/\b\w/g, c => c.toUpperCase()) : 'Class') : 'Other',
         symbol: typeSymbol(type),
         course: e.course || '',
         title: e.summary,
         when: `${formatDateShort(e.date)}${e.startTime ? ` · ${e.startTime}${e.endTime ? `–${e.endTime}` : ''}` : ''}`,
-        sortKey: `${dowOf(e.date)}|${e.startTime || '99'}`,
+        fixedDow: dowOf(e.date),
         taskText: e.summary,
         hours: durHours(e),
       })
@@ -134,7 +147,7 @@ export default function WeeklyOverview() {
         course: i.course || '',
         title: i.description || i.topic || i.contentId || 'Deadline',
         when: `due ${formatDateShort(i.deadline)}${i.end ? ` ${i.end}` : ''}`,
-        sortKey: `${dowOf(i.deadline)}|${i.end || i.start || '99'}`,
+        fixedDow: null,
         taskText: i.description || i.topic || i.contentId || 'Work on deadline',
         hours: 0,
       })
@@ -150,12 +163,14 @@ export default function WeeklyOverview() {
         course: i.course || '',
         title: i.prep,
         when: `for ${i.description || i.topic || i.contentId || 'class'} (${formatDateShort(i.date)}${i.start ? ` ${i.start}` : ''})`,
-        sortKey: `${dowOf(i.date)}|${i.start || '99'}|p`,
+        fixedDow: null,
         taskText: `Prep: ${i.prep}`,
         hours: 0,
       })
     }
-    return out.sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+    return out.sort((a, b) =>
+      String(a.fixedDow ?? 9).localeCompare(String(b.fixedDow ?? 9), undefined, { numeric: true }) ||
+      (a.when || '').localeCompare(b.when || ''))
   }, [calendarEvents, deadlines, content, dates])
 
   // Current day assignment per menu item, read back from the planner rows.
@@ -184,7 +199,30 @@ export default function WeeklyOverview() {
     })
   }
 
-  const plannedCount = items.filter(i => assignedByMenuId.has(i.menuId)).length
+  // Table columns: one per course that has items this week; private items
+  // without a course land in a trailing "Other" column.
+  const columns = useMemo(() => {
+    const byCourse = new Map()
+    for (const item of items) {
+      const col = item.course || '__other'
+      if (!byCourse.has(col)) byCourse.set(col, [])
+      byCourse.get(col).push(item)
+    }
+    const cols = [...byCourse.entries()]
+    cols.sort((a, b) => {
+      if (a[0] === '__other') return 1
+      if (b[0] === '__other') return -1
+      return a[0].localeCompare(b[0])
+    })
+    return cols.map(([course, list]) => ({
+      course,
+      label: course === '__other' ? 'Other' : course,
+      style: getCourseStyle(course === '__other' ? '' : course),
+      items: list,
+    }))
+  }, [items])
+
+  const plannedCount = items.filter(i => i.fixedDow == null && assignedByMenuId.has(i.menuId)).length
 
   return (
     <div className="space-y-4">
@@ -205,20 +243,43 @@ export default function WeeklyOverview() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
         <p className="text-xs text-slate-500 mb-3">
-          Everything on the plate this week: classes, deadlines and lecture preps. Use each dropdown to sort an item into a weekday — it is added automatically to that day (and its course) on the Daily Planner. Changing the day moves it; picking “Sort to day…” again with no day removes it.
+          Everything on the plate this week, one column per course. Classes and appointments already sit on their calendar day; prep work and deadline work can be sorted into a weekday with the dropdown — it is added automatically to that day (and its course) on the Daily Planner. Changing the day moves it; clearing it removes it again.
         </p>
         {items.length === 0 ? (
           <div className="py-8 text-center text-slate-400 text-sm">Nothing scheduled this week yet.</div>
         ) : (
-          <div className="space-y-1">
-            {items.map(item => (
-              <MenuRow key={item.menuId} item={item} dates={dates} today={todayISO()}
-                assignedDate={assignedByMenuId.get(item.menuId)?.date || null}
-                onAssign={assign} />
-            ))}
-          </div>
+          <table className="w-full table-fixed border-collapse min-w-[720px]">
+            <thead>
+              <tr>
+                {columns.map(col => (
+                  <th key={col.course} className="border-b border-slate-200 pb-2 pr-3 last:pr-0 align-bottom">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${col.style.dot}`} style={col.style.dotCss} />
+                      <span className="text-xs font-semibold text-slate-700 truncate" title={col.label}>{col.label}</span>
+                      <span className="text-[9px] text-slate-300 shrink-0">{col.items.length}</span>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {columns.map(col => (
+                  <td key={col.course} className="align-top pt-2 pr-3 last:pr-0">
+                    <div className="space-y-1.5">
+                      {col.items.map(item => (
+                        <ItemCard key={item.menuId} item={item} dates={dates} today={todayISO()}
+                          assignedDate={assignedByMenuId.get(item.menuId)?.date || null}
+                          onAssign={assign} />
+                      ))}
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
         )}
       </div>
     </div>
