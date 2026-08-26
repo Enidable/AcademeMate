@@ -1,15 +1,16 @@
 // Adaptive XP model (#16):
 //
-//   Total XP  = Effort XP + Mastery XP
-//   Effort XP = hours_logged × course_weight          (rewards effort, linear)
-//   Mastery XP = progress × efficiency_f × wellbeing_f (rewards quality)
+//   Total XP   = Effort XP + Mastery XP
+//   Effort XP  = (hours_logged / estimated_hours_course) × course_weight
+//   Mastery XP = progress × efficiency_f × wellbeing_f
 //
-// Time is the BASELINE unit, not a multiplier: 1 logged hour is 1 base point.
-// Quality enters through two channels:
-//   • efficiency/wellbeing scores (1–10) map to small scaling factors
+// Effort is NORMALISED against the course's estimated workload: an hour in a
+// small course counts proportionally more than an hour in a huge one. Time is
+// the baseline unit, never a super-linear multiplier. Quality enters through:
+//   • efficiency/wellbeing scores (1–10) -> small scaling factors
 //     (score 1 → ×0.8, score 10 → ×1.2, neutral ×1.0 when absent)
-//   • progress through the course's estimated workload gates the Mastery term
-// All tunable values live in XP_CONSTANTS so weight tuning (#4) has one home.
+//   • progress through the course gates the Mastery term
+// All tunable values live in XP_CONSTANTS so weight tuning has one home.
 
 export const XP_CONSTANTS = {
   // Estimated real study hours per EC (used for progress estimation).
@@ -52,11 +53,16 @@ export function courseWeightFor(ec) {
 
 // progressByCourse: map course name -> loggedHours / estimatedHours (0..1).
 // courseWeights: map course name -> weight (see courseWeightFor).
-export function computeXp(entry, progressByCourse = {}, courseWeights = {}) {
+// courseEstHours: map course name -> estimated total study hours for the
+// course; effort is normalised against it. Without an estimate the raw hour
+// count is used as a fallback.
+export function computeXp(entry, progressByCourse = {}, courseWeights = {}, courseEstHours = {}) {
   const h = entry.durationHours || 0
   if (h <= 0) return 0
 
-  const effortXp = h * (courseWeights[entry.course] ?? XP_CONSTANTS.COURSE_WEIGHT_DEFAULT)
+  const weight = courseWeights[entry.course] ?? XP_CONSTANTS.COURSE_WEIGHT_DEFAULT
+  const est = courseEstHours[entry.course]
+  const effortXp = est && est > 0 ? (h / est) * weight : h * weight
 
   const progress = clamp(progressByCourse[entry.course] ?? 0, 0, 1)
   const masteryXp = XP_CONSTANTS.MASTERY_XP_SCALE *
@@ -69,13 +75,13 @@ export function computeXp(entry, progressByCourse = {}, courseWeights = {}) {
 
 // Aggregate study log into a cumulative weekly XP series for the XP curve.
 // output: [{ week: 'yyyy', label: 'yyyy-Www', xp, cumulative }]
-export function weeklyXpSeries(inputLog, progressByCourse, courseWeights = {}) {
+export function weeklyXpSeries(inputLog, progressByCourse, courseWeights = {}, courseEstHours = {}) {
   const byWeek = new Map()
   for (const e of inputLog || []) {
     if (!e.durationHours) continue
     const yearWeek = weekKey(e.date)
     if (!yearWeek) continue
-    const xp = computeXp(e, progressByCourse, courseWeights)
+    const xp = computeXp(e, progressByCourse, courseWeights, courseEstHours)
     byWeek.set(yearWeek, (byWeek.get(yearWeek) || 0) + xp)
   }
   const keys = [...byWeek.keys()].sort()

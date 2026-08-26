@@ -261,11 +261,19 @@ export default function DailyPlanner({ onLogTask }) {
   const [dismissed, setDismissed] = useState(loadDismissed)
   const [reschedOpen, setReschedOpen] = useState(false)
 
-  const staleItems = useMemo(() =>
-    (dailyPlan || [])
-      .filter(r => r.date && r.date < today && !r.done && (r.task || '').trim() && !dismissed.includes(r.id))
-      .sort((a, b) => a.date.localeCompare(b.date)),
-  [dailyPlan, today, dismissed])
+  const staleItems = useMemo(() => {
+    // Only the past WEEK is offered for rescheduling — older entries stay as
+    // they are. Calendar-sorted class rows (menu:evt) are excluded entirely:
+    // a lecture you missed cannot be "rescheduled", it just loses its hours.
+    const cutoff = toISO(new Date(new Date(today + 'T12:00:00').getTime() - 7 * 86400000))
+    return (dailyPlan || [])
+      .filter(r =>
+        r.date && r.date < today && r.date >= cutoff &&
+        !r.done && (r.task || '').trim() &&
+        !(r.notes || '').startsWith('menu:evt') &&
+        !dismissed.includes(r.id))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [dailyPlan, today, dismissed])
 
   useEffect(() => {
     if (staleItems.length > 0 && !reschedOpen) setReschedOpen(true)

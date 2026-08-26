@@ -172,6 +172,22 @@ function cleanContent(data) {
   data.content = dedupeContent(data.content)
 }
 
+// Everything planned before August 2026 was actually done — mark it done so
+// old entries never trip reconciliation or the reschedule popup. Idempotent.
+// Calendar-sorted class rows (menu:evt notes) are EXCLUDED: lectures are often
+// not attended, so those stay open (they just lose their hour suggestion).
+const PRE_AUGUST_CUTOFF = '2026-08-01'
+function ensurePreAugustDone(data) {
+  let changed = false
+  for (const r of data.dailyPlan || []) {
+    if (r.date && r.date < PRE_AUGUST_CUTOFF && !r.done && !(r.notes || '').startsWith('menu:evt')) {
+      r.done = 'done'
+      changed = true
+    }
+  }
+  return changed
+}
+
 // Content rows created through some paths carry the raw course CODE (or
 // abbreviation) as their course instead of the canonical name. Normalise them
 // so such duplicates collapse into their name-keyed twin in dedupeContent
@@ -203,6 +219,7 @@ function buildState(rowsByTab) {
   // Simulation"). The next Courses write removes them from Drive for good.
   data.courses = (data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
   cleanContent(data)
+  ensurePreAugustDone(data)
   synthCourses(data)
   linkGradeComponents(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
@@ -533,6 +550,7 @@ export function AppDataProvider({ children }) {
     const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
     await healCourses(d, savedLocal)
     cleanContent(d)
+    if (ensurePreAugustDone(d) && driveRef.current) syncTabs(['dailyPlan'])
 
     dataRef.current = d
     plannerRef.current = p
@@ -664,6 +682,7 @@ export function AppDataProvider({ children }) {
       const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
       await healCourses(d, loadJSON())
       cleanContent(d)
+      if (ensurePreAugustDone(d)) syncTabs(['dailyPlan'])
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt

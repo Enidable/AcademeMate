@@ -242,9 +242,13 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
       progressByCourse[c.course] = est > 0 ? (loggedByCourse[c.course] || 0) / est : 0
     }
     const courseWeights = {}
-    for (const c of courses) courseWeights[c.course] = courseWeightFor(c.ec)
-    const totalXp = inputLog.reduce((s, e) => s + computeXp(e, progressByCourse, courseWeights), 0)
-    const xpSeries = weeklyXpSeries(inputLog, progressByCourse, courseWeights)
+    const courseEstHours = {}
+    for (const c of courses) {
+      courseWeights[c.course] = courseWeightFor(c.ec)
+      courseEstHours[c.course] = (c.ec || 0) * XP_CONSTANTS.ESTIMATED_HOURS_PER_EC
+    }
+    const totalXp = inputLog.reduce((s, e) => s + computeXp(e, progressByCourse, courseWeights, courseEstHours), 0)
+    const xpSeries = weeklyXpSeries(inputLog, progressByCourse, courseWeights, courseEstHours)
 
     return {
       curriculum: cur,

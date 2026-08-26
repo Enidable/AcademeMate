@@ -295,7 +295,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-10 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-x-24 gap-y-10 items-start">
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
