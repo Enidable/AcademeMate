@@ -66,7 +66,7 @@ function AppContent() {
   }
 
   const pageProps = {
-    Dashboard: { inputLog, courses: masterCourses, deadlines, weeklyHours, gradeComponents },
+    Dashboard: { inputLog, courses: masterCourses, deadlines, weeklyHours, gradeComponents, onLogTask: t => { setSessionPreset(t); setModal('session') } },
     'Time Log': { entries: inputLog },
     Courses: { courses: masterCourses },
     Calendar: {},

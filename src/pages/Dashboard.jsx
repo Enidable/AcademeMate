@@ -1,7 +1,132 @@
 import { useMemo } from 'react'
 import { formatDate, formatTime, getCourseStyle, truncate } from '../utils/helpers'
 import { computeXp, weeklyXpSeries, ESTIMATED_HOURS_PER_EC } from '../data/xp'
+import { useAppData } from '../context/AppDataContext'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+
+function pad(n) {
+  return String(n).padStart(2, '0')
+}
+
+// Live mirror of today's column on the Daily Planner: planned tasks per course,
+// scheduled classes and additional-time entries. Items can be ticked off right
+// here — ticking a to-do opens the pre-filled session logger, exactly like the
+// planner does.
+function TodayOverview({ onLogTask }) {
+  const {
+    dailyPlan, additionalLog, calendarEvents, updatePlannerTask, updateAdditionalEntry,
+  } = useAppData()
+
+  const now = new Date()
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+
+  const toMin = t => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '').trim())
+    return m ? +m[1] * 60 + +m[2] : null
+  }
+  const durHours = e => {
+    const s = toMin(e.startTime)
+    const en = toMin(e.endTime)
+    return s == null || en == null || en <= s ? 0 : Math.round(((en - s) / 60) * 100) / 100
+  }
+
+  const tasks = useMemo(() => (dailyPlan || []).filter(r => r.date === today), [dailyPlan, today])
+  const extra = useMemo(() => (additionalLog || []).filter(r => r.date === today), [additionalLog, today])
+  const classes = useMemo(() => (calendarEvents || [])
+    .filter(e => e.date === today)
+    .sort((a, b) => (a.startTime || '99').localeCompare(b.startTime || '99')), [calendarEvents, today])
+
+  const byCourse = useMemo(() => {
+    const m = new Map()
+    for (const r of tasks) {
+      const c = r.course || 'Other University Stuff'
+      if (!m.has(c)) m.set(c, [])
+      m.get(c).push(r)
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [tasks])
+
+  const toggleTask = r => {
+    if (r.done) {
+      updatePlannerTask(r.id, { done: null })
+    } else {
+      updatePlannerTask(r.id, { done: 'done' })
+      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: r.notes })
+    }
+  }
+
+  const toggleExtra = r => updateAdditionalEntry(r.id, { done: r.done ? null : 'done' })
+
+  const TaskLine = ({ checked, label, sub, hours, muted, onToggle }) => (
+    <div className="flex items-center gap-2 py-0.5">
+      {onToggle ? (
+        <input type="checkbox" checked={!!checked} onChange={onToggle}
+          className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0" />
+      ) : (
+        <span className="w-3 shrink-0" />
+      )}
+      <span className={`text-xs flex-1 min-w-0 truncate ${checked ? 'line-through text-slate-400' : muted ? 'text-slate-500' : 'text-slate-700'}`} title={label}>{label}</span>
+      {sub && <span className="text-[10px] text-slate-400 shrink-0">{sub}</span>}
+      {hours > 0 && <span className="text-[10px] text-slate-500 tabular-nums shrink-0">{hours.toFixed(2)}h</span>}
+    </div>
+  )
+
+  const empty = tasks.length === 0 && extra.length === 0 && classes.length === 0
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-semibold text-slate-800">Today</h2>
+        <span className="text-[10px] uppercase tracking-wider text-slate-400">Mirror of today's Daily Planner</span>
+      </div>
+      {empty ? (
+        <p className="text-sm text-slate-400 py-4 text-center">Nothing planned for today yet.</p>
+      ) : (
+        <div className="space-y-3 max-h-[22rem] overflow-y-auto pr-1">
+          {classes.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Scheduled</p>
+              {classes.map(e => (
+                <TaskLine key={e.id || `${e.summary}|${e.startTime}`}
+                  label={e.isDeadline ? `Due: ${e.summary}` : e.summary}
+                  sub={e.allDay ? '' : `${e.startTime || ''}${e.endTime ? `–${e.endTime}` : ''}`}
+                  hours={e.allDay ? 0 : durHours(e)}
+                  muted={!e.course}
+                />
+              ))}
+            </div>
+          )}
+          {byCourse.map(([course, list]) => {
+            const style = getCourseStyle(course)
+            return (
+              <div key={course}>
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
+                  <p className="text-[11px] font-medium text-slate-600 truncate">{course}</p>
+                </div>
+                {list.map(r => (
+                  <TaskLine key={r.id} checked={r.done} label={r.task || '—'}
+                    hours={r.plannedHours || r.actualHours || 0}
+                    onToggle={() => toggleTask(r)} />
+                ))}
+              </div>
+            )
+          })}
+          {extra.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Additional time</p>
+              {extra.map(r => (
+                <TaskLine key={r.id} checked={r.done} label={`${r.category !== r.task ? `${r.category}: ` : ''}${r.task || r.category}`}
+                  hours={r.hours || 0}
+                  onToggle={() => toggleExtra(r)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function getLatestWeekTotal(weeklyHours) {
   if (!weeklyHours || weeklyHours.length === 0) return null
@@ -41,7 +166,7 @@ function gradeStats(list, gradeMap) {
   }
 }
 
-export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, gradeComponents }) {
+export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, gradeComponents, onLogTask }) {
   const stats = useMemo(() => {
     const { curriculum, extra } = splitByScope(courses)
     const gradeMap = {}
@@ -173,25 +298,7 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
         </div>
 
         <div className="grid grid-cols-1 gap-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h2 className="font-semibold text-slate-800 mb-3">Recent Activity</h2>
-            <div className="space-y-3">
-              {stats.recent.map((entry, i) => {
-                const style = getCourseStyle(entry.course, courseColorByCourse[entry.course])
-                return (
-                  <div key={i} className="flex items-start gap-3 text-sm">
-                    <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${style.dot}`} style={style.dotCss} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-slate-700 truncate">{truncate(entry.course, 40)}</p>
-                      <p className="text-xs text-slate-400">
-                        {formatDate(entry.date)} · {formatTime(entry.startTime)}–{formatTime(entry.endTime)} · {entry.durationHours}h
-                      </p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          <TodayOverview onLogTask={onLogTask} />
 
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <h2 className="font-semibold text-slate-800 mb-3">Upcoming Deadlines</h2>
@@ -234,6 +341,30 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
           </p>
           <p className="text-xs text-slate-400 mt-1">Average across all entries</p>
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <h2 className="font-semibold text-slate-800 mb-3">Recent Activity</h2>
+        {stats.recent.length === 0 ? (
+          <p className="text-sm text-slate-400">No sessions logged yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {stats.recent.map((entry, i) => {
+              const style = getCourseStyle(entry.course, courseColorByCourse[entry.course])
+              return (
+                <div key={i} className="flex items-start gap-3 text-sm">
+                  <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${style.dot}`} style={style.dotCss} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-slate-700 truncate">{truncate(entry.course, 40)}</p>
+                    <p className="text-xs text-slate-400">
+                      {formatDate(entry.date)} · {formatTime(entry.startTime)}–{formatTime(entry.endTime)} · {entry.durationHours}h
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
