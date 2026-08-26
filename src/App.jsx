@@ -4,6 +4,7 @@ import Header from './components/Header'
 import Dashboard from './pages/Dashboard'
 import DailyPlanner from './pages/DailyPlanner'
 import WeeklyOverview from './pages/WeeklyOverview'
+import Analysis from './pages/Analysis'
 import TimeLog from './pages/TimeLog'
 import Courses from './pages/Courses'
 import Calendar from './pages/Calendar'
@@ -28,6 +29,7 @@ const pages = {
   Dashboard: { component: Dashboard, title: 'Dashboard' },
   'Weekly Overview': { component: WeeklyOverview, title: 'Weekly Overview' },
   'Daily Planner': { component: DailyPlanner, title: 'Daily Planner' },
+  Analysis: { component: Analysis, title: 'Analysis' },
   'Time Log': { component: TimeLog, title: 'Time Log' },
   Courses: { component: Courses, title: 'Courses' },
   Calendar: { component: Calendar, title: 'Calendar' },
@@ -91,6 +93,7 @@ function AppContent() {
     'Time Log': { onAddSession: () => { setSessionPreset(null); setModal('session') } },
     Courses: { onAddCourse: () => setModal('course') },
     Calendar: { onAddDeadline: () => setModal('deadline') },
+    Analysis: {},
   }
 
   const pageProps = {
@@ -99,6 +102,7 @@ function AppContent() {
     Courses: { courses: masterCourses },
     Calendar: {},
     'Weekly Overview': {},
+    Analysis: {},
     'Daily Planner': { onLogTask: t => { setSessionPreset(t); setModal('session') } },
   }
 
