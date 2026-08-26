@@ -4,7 +4,7 @@ import { computeXp, courseWeightFor, XP_CONSTANTS } from '../data/xp'
 import { formatDateShort } from '../utils/helpers'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  ScatterChart, Scatter,
+  ScatterChart, Scatter, BarChart, Bar, Legend,
 } from 'recharts'
 
 function pad(n) {
@@ -30,6 +30,30 @@ function mondayOf(iso) {
   const d = new Date(iso + 'T12:00:00')
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
   return toISO(d)
+}
+
+// Categories are human-entered and drift in casing ("Project Work" /
+// "project Work" / …). Normalise to a canonical display form: same letters,
+// one spelling (the most frequent original).
+function makeCategoryNormalizer() {
+  const freq = new Map() // lower -> Map<original, count>
+  return {
+    feed(raw) {
+      const k = String(raw || '').trim().toLowerCase()
+      if (!k) return null
+      if (!freq.has(k)) freq.set(k, new Map())
+      const m = freq.get(k)
+      m.set(String(raw).trim(), (m.get(String(raw).trim()) || 0) + 1)
+      return k
+    },
+    canonical(lowerKey) {
+      const m = freq.get(lowerKey)
+      if (!m) return lowerKey
+      let best = '', n = -1
+      for (const [label, count] of m) if (count > n) { best = label; n = count }
+      return best
+    },
+  }
 }
 
 // Pearson correlation coefficient of two equal-length numeric arrays.
@@ -64,8 +88,11 @@ function percentile(list, p) {
   return s[idx]
 }
 
-// Buckets (sorted) -> rolling-average series over `window` buckets.
-function rolling(buckets, pick, window) {
+// Buckets (sorted) -> rolling-average series. The window ADAPTS to the amount
+// of data: short ranges stay responsive, multi-year ranges still show a smooth
+// long-term line — while always plotting the FULL selected range.
+function rolling(buckets, pick) {
+  const window = Math.max(2, Math.min(12, Math.round(buckets.length / 8)))
   return buckets.map((b, i) => {
     const slice = buckets.slice(Math.max(0, i - window + 1), i + 1)
     const vals = slice.map(pick).filter(v => v != null && isFinite(v))
@@ -74,9 +101,9 @@ function rolling(buckets, pick, window) {
 }
 
 const GRANULARITIES = [
-  { value: 'day', label: 'Daily', window: 7 },
-  { value: 'week', label: 'Weekly', window: 4 },
-  { value: 'month', label: 'Monthly', window: 3 },
+  { value: 'day', label: 'Daily' },
+  { value: 'week', label: 'Weekly' },
+  { value: 'month', label: 'Monthly' },
 ]
 
 const METRICS = [
@@ -112,8 +139,7 @@ function TrendCard({ title, data, color, domain }) {
 
 function CorrelationCard({ title, points, xLabel, yLabel }) {
   const r = pearson(points.map(p => p.x), points.map(p => p.y))
-  const strength = r == null ? '—' :
-    `${r > 0 ? '+' : ''}${r.toFixed(2)}`
+  const strength = r == null ? '—' : `${r > 0 ? '+' : ''}${r.toFixed(2)}`
   const tone = r == null ? 'bg-slate-100 text-slate-500'
     : Math.abs(r) >= 0.5 ? (r > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700')
     : Math.abs(r) >= 0.25 ? 'bg-amber-100 text-amber-700'
@@ -153,8 +179,8 @@ export default function Analysis() {
   const [gran, setGran] = useState('week')
   const [courseFilter, setCourseFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
-  const [rangeFrom, setRangeFrom] = useState(() => addDaysISO(todayISO(), -89))
-  const [rangeTo, setRangeTo] = useState(todayISO())
+  const [rangeFrom, setRangeFrom] = useState('')
+  const [rangeTo, setRangeTo] = useState('')
 
   // Per-course XP inputs (same model as the Dashboard curve).
   const xpInputs = useMemo(() => {
@@ -172,22 +198,35 @@ export default function Analysis() {
     return { progressByCourse, courseWeights, courseEstHours }
   }, [inputLog, masterCourses])
 
-  const categories = useMemo(() => {
-    const set = new Set()
-    for (const e of inputLog || []) if (e.category) set.add(e.category)
-    return [...set].sort()
+  // Canonical category spellings (case-insensitive grouping).
+  const normalizer = useMemo(() => {
+    const norm = makeCategoryNormalizer()
+    for (const e of inputLog || []) norm.feed(e.category)
+    return norm
   }, [inputLog])
+
+  const categories = useMemo(() => {
+    const seen = new Set()
+    for (const e of inputLog || []) {
+      const k = String(e.category || '').trim().toLowerCase()
+      if (k) seen.add(normalizer.canonical(k))
+    }
+    return [...seen].sort()
+  }, [inputLog, normalizer])
+
+  const catKey = raw => String(raw || '').trim().toLowerCase()
+  const filterKey = categoryFilter ? catKey(categoryFilter) : ''
 
   // Entries inside every active filter.
   const entries = useMemo(() => (inputLog || []).filter(e =>
-    e.date && e.date >= rangeFrom && e.date <= rangeTo &&
+    e.date &&
+    (!rangeFrom || e.date >= rangeFrom) && (!rangeTo || e.date <= rangeTo) &&
     (!courseFilter || e.course === courseFilter) &&
-    (!categoryFilter || e.category === categoryFilter)
-  ), [inputLog, rangeFrom, rangeTo, courseFilter, categoryFilter])
+    (!filterKey || catKey(e.category) === filterKey)
+  ), [inputLog, rangeFrom, rangeTo, courseFilter, filterKey])
 
   // --- Trend buckets ------------------------------------------------------
   const trends = useMemo(() => {
-    const g = GRANULARITIES.find(x => x.value === gran)
     const keyOf = iso => gran === 'day' ? iso : gran === 'week' ? mondayOf(iso) : iso.slice(0, 7)
     const buckets = new Map()
     for (const e of entries) {
@@ -202,11 +241,10 @@ export default function Analysis() {
     const list = [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key))
     const avg = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null
     return {
-      window: g.window,
-      wellbeing: rolling(list, b => avg(b.wells), g.window),
-      efficiency: rolling(list, b => avg(b.effs), g.window),
-      hours: rolling(list, b => b.hours, g.window),
-      xp: rolling(list, b => b.xp, g.window),
+      wellbeing: rolling(list, b => avg(b.wells)),
+      efficiency: rolling(list, b => avg(b.effs)),
+      hours: rolling(list, b => b.hours),
+      xp: rolling(list, b => b.xp),
     }
   }, [entries, gran, xpInputs])
 
@@ -228,6 +266,9 @@ export default function Analysis() {
       if (d.wells.length === 0) continue
       wellHours.push({ x: +d.hours.toFixed(2), y: +(d.wells.reduce((s, v) => s + v, 0) / d.wells.length).toFixed(2) })
     }
+    const effWell = entries
+      .filter(e => e.efficiency != null && e.wellbeing != null)
+      .map(e => ({ x: e.wellbeing, y: e.efficiency }))
     const effStart = entries
       .filter(e => e.efficiency != null && /^\d{1,2}:\d{2}/.test(e.startTime || ''))
       .map(e => {
@@ -236,55 +277,106 @@ export default function Analysis() {
       })
     return [
       { title: 'Efficiency vs study duration', points: effDur, xLabel: 'Duration (h)', yLabel: 'Efficiency' },
+      { title: 'Efficiency vs wellbeing', points: effWell, xLabel: 'Wellbeing', yLabel: 'Efficiency' },
       { title: 'Wellbeing vs study hours (per day)', points: wellHours, xLabel: 'Hours/day', yLabel: 'Wellbeing' },
       { title: 'Efficiency vs time of day', points: effStart, xLabel: 'Session start (h)', yLabel: 'Efficiency' },
     ]
   }, [entries])
 
-  // --- Workload prediction (heuristic) ------------------------------------
+  // --- Most effective time windows ----------------------------------------
+  const timeWindows = useMemo(() => {
+    const bins = new Map() // startHour -> {effs, wells}
+    for (const e of entries) {
+      if (e.efficiency == null || !/^\d{1,2}:\d{2}/.test(e.startTime || '')) continue
+      const h = parseInt(e.startTime.split(':')[0], 10)
+      const start = Math.floor(h / 2) * 2
+      if (!bins.has(start)) bins.set(start, { effs: [], wells: [] })
+      const b = bins.get(start)
+      b.effs.push(e.efficiency)
+      if (e.wellbeing != null) b.wells.push(e.wellbeing)
+    }
+    const avg = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null
+    return [...bins.entries()]
+      .map(([start, b]) => ({
+        label: `${pad(start)}–${pad(start + 2)}`,
+        start,
+        eff: avg(b.effs),
+        well: avg(b.wells),
+        n: b.effs.length,
+      }))
+      .sort((a, b) => a.start - b.start)
+  }, [entries])
+
+  const bestWindows = useMemo(() =>
+    timeWindows.filter(w => w.n >= 3).sort((a, b) => b.eff - a.eff).slice(0, 2),
+  [timeWindows])
+
+  // --- Workload prediction (TOTAL load, not just studying) -----------------
   const prediction = useMemo(() => {
-    // All-time weekly aggregates (not affected by the view filters — capacity
-    // is a property of your history, not of the current lens).
+    // Weekly aggregates over ALL history: study hours, additional commitments
+    // (work / exercise / commute / obligations) and study-session efficiency.
     const weeks = new Map()
+    const weekOf = () => ({ study: 0, add: 0, effs: [] })
     for (const e of inputLog || []) {
       if (!e.date) continue
       const k = mondayOf(e.date)
-      if (!weeks.has(k)) weeks.set(k, { hours: 0, effs: [] })
+      if (!weeks.has(k)) weeks.set(k, weekOf())
       const w = weeks.get(k)
-      w.hours += e.durationHours || 0
+      w.study += e.durationHours || 0
       if (e.efficiency != null) w.effs.push(e.efficiency)
     }
+    for (const a of additionalLog || []) {
+      if (!a.date) continue
+      const k = mondayOf(a.date)
+      if (!weeks.has(k)) weeks.set(k, weekOf())
+      weeks.get(k).add += a.hours || 0
+    }
     const weekList = [...weeks.entries()]
-      .map(([k, w]) => ({ key: k, hours: w.hours, eff: w.effs.length ? w.effs.reduce((s, v) => s + v, 0) / w.effs.length : null }))
+      .map(([k, w]) => ({
+        key: k,
+        study: w.study,
+        add: w.add,
+        total: w.study + w.add,
+        eff: w.effs.length ? w.effs.reduce((s, v) => s + v, 0) / w.effs.length : null,
+      }))
       .sort((a, b) => a.key.localeCompare(b.key))
 
     const effs = weekList.map(w => w.eff).filter(v => v != null)
     const baselineEff = median(effs)
-    // Rule: you can sustain any weekly load at which your efficiency stayed
-    // within ~10% of your historical baseline. Fallback: 75th pct of hours.
-    let sustainableWeekly = null
+    // Rule: your sustainable TOTAL load is the heaviest week (study + work +
+    // workouts + everything) in which study efficiency stayed within ~10% of
+    // your historical baseline. Fallback: 75th percentile of total load.
+    let sustainableTotal = null
     if (baselineEff != null) {
       const ok = weekList.filter(w => w.eff == null || w.eff >= baselineEff * 0.9)
-      if (ok.length > 0) sustainableWeekly = Math.max(...ok.map(w => w.hours))
+      if (ok.length > 0) sustainableTotal = Math.max(...ok.map(w => w.total))
     }
-    if (!sustainableWeekly) sustainableWeekly = percentile(weekList.map(w => w.hours), 75) || 0
+    if (!sustainableTotal) sustainableTotal = percentile(weekList.map(w => w.total), 75) || 0
 
-    // Planned load of the CURRENT week (planner + additional log).
+    // Typical non-study commitments per week (median, so one holiday week
+    // doesn't skew it).
+    const typicalAdditional = median(weekList.map(w => w.add)) || 0
+
+    // Current week's plan.
     const monday = mondayOf(todayISO())
     const weekDates = new Set(Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i)))
-    let planned = 0
-    for (const r of dailyPlan || []) if (weekDates.has(r.date)) planned += r.plannedHours || 0
-    for (const a of additionalLog || []) if (weekDates.has(a.date)) planned += a.hours || 0
+    let plannedStudy = 0
+    for (const r of dailyPlan || []) if (weekDates.has(r.date)) plannedStudy += r.plannedHours || 0
+    let plannedAdditional = 0
+    for (const a of additionalLog || []) if (weekDates.has(a.date)) plannedAdditional += a.hours || 0
 
+    const plannedTotal = plannedStudy + plannedAdditional
     return {
-      sustainableWeekly,
-      sustainableDaily: sustainableWeekly / 5,
-      baselineEff,
-      planned,
-      over: sustainableWeekly > 0 && planned > sustainableWeekly * 1.1,
+      sustainableTotal,
+      typicalAdditional,
+      recommendedStudy: Math.max(0, sustainableTotal - typicalAdditional),
+      plannedStudy,
+      plannedAdditional,
+      plannedTotal,
+      over: sustainableTotal > 0 && plannedTotal > sustainableTotal * 1.1,
       historyWeeks: weekList.length,
     }
-  }, [inputLog, dailyPlan, additionalLog])
+  }, [inputLog, additionalLog, dailyPlan])
 
   return (
     <div className="space-y-4">
@@ -306,57 +398,103 @@ export default function Analysis() {
         <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
           className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white cursor-pointer">
           <option value="">All work types</option>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          {categories.map(c => <option key={catKey(c)} value={c}>{c}</option>)}
         </select>
         <div className="flex items-center gap-1 text-xs text-slate-500 ml-auto">
           <span>From</span>
           <input type="date" value={rangeFrom} onChange={e => setRangeFrom(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2 py-1 bg-white" />
+            className="border border-slate-200 rounded-lg px-2 py-1 bg-white" placeholder="Beginning" />
           <span>to</span>
           <input type="date" value={rangeTo} onChange={e => setRangeTo(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2 py-1 bg-white" />
+            className="border border-slate-200 rounded-lg px-2 py-1 bg-white" placeholder="Today" />
         </div>
       </div>
 
-      {/* Workload prediction */}
+      {/* Workload prediction — TOTAL load */}
       <div className={`rounded-xl border p-4 ${prediction.over ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-slate-400">Sustainable weekly load</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400">Sustainable total load / week</p>
             <p className="text-2xl font-bold text-slate-800 tabular-nums">
-              {prediction.sustainableWeekly > 0 ? `${prediction.sustainableWeekly.toFixed(1)}h` : '—'}
-              <span className="text-xs text-slate-400 font-medium ml-2">≈ {(prediction.sustainableDaily || 0).toFixed(1)}h/day</span>
+              {prediction.sustainableTotal > 0 ? `${prediction.sustainableTotal.toFixed(1)}h` : '—'}
+              <span className="text-xs text-slate-400 font-medium ml-2">study + work + workouts + everything</span>
             </p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400">Typical fixed commitments</p>
+            <p className="text-2xl font-bold text-slate-800 tabular-nums">
+              {prediction.typicalAdditional.toFixed(1)}h
+              <span className="text-xs text-slate-400 font-medium ml-2">work, exercise, commute…</span>
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400">Suggested study cap</p>
+            <p className="text-2xl font-bold text-indigo-600 tabular-nums">{prediction.recommendedStudy.toFixed(1)}h</p>
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-wider text-slate-400">Planned this week</p>
             <p className={`text-2xl font-bold tabular-nums ${prediction.over ? 'text-red-600' : 'text-slate-800'}`}>
-              {prediction.planned.toFixed(1)}h
+              {prediction.plannedTotal.toFixed(1)}h
+              <span className="text-xs text-slate-400 font-medium ml-2">{prediction.plannedStudy.toFixed(1)}h study + {prediction.plannedAdditional.toFixed(1)}h other</span>
             </p>
           </div>
           <div className="ml-auto">
             {prediction.over ? (
               <span className="inline-block text-xs px-3 py-1.5 rounded-full bg-red-600 text-white font-semibold">
-                ⚠ Planned hours exceed your sustainable capacity
+                ⚠ Planned total exceeds your sustainable load
               </span>
             ) : (
               <span className="inline-block text-xs px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
-                Within sustainable capacity
+                Within sustainable load
               </span>
             )}
           </div>
         </div>
         <p className="text-[10px] text-slate-400 mt-2">
-          Heuristic: the heaviest week in which your efficiency stayed within ~10% of your historical baseline
-          {prediction.baselineEff != null ? ` (baseline ${prediction.baselineEff.toFixed(1)})` : ''} · based on {prediction.historyWeeks} tracked weeks · rule-based for now.
+          Heuristic: the heaviest TOTAL week (study + all additional commitments) in which your study efficiency stayed
+          within ~10% of your historical baseline · based on {prediction.historyWeeks} tracked weeks · rule-based for now.
         </p>
+      </div>
+
+      {/* Most effective time windows */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-slate-700">Most effective time windows</h2>
+          {bestWindows.length > 0 && (
+            <span className="text-xs text-slate-500">
+              Best: <span className="font-semibold text-emerald-700">{bestWindows.map(w => w.label).join(' · ')}</span> (avg efficiency, ≥3 sessions)
+            </span>
+          )}
+        </div>
+        {timeWindows.length === 0 ? (
+          <p className="text-xs text-slate-400 py-6 text-center">No scored sessions with start times in range.</p>
+        ) : (
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={timeWindows} margin={{ top: 4, right: 8, bottom: 0, left: -22 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="label" tick={{ fontSize: 9 }} />
+                <YAxis yAxisId="l" tick={{ fontSize: 9 }} domain={[0, 10]} />
+                <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 9 }} />
+                <Tooltip labelStyle={{ fontSize: 11 }} formatter={(v, n) => [Number(v).toFixed(2), n === 'eff' ? 'Avg efficiency' : n === 'well' ? 'Avg wellbeing' : 'Sessions']} />
+                <Legend wrapperStyle={{ fontSize: 10 }} formatter={v => v === 'eff' ? 'Avg efficiency' : v === 'well' ? 'Avg wellbeing' : 'Sessions'} />
+                <Bar yAxisId="l" dataKey="eff" name="eff" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                <Bar yAxisId="l" dataKey="well" name="well" fill="#10b981" radius={[3, 3, 0, 0]} />
+                <Bar yAxisId="r" dataKey="n" name="n" fill="#cbd5e1" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <p className="text-[10px] text-slate-400 mt-1">Two-hour bins by session start time, respecting the filters above (so you can compare Studying vs Project Work via the work-type filter).</p>
       </div>
 
       {/* Trend charts */}
       <div>
-        <h2 className="text-sm font-semibold text-slate-700 mb-2">
-          Trends — rolling averages ({GRANULARITIES.find(g => g.value === gran)?.window} {gran === 'day' ? 'days' : gran === 'week' ? 'weeks' : 'months'})
-        </h2>
+        <h2 className="text-sm font-semibold text-slate-700 mb-2">Trends ({GRANULARITIES.find(g => g.value === gran)?.label})</h2>
+        <p className="text-[10px] text-slate-400 mb-2">
+          Full selected range is plotted; the line is a rolling average whose window adapts to the amount of data.
+          Leave the date fields empty to see your entire history.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {METRICS.map(m => (
             <TrendCard key={m.key} title={m.title} data={trends[m.key]} color={m.color} domain={m.domain} />
@@ -367,7 +505,7 @@ export default function Analysis() {
       {/* Correlations */}
       <div>
         <h2 className="text-sm font-semibold text-slate-700 mb-2">Correlations</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {scatters.map(s => (
             <CorrelationCard key={s.title} title={s.title} points={s.points} xLabel={s.xLabel} yLabel={s.yLabel} />
           ))}
