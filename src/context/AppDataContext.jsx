@@ -151,6 +151,19 @@ function dedupeContent(items) {
   return out
 }
 
+// Content rows created through some paths carry the raw course CODE as their
+// course (instead of the canonical name). Normalise them so such duplicates
+// collapse into their name-keyed twin in dedupeContent below — otherwise an
+// old copy with done='done' survives unchecking forever.
+function normalizeContentCourses(data) {
+  const codeToName = new Map((data.courses || []).filter(c => c.code && c.course).map(c => [c.code, c.course]))
+  if (codeToName.size === 0) return
+  for (const i of data.content || []) {
+    const name = codeToName.get(i.course)
+    if (name) i.course = name
+  }
+}
+
 function buildState(rowsByTab) {
   const data = parseAll(rowsByTab)
   const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides, data.additionalLog)
@@ -158,6 +171,7 @@ function buildState(rowsByTab) {
   // the numeric course code (e.g. "191211110" next to the real "Modelling and
   // Simulation"). The next Courses write removes them from Drive for good.
   data.courses = (data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
+  normalizeContentCourses(data)
   data.content = dedupeContent(data.content)
   synthCourses(data)
   linkGradeComponents(data)
@@ -1479,7 +1493,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         updated.urgency = payload.urgency
         updated.marker = (payload.urgency === 'High' || payload.urgency === 'Extremely High') ? 'important' : ''
       }
-      if (payload.done != null) updated.done = payload.done
+      if ('done' in payload) updated.done = payload.done
       return updated
     }
     let content = (prev.content || []).map(i => {

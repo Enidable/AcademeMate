@@ -295,13 +295,18 @@ export default function WeeklyOverview() {
     }
     // Timetable / imported calendar events carry their own duration: course
     // classes land on their course row, private imports (Gym Time, work, …)
-    // on a row named after their source calendar.
+    // on a row named after their source calendar. A primary calendar shows up
+    // as the account's e-mail address — display it as "Personal calendar".
+    const sourceLabel = s => {
+      const t = String(s || '').trim()
+      return /@/.test(t) ? 'Personal calendar' : t
+    }
     for (const e of calendarEvents || []) {
       const dow = dates.indexOf(e.date)
       if (dow < 0) continue
       const h = durHours(e)
       if (h <= 0) continue
-      const course = e.course || ((e.source || '').trim() === 'Gym Time' ? 'Exercise' : (e.source || '').trim())
+      const course = e.course || ((e.source || '').trim() === 'Gym Time' ? 'Exercise' : sourceLabel(e.source))
       if (!course) continue
       const row = rowOf(course)
       row.hours[dow] += h
@@ -428,6 +433,9 @@ export default function WeeklyOverview() {
           </table>
         )}
       </div>
+
+      {/* Spacer so the floating Add Session button never covers the totals. */}
+      <div className="h-20" />
     </div>
   )
 }
