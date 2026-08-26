@@ -107,7 +107,7 @@ function ItemCard({ item, assignedDate, today, onAssign }) {
 
 export default function WeeklyOverview() {
   const {
-    calendarEvents, deadlines, content, dailyPlan,
+    calendarEvents, deadlines, content, dailyPlan, additionalLog,
     addPlannerTask, deletePlannerTask,
   } = useAppData()
 
@@ -160,7 +160,8 @@ export default function WeeklyOverview() {
         menuId: `evt|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}`,
         kind: isCourseItem ? 'class' : 'other',
         kindLabel: isCourseItem ? (type ? type.replace(/\b\w/g, c => c.toUpperCase()) : 'Class') : 'Other',
-        symbol: typeSymbol(type),
+        // Private calendar items (work, gym, …) are not lectures — no type icon.
+        symbol: isCourseItem ? typeSymbol(type) : '',
         course: e.course || '',
         title: e.summary,
         when: `${DOW_SHORT[new Date(e.date + 'T12:00:00').getDay()]} ${formatDateShort(e.date)}${e.startTime ? ` · ${e.startTime}${e.endTime ? `–${e.endTime}` : ''}` : ''}`,
@@ -264,6 +265,41 @@ export default function WeeklyOverview() {
 
   const plannedCount = items.filter(i => i.fixedDow == null && assignedByMenuId.has(i.menuId)).length
 
+  // Compact mirror of the Daily Planner for this week: planned hours per
+  // course per day (study AND additional combined), so free capacity is
+  // visible while sorting the menu. Read-only — editing stays in the planner.
+  const plannerMatrix = useMemo(() => {
+    const byCourse = new Map()
+    const rowOf = course => {
+      if (!byCourse.has(course)) {
+        byCourse.set(course, {
+          hours: Array.from({ length: 7 }, () => 0),
+          tasks: Array.from({ length: 7 }, () => []),
+        })
+      }
+      return byCourse.get(course)
+    }
+    for (const r of dailyPlan || []) {
+      const dow = dates.indexOf(r.date)
+      if (dow < 0) continue
+      const row = rowOf(r.course || 'Other University Stuff')
+      row.hours[dow] += r.plannedHours || r.actualHours || 0
+      if (r.task) row.tasks[dow].push(r.task)
+    }
+    for (const a of additionalLog || []) {
+      const dow = dates.indexOf(a.date)
+      if (dow < 0) continue
+      const row = rowOf(a.category || 'Other Obligations')
+      row.hours[dow] += a.hours || 0
+      if (a.task) row.tasks[dow].push(a.task)
+    }
+    const rows = [...byCourse.entries()]
+      .map(([course, data]) => ({ course, ...data, total: data.hours.reduce((s, h) => s + h, 0) }))
+      .sort((a, b) => b.total - a.total)
+    const dayTotals = Array.from({ length: 7 }, (_, d) => rows.reduce((s, r) => s + r.hours[d], 0))
+    return { rows, dayTotals, weekTotal: dayTotals.reduce((s, h) => s + h, 0) }
+  }, [dailyPlan, additionalLog, dates])
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -317,6 +353,62 @@ export default function WeeklyOverview() {
                     </div>
                   </td>
                 ))}
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-slate-700">Planned hours this week</h3>
+          <span className="text-xs text-slate-400">
+            Mirror of the Daily Planner — study + additional combined · week total{' '}
+            <span className="font-semibold text-slate-600 tabular-nums">{plannerMatrix.weekTotal.toFixed(2)}h</span>
+          </span>
+        </div>
+        {plannerMatrix.rows.length === 0 ? (
+          <div className="py-6 text-center text-slate-400 text-sm">Nothing planned yet — sort items above or plan directly in the Daily Planner.</div>
+        ) : (
+          <table className="w-full table-fixed text-xs border-collapse min-w-[720px]">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="text-left px-2 py-1.5 font-medium text-slate-500 w-52">Course</th>
+                {DAYS.map((day, i) => (
+                  <th key={day} className={`px-1 py-1.5 font-medium text-center ${dates[i] === todayISO() ? 'text-indigo-700' : 'text-slate-500'}`}>{day}</th>
+                ))}
+                <th className="text-right px-2 py-1.5 font-medium text-slate-500 w-16">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plannerMatrix.rows.map(r => {
+                const style = getCourseStyle(r.course)
+                return (
+                  <tr key={r.course} className="border-b border-slate-50 hover:bg-slate-50/60">
+                    <td className="px-2 py-1">
+                      <div className="flex items-center gap-1.5 pr-2">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
+                        <span className="truncate text-slate-600" title={r.course}>{r.course}</span>
+                      </div>
+                    </td>
+                    {r.hours.map((h, d) => (
+                      <td key={d} className={`px-1 py-1 text-center tabular-nums text-slate-600 ${dates[d] === todayISO() ? 'bg-indigo-50/60' : ''}`}
+                        title={r.tasks[d].length ? r.tasks[d].join('\n') : undefined}>
+                        {h > 0 ? h.toFixed(2).replace(/\.?0+$/, '') : ''}
+                      </td>
+                    ))}
+                    <td className="px-2 py-1 text-right tabular-nums font-medium text-slate-700">{r.total > 0 ? `${r.total.toFixed(2)}h` : ''}</td>
+                  </tr>
+                )
+              })}
+              <tr className="border-t border-slate-200 bg-slate-50 font-medium text-slate-700">
+                <td className="px-2 py-1.5">Day total</td>
+                {plannerMatrix.dayTotals.map((h, d) => (
+                  <td key={d} className={`px-1 py-1.5 text-center tabular-nums ${dates[d] === todayISO() ? 'bg-indigo-100/60' : ''}`}>
+                    {h > 0 ? h.toFixed(2) : ''}
+                  </td>
+                ))}
+                <td className="px-2 py-1.5 text-right tabular-nums">{plannerMatrix.weekTotal.toFixed(2)}h</td>
               </tr>
             </tbody>
           </table>
