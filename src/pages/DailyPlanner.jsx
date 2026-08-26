@@ -457,8 +457,23 @@ export default function DailyPlanner({ onLogTask }) {
           <button onClick={() => setWeekKey(mondayOf(today))}
             className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Today</button>
         </div>
-        <div className={`text-sm px-3 py-1.5 rounded-full ${overCapacity ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-          Study {studyTotal.toFixed(2)}h · Additional {additionalTotal.toFixed(2)}h · Capacity {avgWeeklyHours.toFixed(2)}h
+        <div className="flex flex-col items-end gap-0.5">
+          <div className="flex items-center gap-3 text-sm px-4 py-1.5 rounded-full bg-white border border-slate-200 shadow-sm">
+            <span className="flex items-center gap-1.5 text-indigo-600">
+              <span className="w-2 h-2 rounded-full bg-indigo-500" /> Study {studyTotal.toFixed(2)}h
+            </span>
+            <span className="flex items-center gap-1.5 text-amber-600">
+              <span className="w-2 h-2 rounded-full bg-amber-500" /> Additional {additionalTotal.toFixed(2)}h
+            </span>
+            <span className={`flex items-center gap-1.5 font-semibold ${overCapacity ? 'text-red-600' : 'text-emerald-700'}`}>
+              <span className={`w-2 h-2 rounded-full ${overCapacity ? 'bg-red-500' : 'bg-emerald-500'}`} /> Total {totalHours.toFixed(2)}h
+            </span>
+          </div>
+          {avgWeeklyHours > 0 && (
+            <span className={`text-[10px] px-2 ${overCapacity ? 'text-red-500' : 'text-slate-400'}`}>
+              {Math.round((totalHours / avgWeeklyHours) * 100)}% of your {avgWeeklyHours.toFixed(2)}h average week
+            </span>
+          )}
         </div>
       </div>
 
@@ -499,14 +514,6 @@ export default function DailyPlanner({ onLogTask }) {
                 </tr>
               )}
 
-              <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
-                <td className="px-3 py-2">Study total</td>
-                {dates.map(date => (
-                  <td key={date} className="px-2 py-2 text-center tabular-nums">{dayHours(date) > 0 ? `${dayHours(date).toFixed(2)}` : ''}</td>
-                ))}
-                <td className="px-3 py-2 text-right tabular-nums w-16">{studyTotal.toFixed(2)}h</td>
-              </tr>
-
               <tr>
                 <td colSpan={9} className="px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -542,11 +549,16 @@ export default function DailyPlanner({ onLogTask }) {
                   onRemoveExtraRow={removeExtraRow} />
               ))}
               <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
-                <td className="px-3 py-2">Additional total</td>
-                {dates.map(date => (
-                  <td key={date} className="px-2 py-2 text-center tabular-nums">{additionalDayHours(date) > 0 ? `${additionalDayHours(date).toFixed(2)}` : ''}</td>
-                ))}
-                <td className="px-3 py-2 text-right tabular-nums w-16">{additionalTotal.toFixed(2)}h</td>
+                <td className="px-3 py-2">Day total</td>
+                {dates.map(date => {
+                  const full = dayHours(date) + additionalDayHours(date)
+                  return (
+                    <td key={date} className={`px-2 py-2 text-center tabular-nums ${date === today ? 'text-indigo-700' : ''}`}>
+                      {full > 0 ? full.toFixed(2) : ''}
+                    </td>
+                  )
+                })}
+                <td className="px-3 py-2 text-right tabular-nums w-16">{totalHours.toFixed(2)}h</td>
               </tr>
             </tbody>
           </table>

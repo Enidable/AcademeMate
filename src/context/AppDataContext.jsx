@@ -138,7 +138,10 @@ function synthCourses(parsed) {
 function dedupeContent(items) {
   const seen = new Map()
   const out = []
-  const score = it => ((it.description && it.description.trim()) ? 2 : 0) + (it.hoursSpent ? 1 : 0) + ((it.done || '').trim() ? 1 : 0)
+  // Deliberately NOT scoring the done flag: when two copies of the same row
+  // disagree, the user's most recent action (checked OR unchecked) lives on
+  // the row they edited — the stale copy must never win back.
+  const score = it => ((it.description && it.description.trim()) ? 2 : 0) + (it.hoursSpent ? 1 : 0)
   for (const i of items || []) {
     const k = `${i.course || ''}|${i.contentId || ''}|${i.date || ''}|${i.deadline || ''}`
     const existing = seen.get(k)
@@ -151,16 +154,34 @@ function dedupeContent(items) {
   return out
 }
 
-// Content rows created through some paths carry the raw course CODE as their
-// course (instead of the canonical name). Normalise them so such duplicates
-// collapse into their name-keyed twin in dedupeContent below — otherwise an
-// old copy with done='done' survives unchecking forever.
+// Run the full content clean-up (course normalisation + duplicate collapse).
+// Used after loading from Drive AND after healing from the localStorage
+// snapshot, so stale copies resurrected by the heal pass are merged away too.
+function cleanContent(data) {
+  normalizeContentCourses(data)
+  data.content = dedupeContent(data.content)
+}
+
+// Content rows created through some paths carry the raw course CODE (or
+// abbreviation) as their course instead of the canonical name. Normalise them
+// so such duplicates collapse into their name-keyed twin in dedupeContent
+// below — otherwise an old copy with done='done' survives unchecking forever.
 function normalizeContentCourses(data) {
-  const codeToName = new Map((data.courses || []).filter(c => c.code && c.course).map(c => [c.code, c.course]))
-  if (codeToName.size === 0) return
+  const lookup = new Map()
+  const put = (key, name) => {
+    const k = String(key || '').trim().toLowerCase()
+    if (k && name && !lookup.has(k)) lookup.set(k, name)
+  }
+  for (const c of data.courses || []) {
+    if (!c?.course) continue
+    put(c.course, c.course)
+    put(c.code, c.course)
+    put(c.abbrev, c.course)
+  }
+  if (lookup.size === 0) return
   for (const i of data.content || []) {
-    const name = codeToName.get(i.course)
-    if (name) i.course = name
+    const name = lookup.get(String(i.course || '').trim().toLowerCase())
+    if (name && name !== i.course) i.course = name
   }
 }
 
@@ -171,8 +192,7 @@ function buildState(rowsByTab) {
   // the numeric course code (e.g. "191211110" next to the real "Modelling and
   // Simulation"). The next Courses write removes them from Drive for good.
   data.courses = (data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
-  normalizeContentCourses(data)
-  data.content = dedupeContent(data.content)
+  cleanContent(data)
   synthCourses(data)
   linkGradeComponents(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
@@ -501,6 +521,7 @@ export function AppDataProvider({ children }) {
     const rowsByTab = await readAllTabs(file.id)
     const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
     await healCourses(d, savedLocal)
+    cleanContent(d)
 
     dataRef.current = d
     plannerRef.current = p
@@ -631,6 +652,7 @@ export function AppDataProvider({ children }) {
       const rowsByTab = await readAllTabs(info.fileId)
       const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
       await healCourses(d, loadJSON())
+      cleanContent(d)
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt
