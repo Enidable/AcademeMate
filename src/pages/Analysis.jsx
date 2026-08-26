@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { computeXp, courseWeightFor, XP_CONSTANTS } from '../data/xp'
-import { formatDateShort } from '../utils/helpers'
+import { formatDateShort, getCourseStyle } from '../utils/helpers'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ScatterChart, Scatter,
@@ -159,7 +159,7 @@ function CorrelationCard({ title, points, xLabel, yLabel }) {
 
 export default function Analysis() {
   const {
-    inputLog, additionalLog, dailyPlan, masterCourses,
+    inputLog, additionalLog, dailyPlan, masterCourses, gradeComponents,
   } = useAppData()
 
   const [gran, setGran] = useState('week')
@@ -322,6 +322,79 @@ export default function Analysis() {
     }
   }, [inputLog, additionalLog, dailyPlan])
 
+  // --- Quartile analysis ---------------------------------------------------
+  // Sessions are assigned to the (year, quartile) of their course, then per
+  // period: total hours, weeks spanned, average h/week, h/course/week and
+  // average hours per weekday.
+  const quartileStats = useMemo(() => {
+    const meta = new Map((masterCourses || []).map(c => [c.course, c]))
+    const groups = new Map()
+    for (const e of inputLog || []) {
+      if (!e.date || !(e.durationHours > 0)) continue
+      const c = meta.get(e.course)
+      const ym = c && String(c.year || '').match(/\d{4}/)?.[0]
+      const qm = c && String(c.quartile || '').match(/[1-4]/)?.[0]
+      if (!ym || !qm) continue
+      const key = `${ym} · Q${qm}`
+      if (!groups.has(key)) groups.set(key, {
+        key, courses: new Set(), total: 0,
+        min: e.date, max: e.date,
+        dayHours: Array.from({ length: 7 }, () => 0),
+      })
+      const g = groups.get(key)
+      g.courses.add(e.course)
+      g.total += e.durationHours
+      if (e.date < g.min) g.min = e.date
+      if (e.date > g.max) g.max = e.date
+      g.dayHours[(new Date(e.date + 'T12:00:00').getDay() + 6) % 7] += e.durationHours
+    }
+    return [...groups.values()].map(g => {
+      const startMon = mondayOf(g.min)
+      const endMon = mondayOf(g.max)
+      const weeks = Math.max(1, Math.round((new Date(endMon + 'T12:00:00') - new Date(startMon + 'T12:00:00')) / 604800000) + 1)
+      const nCourses = g.courses.size
+      return {
+        key: g.key,
+        nCourses,
+        total: g.total,
+        weeks,
+        avgWeek: g.total / weeks,
+        avgPerCourse: nCourses > 0 ? (g.total / weeks) / nCourses : 0,
+        dayAvg: g.dayHours.map(h => h / weeks),
+      }
+    }).sort((a, b) => a.key.localeCompare(b.key))
+  }, [inputLog, masterCourses])
+
+  // --- Per-course outcomes --------------------------------------------------
+  const courseOutcomes = useMemo(() => {
+    const gradeOf = name => gradeComponents?.find(g => g.course === name)?.totalGrade ?? null
+    const rows = []
+    for (const c of masterCourses || []) {
+      const entries = (inputLog || []).filter(e => e.course === c.course && e.durationHours > 0)
+      if (entries.length === 0 && gradeOf(c.course) == null) continue
+      const dates = entries.map(e => e.date).filter(Boolean).sort()
+      let weeks = 1
+      if (dates.length >= 2) {
+        weeks = Math.max(1, Math.round((new Date(mondayOf(dates[dates.length - 1]) + 'T12:00:00') - new Date(mondayOf(dates[0]) + 'T12:00:00')) / 604800000) + 1)
+      }
+      const effs = entries.map(e => e.efficiency).filter(v => v != null)
+      const wells = entries.map(e => e.wellbeing).filter(v => v != null)
+      const avg = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null
+      rows.push({
+        course: c.course,
+        color: getCourseStyle(c.course),
+        hours: entries.reduce((s, e) => s + e.durationHours, 0),
+        sessions: entries.length,
+        weeks,
+        avgWeek: entries.length ? entries.reduce((s, e) => s + e.durationHours, 0) / weeks : 0,
+        grade: gradeOf(c.course),
+        efficiency: avg(effs),
+        wellbeing: avg(wells),
+      })
+    }
+    return rows.sort((a, b) => b.hours - a.hours)
+  }, [masterCourses, inputLog, gradeComponents])
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -399,7 +472,52 @@ export default function Analysis() {
         </p>
       </div>
 
-      {/* Trend charts */}
+      {/* Quartile analysis */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+        <h2 className="text-sm font-semibold text-slate-700 mb-1">Quartile analysis</h2>
+        <p className="text-[10px] text-slate-400 mb-3">
+          Sessions grouped by the year + quartile of their course — how much you actually studied per period,
+          per week, per course and per weekday. Use it to judge how many courses you can handle per quartile.
+        </p>
+        {quartileStats.length === 0 ? (
+          <p className="text-xs text-slate-400 py-4 text-center">
+            No quartile data yet — set Year and Quartile on your courses so sessions can be grouped.
+          </p>
+        ) : (
+          <table className="w-full text-xs border-collapse min-w-[760px]">
+            <thead>
+              <tr className="border-b border-slate-200 text-slate-500">
+                <th className="text-left px-2 py-1.5 font-medium">Period</th>
+                <th className="text-center px-2 py-1.5 font-medium">Courses</th>
+                <th className="text-center px-2 py-1.5 font-medium">Weeks</th>
+                <th className="text-right px-2 py-1.5 font-medium">Total h</th>
+                <th className="text-right px-2 py-1.5 font-medium">Avg h/week</th>
+                <th className="text-right px-2 py-1.5 font-medium">h/course/week</th>
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+                  <th key={d} className="text-center px-1.5 py-1.5 font-medium">{d}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {quartileStats.map(q => (
+                <tr key={q.key} className="border-b border-slate-50 hover:bg-slate-50/60">
+                  <td className="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">{q.key}</td>
+                  <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">{q.nCourses}</td>
+                  <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">{q.weeks}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{q.total.toFixed(0)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-slate-800">{q.avgWeek.toFixed(1)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-indigo-600 font-medium">{q.avgPerCourse.toFixed(1)}</td>
+                  {q.dayAvg.map((h, i) => (
+                    <td key={i} className="px-1.5 py-1.5 text-center tabular-nums text-slate-500">{h.toFixed(1)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Trends */}
       <div>
         <h2 className="text-sm font-semibold text-slate-700 mb-2">Trends ({GRANULARITIES.find(g => g.value === gran)?.label})</h2>
         <p className="text-[10px] text-slate-400 mb-2">
@@ -421,6 +539,54 @@ export default function Analysis() {
             <CorrelationCard key={s.title} title={s.title} points={s.points} xLabel={s.xLabel} yLabel={s.yLabel} />
           ))}
         </div>
+      </div>
+
+      {/* Per-course outcomes */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+        <h2 className="text-sm font-semibold text-slate-700 mb-1">Course outcomes — time investment vs result</h2>
+        <p className="text-[10px] text-slate-400 mb-3">
+          Per course: logged time, weekly pace while active, grade, and average efficiency/wellbeing —
+          to see which courses paid off for the effort and where prioritisation pays.
+        </p>
+        {courseOutcomes.length === 0 ? (
+          <p className="text-xs text-slate-400 py-4 text-center">No course data yet.</p>
+        ) : (
+          <table className="w-full text-xs border-collapse min-w-[720px]">
+            <thead>
+              <tr className="border-b border-slate-200 text-slate-500">
+                <th className="text-left px-2 py-1.5 font-medium">Course</th>
+                <th className="text-right px-2 py-1.5 font-medium">Sessions</th>
+                <th className="text-right px-2 py-1.5 font-medium">Total h</th>
+                <th className="text-right px-2 py-1.5 font-medium">Active weeks</th>
+                <th className="text-right px-2 py-1.5 font-medium">Avg h/week</th>
+                <th className="text-right px-2 py-1.5 font-medium">Grade</th>
+                <th className="text-right px-2 py-1.5 font-medium">Avg efficiency</th>
+                <th className="text-right px-2 py-1.5 font-medium">Avg wellbeing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {courseOutcomes.map(r => (
+                <tr key={r.course} className="border-b border-slate-50 hover:bg-slate-50/60">
+                  <td className="px-2 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${r.color.dot}`} style={r.color.dotCss} />
+                      <span className="truncate text-slate-700 max-w-[240px]" title={r.course}>{r.course}</span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{r.sessions}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{r.hours.toFixed(1)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{r.weeks}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums font-medium text-slate-800">{r.avgWeek > 0 ? r.avgWeek.toFixed(1) : '—'}</td>
+                  <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.grade != null && r.grade >= 5.5 ? 'text-emerald-700' : r.grade != null ? 'text-red-600' : 'text-slate-400'}`}>
+                    {r.grade != null ? r.grade.toFixed(1) : '—'}
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{r.efficiency != null ? r.efficiency.toFixed(1) : '—'}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{r.wellbeing != null ? r.wellbeing.toFixed(1) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="h-16" />
