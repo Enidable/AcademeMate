@@ -1825,6 +1825,25 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     syncTabs(['dailyPlan'])
   }
 
+  // Past-day reconciliation (#2): planner entries from before `todayISO` that
+  // were never ticked off lose their planned hours (set to 0) — the plan is
+  // corrected to reality and written back to the sheet like any edit. Ticked
+  // entries keep their hours; notes are never touched.
+  function reconcilePastDays(todayISOValue) {
+    const prev = dataRef.current || {}
+    let changed = false
+    const dailyPlan = (prev.dailyPlan || []).map(r => {
+      if (r.date && r.date < todayISOValue && !r.done && (r.plannedHours || 0) > 0) {
+        changed = true
+        return { ...r, plannedHours: 0 }
+      }
+      return r
+    })
+    if (!changed) return
+    setAll({ ...prev, dailyPlan }, plannerRef.current)
+    syncTabs(['dailyPlan'])
+  }
+
   // --- Additional Time Log (work / other / commute / exercise) -----------
 
   function addAdditionalEntry(entry) {
@@ -1907,6 +1926,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       addPlannerTask,
       updatePlannerTask,
       deletePlannerTask,
+      reconcilePastDays,
       addAdditionalEntry,
       updateAdditionalEntry,
       deleteAdditionalEntry,

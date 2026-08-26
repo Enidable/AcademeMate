@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
@@ -37,15 +37,15 @@ function todayISO() {
   return toISO(new Date())
 }
 
-function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete }) {
+function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue }) {
   return (
-    <div className="group flex items-center gap-1 rounded px-0.5 py-0.5 hover:bg-slate-100/70">
+    <div className={`group flex items-center gap-1 rounded px-0.5 py-0.5 hover:bg-slate-100/70 ${overdue ? 'bg-orange-50/70' : ''}`}>
       <input type="checkbox" checked={!!row.done} onChange={() => onToggle(row)}
         className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0" />
-      <span className={`text-[10px] leading-tight flex-1 min-w-0 truncate ${row.done ? 'line-through text-slate-400' : 'text-slate-700'}`} title={row.task}>
+      <span className={`text-[10px] leading-tight flex-1 min-w-0 truncate ${row.done ? 'line-through text-slate-400' : overdue ? 'text-orange-700 font-medium' : 'text-slate-700'}`} title={row.task}>
         {row.task || '—'}
       </span>
-      <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">{hoursOf(row).toFixed(2)}h</span>
+      <span className={`text-[10px] shrink-0 tabular-nums ${overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
       <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
         <button onClick={() => onEdit(row)} className="text-[9px] px-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Edit">✎</button>
         <button onClick={onDelete} className="text-[10px] text-red-400 hover:text-red-600 cursor-pointer" title="Delete">×</button>
@@ -178,7 +178,8 @@ function CourseRow({
             {cellTasks(course, date).map(row => (
               editId === row.id
                 ? <EditForm key={row.id} row={row} form={editForm} setForm={setEditForm} onSave={onSaveEdit} onCancel={onCancelEdit} />
-                : <TaskRow key={row.id} row={row} hoursOf={hoursOf} onToggle={onToggle} onEdit={onEdit} onDelete={() => onDelete(row.id)} />
+                : <TaskRow key={row.id} row={row} hoursOf={hoursOf} onToggle={onToggle} onEdit={onEdit}
+                    onDelete={() => onDelete(row.id)} overdue={!row.done && date < today} />
             ))}
             {(autoTasks ? autoTasks(course, date) : []).map(entry => (
               <AutoTask key={entry.id} entry={entry} onLog={onLogAuto} />
@@ -201,10 +202,31 @@ function CourseRow({
   )
 }
 
+function RescheduleRow({ row, options, onReschedule, onSkip }) {
+  const [day, setDay] = useState(options[0]?.iso || '')
+  return (
+    <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2">
+      <span className={`w-2 h-2 rounded-full shrink-0 ${getCourseStyle(row.course).dot}`} style={getCourseStyle(row.course).dotCss} />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-slate-700 truncate" title={row.task}>{row.task}</p>
+        <p className="text-[10px] text-slate-400">{row.course} · was planned {formatDateShort(row.date)}</p>
+      </div>
+      <select value={day} onChange={e => setDay(e.target.value)}
+        className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white cursor-pointer">
+        {options.map(o => <option key={o.iso} value={o.iso}>{o.label}</option>)}
+      </select>
+      <button onClick={() => { onReschedule(day); onSkip() }}
+        className="text-xs px-2.5 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 cursor-pointer shrink-0">Reschedule</button>
+      <button onClick={onSkip} title="Skip this item"
+        className="text-sm text-slate-300 hover:text-red-500 cursor-pointer shrink-0">×</button>
+    </div>
+  )
+}
+
 export default function DailyPlanner({ onLogTask }) {
   const {
     dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog, content,
-    addPlannerTask, updatePlannerTask, deletePlannerTask,
+    addPlannerTask, updatePlannerTask, deletePlannerTask, reconcilePastDays,
     addAdditionalEntry, updateAdditionalEntry, deleteAdditionalEntry,
   } = useAppData()
   const [weekKey, setWeekKey] = useState(() => mondayOf(todayISO()))
@@ -219,6 +241,58 @@ export default function DailyPlanner({ onLogTask }) {
   const dates = weekDates(weekKey)
   const weekDatesObj = useMemo(() => dates.map(ds => new Date(ds + 'T12:00:00')), [dates])
   const currentIsoWeek = isoWeekOf(weekKey)?.week
+
+  // Past-day reconciliation (#2): unticked entries from before today lose
+  // their planned hours (written back to the sheet). Runs whenever the day
+  // changes / the page mounts.
+  useEffect(() => {
+    reconcilePastDays(today)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [today])
+
+  // --- Reschedule popup (#2): unticked items from past days are offered for
+  // rescheduling on the next visit. Dismissed items are remembered so the
+  // popup only nags about NEW stale items.
+  const DISMISS_KEY = 'am_resched_dismissed'
+  const loadDismissed = () => {
+    try { return JSON.parse(localStorage.getItem(DISMISS_KEY)) || [] } catch { return [] }
+  }
+  const [dismissed, setDismissed] = useState(loadDismissed)
+  const [reschedOpen, setReschedOpen] = useState(false)
+
+  const staleItems = useMemo(() =>
+    (dailyPlan || [])
+      .filter(r => r.date && r.date < today && !r.done && (r.task || '').trim() && !dismissed.includes(r.id))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  [dailyPlan, today, dismissed])
+
+  useEffect(() => {
+    if (staleItems.length > 0 && !reschedOpen) setReschedOpen(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleItems.length])
+
+  function persistDismissed(ids) {
+    setDismissed(prev => {
+      const next = [...prev, ...ids]
+      try { localStorage.setItem(DISMISS_KEY, JSON.stringify(next.slice(-500))) } catch {}
+      return next
+    })
+  }
+
+  function rescheduleItem(row, newDate) {
+    if (!newDate || newDate === row.date) return
+    updatePlannerTask(row.id, { date: newDate })
+  }
+
+  const rescheduleOptions = useMemo(() => {
+    const out = []
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(new Date(today + 'T12:00:00').getTime() + i * 86400000)
+      const iso = toISO(d)
+      out.push({ iso, label: `${DAYS[(d.getDay() + 6) % 7]} ${formatDateShort(iso)}` })
+    }
+    return out
+  }, [today])
 
   const byDate = useMemo(() => {
     const map = {}
@@ -630,6 +704,36 @@ export default function DailyPlanner({ onLogTask }) {
         </div>
         <div className="h-3" />
       </div>
+
+      {reschedOpen && staleItems.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setReschedOpen(false)}>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+              <h2 className="font-semibold text-slate-800">Not checked off</h2>
+              <button onClick={() => setReschedOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none cursor-pointer">&times;</button>
+            </div>
+            <div className="p-5">
+              <p className="text-xs text-slate-500 mb-3">
+                These items were planned on earlier days but never checked off (their planned hours have been reset). Pick a day to reschedule them to, or skip them.
+              </p>
+              <div className="space-y-2">
+                {staleItems.map(r => (
+                  <RescheduleRow key={r.id} row={r} options={rescheduleOptions}
+                    defaultDay={reschedDay}
+                    onReschedule={date => { rescheduleItem(r, date) }}
+                    onSkip={() => persistDismissed([r.id])} />
+                ))}
+              </div>
+              <div className="mt-4 flex justify-between">
+                <button onClick={() => { persistDismissed(staleItems.map(r => r.id)); setReschedOpen(false) }}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer">Skip all</button>
+                <button onClick={() => setReschedOpen(false)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">Done</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="text-xs text-slate-400 italic">
         Type straight into a course row to plan a task (Enter confirms, optional “h” field sets the estimate). “+” opens a form with a note field for an extra entry. Hours sit on the right of each to-do. Scheduled classes and imported calendar events (lectures, Gym Time, …) appear automatically as read-only entries with their duration; lectures also show their syllabus note (hover for the full text). Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Additional-time rows are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
