@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import Dashboard from './pages/Dashboard'
 import DailyPlanner from './pages/DailyPlanner'
+import WeeklyOverview from './pages/WeeklyOverview'
 import TimeLog from './pages/TimeLog'
 import Courses from './pages/Courses'
 import Calendar from './pages/Calendar'
@@ -12,6 +13,7 @@ import { AddSessionModal, AddDeadlineModal, AddCourseModal } from './components/
 
 const pages = {
   Dashboard: { component: Dashboard, title: 'Dashboard' },
+  'Weekly Overview': { component: WeeklyOverview, title: 'Weekly Overview' },
   'Daily Planner': { component: DailyPlanner, title: 'Daily Planner' },
   'Time Log': { component: TimeLog, title: 'Time Log' },
   Courses: { component: Courses, title: 'Courses' },
@@ -56,6 +58,7 @@ function AppContent() {
 
   const headerActions = {
     Dashboard: { onRefresh: refreshFromCSVs },
+    'Weekly Overview': {},
     'Daily Planner': {},
     'Time Log': { onAddSession: () => { setSessionPreset(null); setModal('session') } },
     Courses: { onAddCourse: () => setModal('course') },
@@ -67,6 +70,7 @@ function AppContent() {
     'Time Log': { entries: inputLog },
     Courses: { courses: masterCourses },
     Calendar: {},
+    'Weekly Overview': {},
     'Daily Planner': { onLogTask: t => { setSessionPreset(t); setModal('session') } },
   }
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 const navItems = [
   { name: 'Dashboard', icon: '📊' },
+  { name: 'Weekly Overview', icon: '🗂️' },
   { name: 'Daily Planner', icon: '📋' },
   { name: 'Time Log', icon: '⏱' },
   { name: 'Courses', icon: '📚' },
