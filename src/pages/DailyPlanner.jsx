@@ -155,10 +155,17 @@ function CourseRow({
   course, style, isActive, total, isEmptyExtra, dates, today,
   cellTasks, autoTasks, hoursOf, editId, editForm, setEditForm, addCell, cellForm, setCellForm,
   onEdit, onSaveEdit, onCancelEdit, onToggle, onDelete, onOpenAdd, onSaveAdd, onCancelAdd, onRemoveExtraRow,
-  onQuickAdd, onLogAuto, readOnly,
+  onQuickAdd, onLogAuto, readOnly, draggable, dragging, onRowDragStart, onRowDragOver, onRowDrop,
 }) {
   return (
-    <tr className={`border-b border-slate-100 ${style.soft}`} style={style.softCss}>
+    <tr
+      draggable={!!draggable}
+      onDragStart={onRowDragStart}
+      onDragOver={onRowDragOver}
+      onDrop={onRowDrop}
+      onDragEnd={onRowDrop}
+      className={`border-b border-slate-100 ${style.soft} ${dragging ? 'opacity-40' : ''} ${draggable ? 'cursor-grab' : ''}`}
+      style={style.softCss}>
       <td className="px-3 py-2">
         <div className="flex items-center gap-2 pr-11">
           <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
@@ -237,6 +244,19 @@ export default function DailyPlanner({ onLogTask }) {
   const [cellForm, setCellForm] = useState({ task: '', hours: '', notes: '' })
   const [extraRows, setExtraRows] = useState([])
   const [rowCourse, setRowCourse] = useState('')
+
+  // --- Course row ordering (#22): drag course rows into the sequence you
+  // want. Persisted in localStorage so it applies across weeks and reloads.
+  // Courses never arranged fall back to alphabetical below the arranged ones.
+  const COURSE_ORDER_KEY = 'am_planner_course_order'
+  const [courseOrder, setCourseOrder] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(COURSE_ORDER_KEY)) || [] } catch { return [] }
+  })
+  const [dragCourse, setDragCourse] = useState(null)
+  function persistCourseOrder(list) {
+    setCourseOrder(list)
+    try { localStorage.setItem(COURSE_ORDER_KEY, JSON.stringify(list)) } catch {}
+  }
 
   const today = todayISO()
   const dates = weekDates(weekKey)
@@ -462,6 +482,35 @@ export default function DailyPlanner({ onLogTask }) {
   }, [dates, byDate, addByDate, extraRows, activeSet, autoByCell])
 
   const autoHours = course => dates.reduce((s, date) => s + week.autoTasks(course, date).reduce((t, r) => t + (r.hours || 0), 0), 0)
+
+  // Study rows in the user's dragged order; unarranged courses stay alphabetical.
+  const orderedStudy = useMemo(() => {
+    const rank = c => {
+      const i = courseOrder.indexOf(c)
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i
+    }
+    return [...week.study].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+  }, [week.study, courseOrder])
+
+  function handleCourseDragStart(c) {
+    return () => setDragCourse(c)
+  }
+  function handleCourseDragOver(c) {
+    return e => {
+      e.preventDefault()
+      if (!dragCourse || dragCourse === c) return
+      const list = orderedStudy.slice()
+      const from = list.indexOf(dragCourse)
+      const to = list.indexOf(c)
+      if (from < 0 || to < 0) return
+      list.splice(from, 1)
+      list.splice(to, 0, dragCourse)
+      persistCourseOrder(list)
+    }
+  }
+  function handleCourseDrop() {
+    setDragCourse(null)
+  }
   const rowHours = course => dates.reduce((s, date) => s + week.cellTasks(course, date).reduce((t, r) => t + week.hoursOf(r), 0), 0) + autoHours(course)
   const dayHours = date => week.study.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0) + week.autoTasks(c, date).reduce((t, r) => t + (r.hours || 0), 0), 0)
   const additionalDayHours = date => week.additional.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0) + week.autoTasks(c, date).reduce((t, r) => t + (r.hours || 0), 0), 0)
@@ -634,7 +683,7 @@ export default function DailyPlanner({ onLogTask }) {
             </tr>
           </thead>
             <tbody>
-              {week.study.map(course => (
+              {orderedStudy.map(course => (
                 <CourseRow key={course} course={course}
                   style={getCourseStyle(course, colorByCourse[course])}
                   isActive={activeSet.has(course)}
@@ -649,9 +698,14 @@ export default function DailyPlanner({ onLogTask }) {
                   onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
                   onQuickAdd={quickAddTask}
                   onLogAuto={logClassEntry}
-                  onRemoveExtraRow={removeExtraRow} />
+                  onRemoveExtraRow={removeExtraRow}
+                  draggable
+                  dragging={dragCourse === course}
+                  onRowDragStart={handleCourseDragStart(course)}
+                  onRowDragOver={handleCourseDragOver(course)}
+                  onRowDrop={handleCourseDrop} />
               ))}
-              {week.study.length === 0 && (
+              {orderedStudy.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-3 py-4 text-center text-slate-300 text-sm">No study tasks planned this week — type into a course row below, or use “+” in a day column.</td>
                 </tr>
