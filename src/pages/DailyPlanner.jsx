@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
@@ -108,18 +108,27 @@ function AddCellForm({ form, setForm, onSave, onCancel }) {
 }
 
 // Always-visible quick-add field for a course/day cell: type a task (and an
-// hour estimate), press Enter, done — no click needed first.
+// hour estimate), press Enter — or simply click away — and it saves, no click
+// needed first. Like the syllabus inline fields, blurring commits the value.
 function QuickAddCell({ onSave }) {
   const [task, setTask] = useState('')
   const [hours, setHours] = useState('')
+  const wrapRef = useRef(null)
   const submit = () => {
     if (!task.trim()) return
     onSave(task.trim(), parseFloat(hours) || 0)
     setTask('')
     setHours('')
   }
+  // Blurring the cell saves what was typed — unless focus moved to the
+  // neighbouring field of the same cell (task ⇄ hours), which must not
+  // commit half an entry.
+  const onBlurCapture = e => {
+    if (wrapRef.current && wrapRef.current.contains(e.relatedTarget)) return
+    submit()
+  }
   return (
-    <div className="flex items-center gap-0.5">
+    <div ref={wrapRef} onBlurCapture={onBlurCapture} className="flex items-center gap-0.5">
       <input value={task} onChange={e => setTask(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') submit() }}
         className="flex-1 min-w-0 text-[10px] px-1 py-0.5 bg-transparent border border-transparent hover:border-slate-200 focus:border-slate-400 focus:bg-white rounded outline-none placeholder:text-slate-300"
