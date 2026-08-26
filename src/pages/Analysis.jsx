@@ -4,7 +4,7 @@ import { computeXp, courseWeightFor, XP_CONSTANTS } from '../data/xp'
 import { formatDateShort } from '../utils/helpers'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  ScatterChart, Scatter, BarChart, Bar, Legend,
+  ScatterChart, Scatter,
 } from 'recharts'
 
 function pad(n) {
@@ -283,34 +283,6 @@ export default function Analysis() {
     ]
   }, [entries])
 
-  // --- Most effective time windows ----------------------------------------
-  const timeWindows = useMemo(() => {
-    const bins = new Map() // startHour -> {effs, wells}
-    for (const e of entries) {
-      if (e.efficiency == null || !/^\d{1,2}:\d{2}/.test(e.startTime || '')) continue
-      const h = parseInt(e.startTime.split(':')[0], 10)
-      const start = Math.floor(h / 2) * 2
-      if (!bins.has(start)) bins.set(start, { effs: [], wells: [] })
-      const b = bins.get(start)
-      b.effs.push(e.efficiency)
-      if (e.wellbeing != null) b.wells.push(e.wellbeing)
-    }
-    const avg = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null
-    return [...bins.entries()]
-      .map(([start, b]) => ({
-        label: `${pad(start)}–${pad(start + 2)}`,
-        start,
-        eff: avg(b.effs),
-        well: avg(b.wells),
-        n: b.effs.length,
-      }))
-      .sort((a, b) => a.start - b.start)
-  }, [entries])
-
-  const bestWindows = useMemo(() =>
-    timeWindows.filter(w => w.n >= 3).sort((a, b) => b.eff - a.eff).slice(0, 2),
-  [timeWindows])
-
   // --- Workload prediction (TOTAL load, not just studying) -----------------
   const prediction = useMemo(() => {
     // Weekly aggregates over ALL history: study hours, additional commitments
@@ -454,38 +426,6 @@ export default function Analysis() {
           Heuristic: the heaviest TOTAL week (study + all additional commitments) in which your study efficiency stayed
           within ~10% of your historical baseline · based on {prediction.historyWeeks} tracked weeks · rule-based for now.
         </p>
-      </div>
-
-      {/* Most effective time windows */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-slate-700">Most effective time windows</h2>
-          {bestWindows.length > 0 && (
-            <span className="text-xs text-slate-500">
-              Best: <span className="font-semibold text-emerald-700">{bestWindows.map(w => w.label).join(' · ')}</span> (avg efficiency, ≥3 sessions)
-            </span>
-          )}
-        </div>
-        {timeWindows.length === 0 ? (
-          <p className="text-xs text-slate-400 py-6 text-center">No scored sessions with start times in range.</p>
-        ) : (
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={timeWindows} margin={{ top: 4, right: 8, bottom: 0, left: -22 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="label" tick={{ fontSize: 9 }} />
-                <YAxis yAxisId="l" tick={{ fontSize: 9 }} domain={[0, 10]} />
-                <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 9 }} />
-                <Tooltip labelStyle={{ fontSize: 11 }} formatter={(v, n) => [Number(v).toFixed(2), n === 'eff' ? 'Avg efficiency' : n === 'well' ? 'Avg wellbeing' : 'Sessions']} />
-                <Legend wrapperStyle={{ fontSize: 10 }} formatter={v => v === 'eff' ? 'Avg efficiency' : v === 'well' ? 'Avg wellbeing' : 'Sessions'} />
-                <Bar yAxisId="l" dataKey="eff" name="eff" fill="#f59e0b" radius={[3, 3, 0, 0]} />
-                <Bar yAxisId="l" dataKey="well" name="well" fill="#10b981" radius={[3, 3, 0, 0]} />
-                <Bar yAxisId="r" dataKey="n" name="n" fill="#cbd5e1" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-        <p className="text-[10px] text-slate-400 mt-1">Two-hour bins by session start time, respecting the filters above (so you can compare Studying vs Project Work via the work-type filter).</p>
       </div>
 
       {/* Trend charts */}
