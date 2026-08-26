@@ -515,19 +515,6 @@ export default function DailyPlanner({ onLogTask }) {
               )}
 
               <tr>
-                <td colSpan={9} className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <CourseSelect size="sm" value={rowCourse} onChange={addRow} courses={masterCourses}
-                      placeholder="+ Add course row…"
-                      extraOptions={[
-                        { value: 'Travel', label: 'Travel', dot: 'bg-slate-400' },
-                        { value: 'WORK', label: 'WORK', dot: 'bg-gray-500' },
-                      ]} />
-                  </div>
-                </td>
-              </tr>
-
-              <tr>
                 <td colSpan={9} className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400">
                   Additional time — Work, Other Obligations, Commute &amp; Exercise (logged, never counted as study)
                 </td>
@@ -559,6 +546,19 @@ export default function DailyPlanner({ onLogTask }) {
                   )
                 })}
                 <td className="px-3 py-2 text-right tabular-nums w-16">{totalHours.toFixed(2)}h</td>
+              </tr>
+
+              <tr>
+                <td colSpan={9} className="px-3 py-2 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <CourseSelect size="sm" value={rowCourse} onChange={addRow} courses={masterCourses}
+                      placeholder="+ Add course row…"
+                      extraOptions={[
+                        { value: 'Travel', label: 'Travel', dot: 'bg-slate-400' },
+                        { value: 'WORK', label: 'WORK', dot: 'bg-gray-500' },
+                      ]} />
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
