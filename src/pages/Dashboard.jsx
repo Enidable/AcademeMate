@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { formatDate, formatTime, getCourseStyle, truncate, sessionCategoryForType, durationBetween, nowTime } from '../utils/helpers'
-import { computeXp, weeklyXpSeries, ESTIMATED_HOURS_PER_EC } from '../data/xp'
+import { computeXp, weeklyXpSeries, courseWeightFor, XP_CONSTANTS } from '../data/xp'
 import { useAppData } from '../context/AppDataContext'
 import { inferEventType } from '../drive/driveClient'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
@@ -238,18 +238,20 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
     for (const e of inputLog) loggedByCourse[e.course] = (loggedByCourse[e.course] || 0) + (e.durationHours || 0)
     const progressByCourse = {}
     for (const c of courses) {
-      const est = (c.ec || 0) * ESTIMATED_HOURS_PER_EC
+      const est = (c.ec || 0) * XP_CONSTANTS.ESTIMATED_HOURS_PER_EC
       progressByCourse[c.course] = est > 0 ? (loggedByCourse[c.course] || 0) / est : 0
     }
-    const totalXp = inputLog.reduce((s, e) => s + computeXp(e, progressByCourse), 0)
-    const xpSeries = weeklyXpSeries(inputLog, progressByCourse)
+    const courseWeights = {}
+    for (const c of courses) courseWeights[c.course] = courseWeightFor(c.ec)
+    const totalXp = inputLog.reduce((s, e) => s + computeXp(e, progressByCourse, courseWeights), 0)
+    const xpSeries = weeklyXpSeries(inputLog, progressByCourse, courseWeights)
 
     return {
       curriculum: cur,
       extra: ext,
       both: gradeStats(courses, gradeMap),
       weekTotal, recent, upcoming, totalHours, avgEfficiency, avgWellbeing, totalEntries: inputLog.length,
-      totalXp, xpSeries,
+      totalXp, xpSeries, courseWeights,
     }
   }, [inputLog, courses, deadlines, weeklyHours, gradeComponents])
 
