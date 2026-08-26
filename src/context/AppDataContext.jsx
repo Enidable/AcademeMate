@@ -51,6 +51,7 @@ import {
 
 const STORAGE_KEY = 'am_state'
 const CAL_FP_KEY = 'am_cal_fp'
+const LIVE_SESSION_KEY = 'am_live_session'
 
 const AppDataContext = createContext(null)
 
@@ -93,6 +94,15 @@ function saveCalFp(fp) {
 
 function clearStorage() {
   try { localStorage.removeItem(STORAGE_KEY) } catch {}
+}
+
+// Live session (#17): the "Start session" timestamp, persisted so it survives
+// reloads. Shape: { startDate: 'yyyy-mm-dd', startTime: 'HH:mm' } or null.
+function loadLiveSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LIVE_SESSION_KEY))
+    return s && s.startDate && s.startTime ? s : null
+  } catch { return null }
 }
 
 function ensureDefaultRows(planner) {
@@ -363,6 +373,7 @@ export function AppDataProvider({ children }) {
   const [syncing, setSyncing] = useState(false)
   const [driveError, setDriveError] = useState(null)
   const [saveMsg, setSaveMsg] = useState(null)
+  const [liveSession, setLiveSession] = useState(loadLiveSession)
   let saveTimer = null
   const flashSaveMsg = (msg, ms) => {
     setSaveMsg(msg)
@@ -1825,6 +1836,31 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     syncTabs(['dailyPlan'])
   }
 
+  // --- Live session (#17) --------------------------------------------------
+  // Start recording time now. Returns false (and keeps the running session)
+  // when another session is already running and the user declines replacing it.
+  function startLiveSession() {
+    if (liveSession) {
+      const replace = window.confirm(`A session is already running (started ${liveSession.startDate} ${liveSession.startTime}). Replace it?`)
+      if (!replace) return false
+    }
+    const d = new Date()
+    const p = n => String(n).padStart(2, '0')
+    const s = { startDate: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, startTime: `${p(d.getHours())}:${p(d.getMinutes())}` }
+    try { localStorage.setItem(LIVE_SESSION_KEY, JSON.stringify(s)) } catch {}
+    setLiveSession(s)
+    return true
+  }
+
+  // Stop the running session (if any) and return its start info — callers pair
+  // it with the current time to pre-fill the session logger.
+  function stopLiveSession() {
+    const s = liveSession
+    try { localStorage.removeItem(LIVE_SESSION_KEY) } catch {}
+    setLiveSession(null)
+    return s
+  }
+
   // Past-day reconciliation (#2): planner entries from before `todayISO` that
   // were never ticked off lose their planned hours (set to 0) — the plan is
   // corrected to reality and written back to the sheet like any edit. Ticked
@@ -1925,8 +1961,11 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       updatePlannerCell,
       addPlannerTask,
       updatePlannerTask,
-      deletePlannerTask,
-      reconcilePastDays,
+        deletePlannerTask,
+        reconcilePastDays,
+        liveSession,
+        startLiveSession,
+        stopLiveSession,
       addAdditionalEntry,
       updateAdditionalEntry,
       deleteAdditionalEntry,

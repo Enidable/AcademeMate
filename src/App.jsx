@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import Dashboard from './pages/Dashboard'
@@ -10,6 +10,19 @@ import Calendar from './pages/Calendar'
 import DriveSettings from './components/DriveSettings'
 import { AppDataProvider, useAppData } from './context/AppDataContext'
 import { AddSessionModal, AddDeadlineModal, AddCourseModal } from './components/forms/Modals'
+import { durationBetween, nowTime } from './utils/helpers'
+
+// Small live clock badge shown next to "Close session" while a session runs.
+function LiveBadge({ since }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setTick(x => x + 1), 30000)
+    return () => clearInterval(t)
+  }, [])
+  const start = new Date(`${since.startDate}T${since.startTime}:00`)
+  const mins = Math.max(0, Math.floor((Date.now() - start.getTime()) / 60000))
+  return <span className="text-[10px] opacity-75">{mins >= 60 ? `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}` : `${mins}m`}</span>
+}
 
 const pages = {
   Dashboard: { component: Dashboard, title: 'Dashboard' },
@@ -22,7 +35,7 @@ const pages = {
 
 function AppContent() {
   const [active, setActive] = useState('Dashboard')
-  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, saveMsg, driveError, pushCalendarToGoogle } = useAppData()
+  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, saveMsg, driveError, pushCalendarToGoogle, liveSession, startLiveSession, stopLiveSession } = useAppData()
   const [modal, setModal] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionPreset, setSessionPreset] = useState(null)
@@ -55,6 +68,21 @@ function AppContent() {
   }
 
   const { component: Page, title } = pages[active]
+
+  // Close a running live session: its recorded start + "now" as end pre-fill
+  // the session logger; the rest is filled out like any study session.
+  function handleCloseSession() {
+    const s = stopLiveSession()
+    if (!s) return
+    const end = nowTime()
+    setSessionPreset({
+      date: s.startDate,
+      startTime: s.startTime,
+      endTime: end,
+      durationHours: durationBetween(s.startTime, end) ?? '',
+    })
+    setModal('session')
+  }
 
   const headerActions = {
     Dashboard: { onRefresh: refreshFromCSVs },
@@ -110,6 +138,21 @@ function AppContent() {
             : 'text-slate-600 bg-white border border-slate-200'}`}>
             {syncMsg}
           </span>
+        )}
+        {liveSession ? (
+          <button
+            onClick={handleCloseSession}
+            className="text-sm px-4 py-3 rounded-full bg-emerald-600 text-white shadow-lg hover:bg-emerald-500 active:scale-95 cursor-pointer flex items-center gap-2"
+            title="Close the running session — start and end times are pre-filled in the logger">
+            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+            Close session <LiveBadge since={liveSession} />
+          </button>
+        ) : (
+          <button
+            onClick={() => startLiveSession()}
+            className="text-sm px-4 py-3 rounded-full border border-slate-300 bg-white text-slate-700 shadow-lg hover:bg-slate-100 active:scale-95 cursor-pointer">
+            Start session
+          </button>
         )}
         <button
           onClick={handleSync}

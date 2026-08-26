@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { formatDate, formatTime, getCourseStyle, truncate, sessionCategoryForType } from '../utils/helpers'
+import { formatDate, formatTime, getCourseStyle, truncate, sessionCategoryForType, durationBetween, nowTime } from '../utils/helpers'
 import { computeXp, weeklyXpSeries, ESTIMATED_HOURS_PER_EC } from '../data/xp'
 import { useAppData } from '../context/AppDataContext'
 import { inferEventType } from '../drive/driveClient'
@@ -16,6 +16,7 @@ function pad(n) {
 function TodayOverview({ onLogTask }) {
   const {
     dailyPlan, additionalLog, calendarEvents, updatePlannerTask, updateAdditionalEntry,
+    liveSession, stopLiveSession,
   } = useAppData()
 
   const now = new Date()
@@ -47,12 +48,21 @@ function TodayOverview({ onLogTask }) {
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [tasks])
 
+  // If a live session is running, ticking anything off closes it and links the
+  // recorded times to the item being logged.
+  const consumeLiveTimes = () => {
+    if (!liveSession) return null
+    const s = stopLiveSession()
+    const end = nowTime()
+    return { date: s.startDate, startTime: s.startTime, endTime: end, durationHours: durationBetween(s.startTime, end) ?? '' }
+  }
+
   const toggleTask = r => {
     if (r.done) {
       updatePlannerTask(r.id, { done: null })
     } else {
       updatePlannerTask(r.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: r.notes, date: today })
+      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: r.notes, date: today, ...consumeLiveTimes() })
     }
   }
 
@@ -60,13 +70,16 @@ function TodayOverview({ onLogTask }) {
   // the class's known data (same behaviour as the Daily Planner).
   const logClass = e => {
     if (!onLogTask) return
+    const live = consumeLiveTimes()
     onLogTask({
       course: e.course || '',
       task: e.summary,
-      date: e.date,
-      startTime: e.startTime || '',
-      endTime: e.endTime || '',
-      durationHours: e.allDay ? '' : durHours(e),
+      ...(live || {
+        date: e.date,
+        startTime: e.startTime || '',
+        endTime: e.endTime || '',
+        durationHours: e.allDay ? '' : durHours(e),
+      }),
       category: sessionCategoryForType(inferEventType(e.summary, e.description)),
       location: 'University',
       lectureId: e.lectureId || '',
@@ -276,18 +289,19 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-xs text-slate-500 uppercase tracking-wider">EC</p>
           <p className="text-3xl font-bold text-slate-800 mt-1">
-            {stats.curriculum.ecEarned.toFixed(0)}
+            {stats.both.ecEarned.toFixed(0)}
             <span className="text-slate-300 text-xl mx-1">/</span>
-            {stats.curriculum.ecPlanned.toFixed(0)}
-            <span className="text-sm text-slate-400 font-medium ml-2">curriculum</span>
+            {stats.both.ecPlanned.toFixed(0)}
+            <span className="text-sm text-slate-400 font-medium ml-2">total</span>
           </p>
-          {stats.extra.ecPlanned > 0 ? (
-            <p className="text-xs text-slate-400 mt-1">
-              +{stats.extra.ecEarned.toFixed(0)}/{stats.extra.ecPlanned.toFixed(0)} <span className="font-medium text-violet-600">extra EC</span>
-            </p>
-          ) : (
-            <p className="text-xs text-slate-400 mt-1">Curriculum credits earned / planned</p>
-          )}
+          <p className="text-xs text-slate-400 mt-1">
+            Earned / planned — every course counted, including planned ones
+            {(stats.extra.ecPlanned > 0 || stats.curriculum.ecPlanned !== stats.both.ecPlanned) && (
+              <> · curriculum {stats.curriculum.ecEarned.toFixed(0)}/{stats.curriculum.ecPlanned.toFixed(0)}
+                {stats.extra.ecPlanned > 0 && <> · <span className="font-medium text-violet-600">extra +{stats.extra.ecEarned.toFixed(0)}/{stats.extra.ecPlanned.toFixed(0)}</span></>}
+              </>
+            )}
+          </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-xs text-slate-500 uppercase tracking-wider">Avg Grade</p>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
-import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType } from '../utils/helpers'
+import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime } from '../utils/helpers'
 import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
@@ -228,6 +228,7 @@ export default function DailyPlanner({ onLogTask }) {
     dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog, content,
     addPlannerTask, updatePlannerTask, deletePlannerTask, reconcilePastDays,
     addAdditionalEntry, updateAdditionalEntry, deleteAdditionalEntry,
+    liveSession, stopLiveSession,
   } = useAppData()
   const [weekKey, setWeekKey] = useState(() => mondayOf(todayISO()))
   const [editId, setEditId] = useState(null)
@@ -467,6 +468,15 @@ export default function DailyPlanner({ onLogTask }) {
     setWeekKey(mondayOf(toISO(d)))
   }
 
+  // If a live session is running, ticking anything off closes it and links the
+  // recorded times to the item being logged.
+  function consumeLiveTimes() {
+    if (!liveSession) return null
+    const s = stopLiveSession()
+    const end = nowTime()
+    return { date: s.startDate, startTime: s.startTime, endTime: end, durationHours: durationBetween(s.startTime, end) ?? '' }
+  }
+
   function toggleDone(row) {
     if (row.isAdditional) {
       updateAdditionalEntry(row.id, { done: row.done ? null : 'done' })
@@ -476,7 +486,7 @@ export default function DailyPlanner({ onLogTask }) {
       updatePlannerTask(row.id, { done: null })
     } else {
       updatePlannerTask(row.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: row.notes, date: row.date })
+      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: row.notes, date: row.date, ...consumeLiveTimes() })
     }
   }
 
@@ -487,13 +497,16 @@ export default function DailyPlanner({ onLogTask }) {
   // fields stay editable in the modal.
   function logClassEntry(entry) {
     if (!onLogTask) return
+    const live = consumeLiveTimes()
     onLogTask({
       course: entry.course,
       task: entry.task,
-      date: entry.date,
-      startTime: entry.startTime,
-      endTime: entry.endTime,
-      durationHours: entry.hours || '',
+      ...(live || {
+        date: entry.date,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
+        durationHours: entry.hours || '',
+      }),
       category: sessionCategoryForType(entry.type),
       location: 'University',
       lectureId: entry.lectureId || '',

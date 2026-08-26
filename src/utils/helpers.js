@@ -270,3 +270,24 @@ export function sessionCategoryForType(type) {
       return 'Studying'
   }
 }
+
+// Duration in hours between two HH:mm times; spans midnight (23:00->01:00 = 2h).
+export function durationBetween(startTime, endTime) {
+  const m = t => {
+    const mm = /^(\d{1,2}):(\d{2})$/.exec(String(t || '').trim())
+    return mm ? parseInt(mm[1], 10) * 60 + parseInt(mm[2], 10) : null
+  }
+  const s = m(startTime)
+  const e = m(endTime)
+  if (s == null || e == null) return null
+  let mins = e - s
+  if (mins < 0) mins += 1440
+  return +(mins / 60).toFixed(2)
+}
+
+// Current wall-clock time as HH:mm (local).
+export function nowTime() {
+  const d = new Date()
+  const p = n => String(n).padStart(2, '0')
+  return p(d.getHours()) + ':' + p(d.getMinutes())
+}
