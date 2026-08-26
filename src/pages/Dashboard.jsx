@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import { formatDate, formatTime, getCourseStyle, truncate } from '../utils/helpers'
+import { formatDate, formatTime, getCourseStyle, truncate, sessionCategoryForType } from '../utils/helpers'
 import { computeXp, weeklyXpSeries, ESTIMATED_HOURS_PER_EC } from '../data/xp'
 import { useAppData } from '../context/AppDataContext'
+import { inferEventType } from '../drive/driveClient'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 function pad(n) {
@@ -51,8 +52,25 @@ function TodayOverview({ onLogTask }) {
       updatePlannerTask(r.id, { done: null })
     } else {
       updatePlannerTask(r.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: r.notes })
+      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: r.notes, date: today })
     }
+  }
+
+  // Ticking off a scheduled class opens the session logger pre-filled with
+  // the class's known data (same behaviour as the Daily Planner).
+  const logClass = e => {
+    if (!onLogTask) return
+    onLogTask({
+      course: e.course || '',
+      task: e.summary,
+      date: e.date,
+      startTime: e.startTime || '',
+      endTime: e.endTime || '',
+      durationHours: e.allDay ? '' : durHours(e),
+      category: sessionCategoryForType(inferEventType(e.summary, e.description)),
+      location: 'University',
+      lectureId: e.lectureId || '',
+    })
   }
 
   const toggleExtra = r => updateAdditionalEntry(r.id, { done: r.done ? null : 'done' })
@@ -86,14 +104,25 @@ function TodayOverview({ onLogTask }) {
           {classes.length > 0 && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Scheduled</p>
-              {classes.map(e => (
-                <TaskLine key={e.id || `${e.summary}|${e.startTime}`}
-                  label={e.isDeadline ? `Due: ${e.summary}` : e.summary}
-                  sub={e.allDay ? '' : `${e.startTime || ''}${e.endTime ? `–${e.endTime}` : ''}`}
-                  hours={e.allDay ? 0 : durHours(e)}
-                  muted={!e.course}
-                />
-              ))}
+              {classes.map(e => {
+                const loggable = !!e.course && !e.isDeadline
+                return (
+                  <div key={e.id || `${e.summary}|${e.startTime}`} className="flex items-center gap-2 py-0.5">
+                    {loggable ? (
+                      <input type="checkbox" checked={false} onChange={() => logClass(e)}
+                        title="Log this class as a study session (pre-filled with its course, times, location and lecture ID)"
+                        className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0" />
+                    ) : (
+                      <span className="w-3 shrink-0" />
+                    )}
+                    <span className={`text-xs flex-1 min-w-0 truncate ${e.isDeadline ? 'text-slate-700' : 'text-slate-600'}`}>
+                      {e.isDeadline ? `Due: ${e.summary}` : e.summary}
+                    </span>
+                    <span className="text-[10px] text-slate-400 shrink-0">{e.allDay ? '' : `${e.startTime || ''}${e.endTime ? `–${e.endTime}` : ''}`}</span>
+                    {!e.allDay && durHours(e) > 0 && <span className="text-[10px] text-slate-500 tabular-nums shrink-0">{durHours(e).toFixed(2)}h</span>}
+                  </div>
+                )
+              })}
             </div>
           )}
           {byCourse.map(([course, list]) => {

@@ -137,16 +137,25 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
   const isEdit = !!initial
 
   // Re-seed the form every time the dialog opens. A preset (from checking off a
-  // to-do in the planner) pre-fills the course and notes; an `initial` entry
-  // seeds an edit; otherwise the form starts blank.
+  // to-do or class in the planner / dashboard) pre-fills everything that is
+  // already known — course, date, times, category, location, lecture ID — while
+  // an `initial` entry seeds an edit; otherwise the form starts blank.
   useEffect(() => {
     if (!open) return
     if (preset) {
+      const dh = preset.durationHours
       setForm({
         ...seedSession(null),
         course: preset.course || '',
         notes: preset.task || preset.notes || '',
-        date: new Date().toISOString().slice(0, 10),
+        date: preset.date || new Date().toISOString().slice(0, 10),
+        startTime: preset.startTime || '',
+        endTime: preset.endTime || '',
+        durationHours: dh != null && dh !== '' ? String(dh) : '',
+        category: preset.category || '',
+        project: preset.project || '',
+        location: preset.location || '',
+        lectureId: preset.lectureId || '',
       })
     } else {
       setForm(seedSession(initial))

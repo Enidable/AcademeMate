@@ -248,3 +248,25 @@ export function isCourseActive(course, todayISO) {
   if (course.finish && t > course.finish) return false
   return true
 }
+
+// Map a calendar/timetable event type to the closest session-logger category
+// (defaults of the category pick-list) so ticking off a class pre-fills it.
+export function sessionCategoryForType(type) {
+  switch (type) {
+    case 'lecture':
+    case 'lectorial':
+      return 'Lecture'
+    case 'practical':
+      return 'Practical'
+    case 'presentation':
+      return 'Presentation'
+    case 'meeting':
+      return 'Meeting'
+    case 'exam':
+    case 'exam review':
+    case 'resit':
+      return 'Exam Prep'
+    default:
+      return 'Studying'
+  }
+}

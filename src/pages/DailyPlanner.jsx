@@ -2,7 +2,8 @@ import { useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
-import { getCourseStyle, formatDateShort, isCourseActive } from '../utils/helpers'
+import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType } from '../utils/helpers'
+import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
 import { ADDITIONAL_CATEGORIES } from '../config'
@@ -54,10 +55,19 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete }) {
 }
 
 // Read-only entry derived from a calendar event (lecture, tutorial, imported
-// personal calendar item). Shows the syllabus note under the summary.
-function AutoTask({ entry }) {
+// personal calendar item). Course classes get a checkbox that opens the
+// session logger pre-filled with the class's known data. Shows the syllabus
+// note under the summary.
+function AutoTask({ entry, onLog }) {
   return (
     <div className="flex items-start gap-1 px-0.5 py-0.5" title={entry.note ? `${entry.task} — ${entry.note}` : entry.task}>
+      {entry.loggable ? (
+        <input type="checkbox" checked={false} onChange={() => onLog(entry)}
+          title="Log this class as a study session (pre-filled with its course, times, location and lecture ID)"
+          className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0 mt-0.5" />
+      ) : (
+        <span className="w-3 shrink-0" />
+      )}
       <div className="flex-1 min-w-0">
         <div className="text-[10px] leading-tight text-slate-600 truncate">{entry.task}</div>
         {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
@@ -145,7 +155,7 @@ function CourseRow({
   course, style, isActive, total, isEmptyExtra, dates, today,
   cellTasks, autoTasks, hoursOf, editId, editForm, setEditForm, addCell, cellForm, setCellForm,
   onEdit, onSaveEdit, onCancelEdit, onToggle, onDelete, onOpenAdd, onSaveAdd, onCancelAdd, onRemoveExtraRow,
-  onQuickAdd, readOnly,
+  onQuickAdd, onLogAuto, readOnly,
 }) {
   return (
     <tr className={`border-b border-slate-100 ${style.soft}`} style={style.softCss}>
@@ -171,7 +181,7 @@ function CourseRow({
                 : <TaskRow key={row.id} row={row} hoursOf={hoursOf} onToggle={onToggle} onEdit={onEdit} onDelete={() => onDelete(row.id)} />
             ))}
             {(autoTasks ? autoTasks(course, date) : []).map(entry => (
-              <AutoTask key={entry.id} entry={entry} />
+              <AutoTask key={entry.id} entry={entry} onLog={onLogAuto} />
             ))}
             {addCell?.course === course && addCell?.date === date ? (
               <AddCellForm form={cellForm} setForm={setCellForm} onSave={onSaveAdd} onCancel={onCancelAdd} />
@@ -305,6 +315,14 @@ export default function DailyPlanner({ onLogTask }) {
         task: e.summary,
         hours: e.allDay ? 0 : durHours(e),
         note: noteItem?.content || noteItem?.description || '',
+        // Everything needed to pre-fill the session logger when ticked off.
+        date: e.date,
+        startTime: e.startTime || '',
+        endTime: e.endTime || '',
+        lectureId: rowName !== 'Exercise' ? (e.lectureId || '') : '',
+        type: inferEventType(e.summary, e.description),
+        course: rowName,
+        loggable: rowName !== 'Exercise',
       })
     }
     map.__courses = [...courseRows]
@@ -384,8 +402,28 @@ export default function DailyPlanner({ onLogTask }) {
       updatePlannerTask(row.id, { done: null })
     } else {
       updatePlannerTask(row.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: row.notes })
+      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: row.notes, date: row.date })
     }
+  }
+
+  // Ticking off a scheduled class opens the session logger with everything
+  // that is already known pre-filled — course, date, start/end times and the
+  // derived duration, category from the event type, "University" as location
+  // and the lecture ID so the hours land on the right syllabus row. All
+  // fields stay editable in the modal.
+  function logClassEntry(entry) {
+    if (!onLogTask) return
+    onLogTask({
+      course: entry.course,
+      task: entry.task,
+      date: entry.date,
+      startTime: entry.startTime,
+      endTime: entry.endTime,
+      durationHours: entry.hours || '',
+      category: sessionCategoryForType(entry.type),
+      location: 'University',
+      lectureId: entry.lectureId || '',
+    })
   }
 
   function startEdit(row) {
@@ -515,6 +553,7 @@ export default function DailyPlanner({ onLogTask }) {
                   onToggle={toggleDone} onDelete={deleteTask}
                   onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
                   onQuickAdd={quickAddTask}
+                  onLogAuto={logClassEntry}
                   onRemoveExtraRow={removeExtraRow} />
               ))}
               {week.study.length === 0 && (
@@ -542,6 +581,7 @@ export default function DailyPlanner({ onLogTask }) {
                   onToggle={toggleDone} onDelete={deleteTask}
                   onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
                   onQuickAdd={quickAddTask}
+                  onLogAuto={logClassEntry}
                   onRemoveExtraRow={removeExtraRow} />
               ))}
               <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
