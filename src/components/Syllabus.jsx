@@ -105,7 +105,7 @@ function EditPanel({ editing, setEditing, isDeadline, onSaveEdit }) {
 // is an inline auto-saving input. On the right: future items show the duration
 // pulled from the calendar times, past items sum the session-logger hours that
 // were logged against this ID.
-function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSaveLink, onToggleDone }) {
+function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSavePrep, onSaveLink, onToggleDone }) {
   const id = item.contentId || '—'
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkVal, setLinkVal] = useState('')
@@ -200,9 +200,22 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
             className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
         </div>
       </div>
-      <div className="flex items-center gap-1 mt-0.5 pl-10 text-[10px] text-slate-400 truncate">
+      <div className="flex items-center gap-1 mt-0.5 pl-10 text-[10px] text-slate-400">
         {item.calId && <span className="text-emerald-500 shrink-0">linked ·</span>}
-        <span className="truncate">{calLine}</span>
+        <span className="truncate shrink-0">{calLine}</span>
+        <span className="flex-1" />
+        {!!item.prep && !item.done && (
+          <span className="shrink-0 px-1.5 py-px rounded bg-red-600 text-white font-semibold" title={item.prep}>Prep</span>
+        )}
+        <input
+          key={item.id + '::prep::' + (item.prep || '')}
+          type="text"
+          defaultValue={item.prep || ''}
+          onBlur={(e) => { const v = e.target.value.trim(); if (v !== (item.prep || '')) onSavePrep(item, v || null) }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+          placeholder="Prep required before this class…"
+          title="Prep for this lecture (e.g. read chapter 4) — auto-saves. Shows up as a red Prep marker in the calendar."
+          className="w-44 shrink-0 text-[10px] px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-600 placeholder-slate-300 focus:border-red-400 focus:outline-none" />
       </div>
     </div>
   )
@@ -269,8 +282,7 @@ function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSave
 }
 
 // The "add" form. Also hoisted so typing never loses focus.
-function AddForm({ adding, setAdding, onSubmit, course, abbrev, code, content, gradeComponents }) {
-  const combined = useMemo(() => [
+function AddForm({ adding, setAdding, onSubmit, course, abbrev, code, content, gradeComponents }) {  const combined = useMemo(() => [
     ...(content || []),
     ...(gradeComponents || []).flatMap((g) => (g.components || []).map((c) => ({ course: g.course, contentId: c.id }))),
   ], [content, gradeComponents])
@@ -347,6 +359,11 @@ function AddForm({ adding, setAdding, onSubmit, course, abbrev, code, content, g
         <input type="text" value={adding.description} onChange={(e) => setAdding((a) => ({ ...a, description: e.target.value }))}
           className="flex-1 text-[11px] px-2 py-1 border border-slate-200 rounded bg-white"
           placeholder={isLecture ? 'Description (e.g. Intro to X)' : 'Description (e.g. Report part 1)'} />
+        {isLecture && (
+          <input type="text" value={adding.prep || ''} onChange={(e) => setAdding((a) => ({ ...a, prep: e.target.value }))}
+            className="w-44 text-[11px] px-2 py-1 border border-slate-200 rounded bg-white"
+            placeholder="Prep required (optional)…" title="Prep for this class — shows as a red Prep marker in the calendar" />
+        )}
         <button onClick={onSubmit} className="text-[11px] px-2.5 py-1 bg-slate-700 text-white rounded cursor-pointer">Add</button>
         <button onClick={() => setAdding(null)} className="text-[11px] px-2 py-1 border border-slate-200 text-slate-500 rounded cursor-pointer">Esc</button>
       </div>
@@ -386,6 +403,7 @@ export default function Syllabus({ course, abbrev, code }) {
       mode,
       contentId: '',
       description: '',
+      prep: '',
       date: '',
       start: '',
       end: '',
@@ -418,6 +436,7 @@ export default function Syllabus({ course, abbrev, code }) {
         date: a.date || null,
         start: a.start,
         end: a.end,
+        prep: (a.prep || '').trim() || null,
       })
     } else {
       addContentItem({
@@ -470,6 +489,7 @@ export default function Syllabus({ course, abbrev, code }) {
   }
   const handleDelete = (item) => deleteContentItem(item.id)
   const handleSaveNote = guard((item, value) => updateContentItem(item.id, { description: value }, { course: item.course, contentId: item.contentId }))
+  const handleSavePrep = guard((item, value) => updateContentItem(item.id, { prep: value }, { course: item.course, contentId: item.contentId }))
   const handleSaveLink = guard((item, calId) => updateContentItem(item.id, { calId }, { course: item.course, contentId: item.contentId }))
   const handleSaveId = guard((item, contentId) => updateContentItem(item.id, { contentId }, { course: item.course, contentId }))
   const handleToggleDone = guard((item, done) => updateContentItem(item.id, { done: done ? 'done' : '' }, { course: item.course, contentId: item.contentId }))
@@ -505,7 +525,7 @@ export default function Syllabus({ course, abbrev, code }) {
                 loggedHours={log.hours} loggedSessions={log.sessions} linkedEvent={linkedEvent}
                 isEditing={editing?.id === item.id} editing={editing} setEditing={setEditing}
                 onStartEdit={startEdit} onSaveEdit={saveEdit} onDelete={handleDelete}
-                onSaveNote={handleSaveNote} onSaveLink={handleSaveLink} onToggleDone={handleToggleDone} />
+                onSaveNote={handleSaveNote} onSavePrep={handleSavePrep} onSaveLink={handleSaveLink} onToggleDone={handleToggleDone} />
             )
           })}
         </div>

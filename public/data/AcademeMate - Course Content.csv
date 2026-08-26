@@ -1,5 +1,5 @@
-course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id
-System Identification with Parameter Estimation and Machine Learning,,lecture 1,lecture,Lecture,20/04/2026,,,,,,0.3,,,done,
+course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id,prep
+System Identification with Parameter Estimation and Machine Learning,,lecture 1,lecture,Lecture,20/04/2026,,,,,,0.3,,,done,,
 Design Principles for Robotic and Mechatronic Mechanisms,,DPPM II,assignment,DPPM II,,,,,,,43.35,,,,
 Professional and Personal Development,,PPD 1,assignment,PPD 1,,,,,,,21.75,,,,
 Advanced Software Development for Robotics,,ASDfR 1,assignment,ASDfR 1,,,,,,,36.7,,,,

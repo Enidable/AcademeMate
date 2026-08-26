@@ -470,7 +470,7 @@ export function AppDataProvider({ children }) {
       if (existing) {
         // calId is included so an event that was pushed to Google Calendar but
         // whose Drive write failed isn't re-inserted as a duplicate on reload.
-        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done', 'calId']) {
+        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done', 'calId', 'prep']) {
           if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
         }
       } else {
@@ -788,6 +788,7 @@ export function AppDataProvider({ children }) {
         hoursSpent: null,
         materialHours: null,
         content: null,
+        prep: null,
         calId: r.calId,
         done: '',
         urgency: 'Medium',
@@ -814,6 +815,7 @@ export function AppDataProvider({ children }) {
         hoursSpent: null,
         materialHours: null,
         content: null,
+        prep: null,
         calId: r.calId,
         done: '',
         urgency: 'Medium',
@@ -1466,6 +1468,8 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       if (payload.end != null) updated.end = payload.end
       // calId uses an undefined check so passing null clears the link.
       if (payload.calId !== undefined) updated.calId = payload.calId
+      // Same for prep: null clears it, a string sets the prep requirement.
+      if (payload.prep !== undefined) updated.prep = payload.prep
       if (payload.location != null) updated.location = payload.location
       if (payload.time != null) {
         updated.hoursSpent = payload.time
@@ -1539,6 +1543,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       hoursSpent: item.time ?? null,
       materialHours: item.materialHours ?? null,
       content: item.notes || null,
+      prep: item.prep || null,
       calId: item.calId || null,
       done: item.done || '',
       urgency: item.urgency || 'Medium',

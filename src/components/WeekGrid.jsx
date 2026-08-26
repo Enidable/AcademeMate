@@ -60,7 +60,7 @@ function layoutTimed(items) {
 // axisOutside: omit the internal hour-axis gutter and hang the hour labels
 // outside the left edge instead. Used by the Daily Planner so the seven day
 // columns occupy exactly the same width as the planner table's day columns.
-export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, hourHeight = 44, axisOutside = false }) {
+export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, prepMap = null, hourHeight = 44, axisOutside = false }) {
   const today = useMemo(() => new Date(), [])
   const GRID_H = hourHeight * (DAY_LEN / 60)
 
@@ -162,16 +162,21 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, h
                 : eventColor(ev.course)
               const symbol = typeSymbol(ev.isDeadline ? (ev.type || 'deadline') : inferEventType(ev.summary, ev.description))
               const note = !ev.isDeadline && ev.lectureId && noteMap ? noteMap.get(`${ev.course}|${ev.lectureId}`) : ''
+              const needsPrep = !ev.isDeadline && ev.lectureId && prepMap && prepMap.has(`${ev.course}|${ev.lectureId}`)
+              const prepText = needsPrep ? prepMap.get(`${ev.course}|${ev.lectureId}`) : null
               return (
                 <div key={ev.id || `${ev.date}|${ev.summary}|${ev.startTime}`}
                   className="absolute flex overflow-hidden rounded"
                   style={{ top: p.top + '%', height: p.height + '%', left: p.left + '%', width: p.width + '%' }}
-                  title={`${ev.summary}${ev.endTime ? ` (${ev.startTime}–${ev.endTime})` : ''}`}>
+                  title={`${ev.summary}${ev.endTime ? ` (${ev.startTime}–${ev.endTime})` : ''}${needsPrep ? ` — prep: ${prepText}` : ''}`}>
                   <span className={`w-1 shrink-0 rounded-l ${style.dot}`} style={style.dotCss} />
                   <div className={`flex-1 min-w-0 ${style.bg} ${style.text} px-1 py-0.5`} style={{ ...style.bgCss, ...style.textCss }}>
                     <div className="text-[10px] font-medium leading-tight truncate">
                       <span className="mr-0.5">{symbol}</span>
                       {ev.isDeadline ? `Due: ${ev.description || ev.summary}` : ev.summary}
+                      {needsPrep && (
+                        <span className="ml-1 inline-block px-1 rounded bg-red-600 text-white text-[8px] font-semibold align-middle" title={`Prep required: ${prepText}`}>Prep</span>
+                      )}
                     </div>
                     {note && <div className="text-[9px] opacity-70 leading-tight truncate">{note}</div>}
                     {p.height > 14 && !note && (

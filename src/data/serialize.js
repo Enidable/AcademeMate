@@ -8,7 +8,7 @@ import { num, isoDateToDDMMYYYY } from './normalize.js'
 export const STUDY_LOG_HEADER = 'date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes'
 export const COURSES_HEADER = 'course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes,scope,color,order'
 export const GRADE_COMPONENTS_HEADER = 'course_id,component,type,weight,grade,due_date,hours_spent,done,notes'
-export const CONTENT_HEADER = 'course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id'
+export const CONTENT_HEADER = 'course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id,prep'
 export const DAILY_PLAN_HEADER = 'date,course_id,task,planned_hours,actual_hours,done,notes'
 export const WEEKLY_TOTALS_HEADER = 'year,week,total_hours,notes'
 export const CALENDAR_HEADER = 'date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id'
@@ -98,13 +98,14 @@ export function serializeContent(items, codeMap) {
     isoDateToDDMMYYYY(i.deadline),
     i.start || '',
     i.end || '',
-    i.marker || '',
     i.location || '',
+    i.marker || '',
     num(i.hoursSpent != null ? i.hoursSpent : i.time, 2),
     num(i.materialHours, 2),
     i.content || '',
     i.done || '',
     i.calId || '',
+    i.prep || '',
   ])
   return [splitHeader(CONTENT_HEADER), ...rows]
 }

@@ -115,6 +115,18 @@ export default function Calendar() {
     return m
   }, [content])
 
+  // Lectures that still require prep, keyed by course|lectureId — they get a
+  // red "Prep" marker in every calendar view until the syllabus row is done.
+  const prepByLecture = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) {
+      if (!i.course || !i.contentId || !i.prep) continue
+      if (String(i.done || '').trim().toLowerCase() === 'done') continue
+      m.set(`${i.course}|${i.contentId}`, i.prep)
+    }
+    return m
+  }, [content])
+
   const eventSymbol = e => e.isDeadline
     ? typeSymbol(e.type || 'deadline')
     : typeSymbol(inferEventType(e.summary, e.description))
@@ -204,16 +216,21 @@ export default function Calendar() {
       : eventColor(e.course)
     const time = e.allDay ? 'All day' : (e.startTime ? `${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '')
     const note = !e.isDeadline && e.lectureId ? noteByLecture.get(`${e.course}|${e.lectureId}`) : ''
+    const needsPrep = !e.isDeadline && e.lectureId && prepByLecture.has(`${e.course}|${e.lectureId}`)
+    const prepText = needsPrep ? prepByLecture.get(`${e.course}|${e.lectureId}`) : null
     const symbol = eventSymbol(e)
     return (
       <div key={e.id || `${e.date}|${e.summary}|${e.startTime}`}
         className={`rounded border ${style.border || 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[11px] leading-tight ${compact ? '' : 'mb-1'}`}
-        style={{ ...style.borderCss, ...style.bgCss, ...style.textCss }} title={e.summary}>
+        style={{ ...style.borderCss, ...style.bgCss, ...style.textCss }} title={needsPrep ? `${e.summary} — prep: ${prepText}` : e.summary}>
         <div className="truncate">
           {!compact && time && <span className="opacity-70 mr-1">{time}</span>}
           {compact && e.startTime && <span className="opacity-70 mr-1">{e.startTime}</span>}
           <span className="mr-0.5">{symbol}</span>
           <span className="truncate">{e.isDeadline ? `Due: ${e.description}` : e.summary}</span>
+          {needsPrep && (
+            <span className="ml-1 inline-block px-1 rounded bg-red-600 text-white text-[9px] font-semibold align-middle" title={`Prep required: ${prepText}`}>Prep</span>
+          )}
         </div>
         {note && <div className="truncate text-[9px] opacity-70">{note}</div>}
       </div>
@@ -355,7 +372,7 @@ export default function Calendar() {
       {mode === 'week' && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div className="min-w-[720px]">
-            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} />
+            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} />
           </div>
         </div>
       )}

@@ -193,6 +193,15 @@ function parseContent(rows, resolveCourse) {
       const contentId = (r.content_id || '').trim()
       const done = (r.done || '').trim()
       const hoursSpent = toFloat(r.hours_spent)
+      // Older writes put the marker value in the location column (serializer
+      // bug) — recognise marker keywords sitting in the location cell so that
+      // legacy rows keep their urgency after the column order was fixed.
+      let location = (r.location || '').trim() || null
+      let marker = (r.marker || '').trim() || null
+      if (location && !marker && /^(important|mandatory|skip)$/i.test(location)) {
+        marker = location.toLowerCase()
+        location = null
+      }
       return {
         id: `${course}|${course2 || ''}|${contentId}|${(r.date || '').trim()}|${(r.deadline || '').trim()}|${topic}`,
         description: topic || contentId || type || 'Task',
@@ -205,12 +214,13 @@ function parseContent(rows, resolveCourse) {
         deadline: parseDateDDMMYYYY((r.deadline || '').trim()),
         start: (r.start || '').trim(),
         end: (r.end || '').trim(),
-        marker: (r.marker || '').trim() || null,
-        location: (r.location || '').trim() || null,
+        marker,
+        location,
         hoursSpent,
         materialHours: toFloat(r.material_hours),
         content: (r.content || '').trim() || null,
         calId: (r.cal_id || '').trim() || null,
+        prep: (r.prep || '').trim() || null,
         done,
         urgency: urgencyFor(r.marker, done),
         time: hoursSpent ?? 0,
