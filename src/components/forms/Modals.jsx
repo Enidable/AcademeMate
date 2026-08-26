@@ -207,7 +207,10 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     const d = new Date()
     const dateStr = d.toISOString().slice(0, 10)
     const t = now()
-    setForm(f => ({ ...f, date: dateStr, startTime: t, endTime: t, durationHours: '' }))
+    // Fill ONLY the end time with "now" — the start time stays empty so it can
+    // be typed in freely, after which the duration follows automatically
+    // (filling both start and end would lock the hours field at a computed 0).
+    setForm(f => ({ ...f, date: f.date || dateStr, startTime: '', endTime: t, durationHours: '' }))
   }
 
   function timeToMin(t) {
