@@ -188,6 +188,53 @@ function ensurePreAugustDone(data) {
   return changed
 }
 
+// Retrospective planner entries (#2 follow-up): when study sessions were logged
+// for a day in the past but the Daily Planner has NO entry for that course on
+// that day, add one aggregated entry so the planner mirrors what actually
+// happened. The entry is born checked-off (it did happen) with the real logged
+// hours, so reconciliation never zeroes it and the reschedule popup never asks
+// about it. Sessions on days/courses that already have any planner row are
+// skipped — no fuzzy matching, no duplicates.
+function ensureLoggedPastSessions(data) {
+  const now = new Date()
+  const p = n => String(n).padStart(2, '0')
+  const todayKey = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
+
+  const plannedPairs = new Set((data.dailyPlan || []).map(r => `${r.date}|${r.course}`))
+  const groups = new Map() // "date|course" -> aggregated session info
+  for (const e of data.studyLog || []) {
+    if (!e.date || e.date >= todayKey) continue
+    if (!(e.durationHours > 0) || !e.course) continue
+    const key = `${e.date}|${e.course}`
+    if (plannedPairs.has(key)) continue
+    if (!groups.has(key)) groups.set(key, { date: e.date, course: e.course, hours: 0, notes: null, project: null, lectureId: null, category: null })
+    const g = groups.get(key)
+    g.hours += e.durationHours || 0
+    if (!g.notes && e.notes) g.notes = e.notes
+    if (!g.project && e.project) g.project = e.project
+    if (!g.lectureId && e.lectureId) g.lectureId = e.lectureId
+    if (!g.category && e.category) g.category = e.category
+  }
+  if (groups.size === 0) return false
+
+  for (const g of groups.values()) {
+    // Label priority: what the user wrote > which project > which lecture >
+    // which category of work.
+    const task = g.notes || g.project || g.lectureId || g.category || 'Logged study session'
+    data.dailyPlan.push({
+      id: `${g.date}|${g.course}|${task}`,
+      date: g.date,
+      course: g.course,
+      task,
+      plannedHours: Math.round(g.hours * 100) / 100,
+      actualHours: null,
+      done: 'done',
+      notes: 'auto-logged',
+    })
+  }
+  return true
+}
+
 // Content rows created through some paths carry the raw course CODE (or
 // abbreviation) as their course instead of the canonical name. Normalise them
 // so such duplicates collapse into their name-keyed twin in dedupeContent
@@ -220,6 +267,7 @@ function buildState(rowsByTab) {
   data.courses = (data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
   cleanContent(data)
   ensurePreAugustDone(data)
+  ensureLoggedPastSessions(data)
   synthCourses(data)
   linkGradeComponents(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
@@ -550,7 +598,7 @@ export function AppDataProvider({ children }) {
     const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
     await healCourses(d, savedLocal)
     cleanContent(d)
-    if (ensurePreAugustDone(d) && driveRef.current) syncTabs(['dailyPlan'])
+    if ((ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) && driveRef.current) syncTabs(['dailyPlan'])
 
     dataRef.current = d
     plannerRef.current = p
@@ -682,7 +730,7 @@ export function AppDataProvider({ children }) {
       const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
       await healCourses(d, loadJSON())
       cleanContent(d)
-      if (ensurePreAugustDone(d)) syncTabs(['dailyPlan'])
+      if (ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) syncTabs(['dailyPlan'])
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt
