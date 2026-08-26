@@ -293,12 +293,26 @@ export default function WeeklyOverview() {
       row.hours[dow] += a.hours || 0
       if (a.task) row.tasks[dow].push(a.task)
     }
+    // Timetable / imported calendar events carry their own duration: course
+    // classes land on their course row, private imports (Gym Time, work, …)
+    // on a row named after their source calendar.
+    for (const e of calendarEvents || []) {
+      const dow = dates.indexOf(e.date)
+      if (dow < 0) continue
+      const h = durHours(e)
+      if (h <= 0) continue
+      const course = e.course || ((e.source || '').trim() === 'Gym Time' ? 'Exercise' : (e.source || '').trim())
+      if (!course) continue
+      const row = rowOf(course)
+      row.hours[dow] += h
+      row.tasks[dow].push(e.summary || course)
+    }
     const rows = [...byCourse.entries()]
       .map(([course, data]) => ({ course, ...data, total: data.hours.reduce((s, h) => s + h, 0) }))
       .sort((a, b) => b.total - a.total)
     const dayTotals = Array.from({ length: 7 }, (_, d) => rows.reduce((s, r) => s + r.hours[d], 0))
     return { rows, dayTotals, weekTotal: dayTotals.reduce((s, h) => s + h, 0) }
-  }, [dailyPlan, additionalLog, dates])
+  }, [dailyPlan, additionalLog, calendarEvents, dates])
 
   return (
     <div className="space-y-4">
