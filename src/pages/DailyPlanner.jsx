@@ -719,7 +719,6 @@ export default function DailyPlanner({ onLogTask }) {
               <div className="space-y-2">
                 {staleItems.map(r => (
                   <RescheduleRow key={r.id} row={r} options={rescheduleOptions}
-                    defaultDay={reschedDay}
                     onReschedule={date => { rescheduleItem(r, date) }}
                     onSkip={() => persistDismissed([r.id])} />
                 ))}
