@@ -203,6 +203,13 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }
 
+  // Display parts of the canonical durationHours value as whole hours + minutes.
+  const totalDurMins = Math.round((parseFloat(String(form.durationHours).replace(',', '.')) || 0) * 60)
+  const durParts = {
+    h: form.durationHours ? String(Math.floor(totalDurMins / 60)) : '',
+    m: form.durationHours && totalDurMins % 60 ? String(totalDurMins % 60) : '',
+  }
+
   function logNow() {
     const d = new Date()
     const dateStr = d.toISOString().slice(0, 10)
@@ -223,27 +230,40 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   }
 
-  // Auto-fill: from any two of start/end/hours compute the third.
-  function setField(field, value) {
-    setForm(prev => {
-      const next = { ...prev, [field]: value }
-      const s = timeToMin(next.startTime)
-      const e = timeToMin(next.endTime)
-      const h = next.durationHours === '' ? null : parseFloat(next.durationHours)
-      if (s != null && e != null) {
-        const mins = e - s + (e < s ? 1440 : 0)
-        if (mins >= 0) next.durationHours = String(+(mins / 60).toFixed(2))
-        return next
-      }
-      if (s != null && h != null && isFinite(h) && field !== 'startTime') {
-        next.endTime = minToTime(s + h * 60)
-        return next
-      }
-      if (e != null && h != null && isFinite(h) && field !== 'endTime') {
-        next.startTime = minToTime(e - h * 60)
-        return next
-      }
+  // Auto-fill: from any two of start/end/duration compute the third.
+  function computeDerived(next, changed) {
+    const s = timeToMin(next.startTime)
+    const e = timeToMin(next.endTime)
+    const h = next.durationHours === '' ? null : parseFloat(String(next.durationHours).replace(',', '.'))
+    if (s != null && e != null) {
+      const mins = e - s + (e < s ? 1440 : 0)
+      if (mins >= 0) next.durationHours = String(+(mins / 60).toFixed(2))
       return next
+    }
+    if (s != null && h != null && isFinite(h) && changed !== 'startTime') {
+      next.endTime = minToTime(s + h * 60)
+      return next
+    }
+    if (e != null && h != null && isFinite(h) && changed !== 'endTime') {
+      next.startTime = minToTime(e - h * 60)
+      return next
+    }
+    return next
+  }
+
+  function setField(field, value) {
+    setForm(prev => computeDerived({ ...prev, [field]: value }, field))
+  }
+
+  // Duration is entered as separate hours + minutes fields (no decimals
+  // needed); both write back into the canonical durationHours value.
+  function setDurationPart(part, raw) {
+    setForm(prev => {
+      const mins = Math.round((parseFloat(String(prev.durationHours).replace(',', '.')) || 0) * 60)
+      const hRaw = part === 'h' ? raw : String(Math.floor(mins / 60))
+      const mRaw = part === 'm' ? raw : String(mins % 60 || '')
+      const total = (parseInt(hRaw, 10) || 0) * 60 + (parseInt(mRaw, 10) || 0)
+      return computeDerived({ ...prev, durationHours: total ? String(total / 60) : '' }, 'durationHours')
     })
   }
 
@@ -276,7 +296,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     }
     const start = form.startTime ? form.startTime + ':00' : ''
     const end = form.endTime ? form.endTime + ':00' : ''
-    const dh = parseFloat(form.durationHours) || 0
+    const dh = parseFloat(String(form.durationHours).replace(',', '.')) || 0
     const payload = {
       date: form.date,
       startTime: start,
@@ -319,7 +339,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
             <label className="text-xs text-slate-500 block mb-1">Start</label>
             <input type="time" value={form.startTime} onChange={e => setField('startTime', e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
@@ -330,7 +350,11 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1">Hours</label>
-            <input type="text" inputMode="decimal" value={form.durationHours} onChange={e => setField('durationHours', e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" placeholder="e.g. 2.5" />
+            <input type="text" inputMode="numeric" value={durParts.h} onChange={e => setDurationPart('h', e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" placeholder="e.g. 1" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Minutes</label>
+            <input type="text" inputMode="numeric" value={durParts.m} onChange={e => setDurationPart('m', e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" placeholder="e.g. 30" />
           </div>
         </div>
 
