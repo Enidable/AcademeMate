@@ -28,6 +28,16 @@ function todayISO() {
   return toISO(new Date())
 }
 
+function addDaysISO(iso, n) {
+  const d = new Date(iso + 'T12:00:00')
+  d.setDate(d.getDate() + n)
+  return toISO(d)
+}
+
+// How many days before its anchor date (class date / due date) an item's work
+// can be planned — the "start prepping early" window.
+const PLAN_LEAD_DAYS = 5
+
 // Planner rows created from this page are tagged in their notes field so the
 // dropdown can find (move / remove) them again after a reload.
 const MENU_TAG_PREFIX = 'menu:'
@@ -38,9 +48,21 @@ const KIND_STYLES = {
   prep: 'bg-orange-100 text-orange-700',
 }
 
-function ItemCard({ item, assignedDate, dates, today, onAssign }) {
-  const selected = assignedDate ? String(dates.indexOf(assignedDate)) : ''
-  const isToday = item.fixedDow != null && dates[item.fixedDow] === today
+const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const dayLabel = iso => `${DOW_SHORT[new Date(iso + 'T12:00:00').getDay()]} ${formatDateShort(iso)}`
+
+// Planning options for one sortable item: every day from PLAN_LEAD_DAYS days
+// before its anchor date (class date / due date) up to and including the
+// anchor itself — so prep can be sorted into the days *before* the busy day,
+// across week boundaries.
+function planOptions(anchorISO) {
+  const out = []
+  for (let i = -PLAN_LEAD_DAYS; i <= 0; i++) out.push(addDaysISO(anchorISO, i))
+  return out
+}
+
+function ItemCard({ item, assignedDate, today, onAssign }) {
+  const isToday = item.fixedDow != null && item.dateISO === today
   return (
     <div className={`rounded-lg border px-2 py-1.5 ${isToday ? 'border-indigo-200 bg-indigo-50/50' : assignedDate ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
       <div className="flex items-center gap-1.5">
@@ -54,7 +76,8 @@ function ItemCard({ item, assignedDate, dates, today, onAssign }) {
       <div className="mt-1">
         {/* Classes and appointments are already on their calendar day — show
             the fixed day instead of a dropdown. Prep work and deadline work
-            are plannable: sort them into a weekday freely. */}
+            are plannable: sort them into any day from five days before their
+            deadline/class date up to that date itself. */}
         {item.fixedDow != null ? (
           <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
             <span className="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-white font-semibold">{DAYS[item.fixedDow]}</span>
@@ -63,15 +86,17 @@ function ItemCard({ item, assignedDate, dates, today, onAssign }) {
         ) : (
           <>
             {assignedDate && (
-              <span className="text-[10px] text-emerald-600 mr-1" title={`Planned on ${formatDateShort(assignedDate)}`}>
-                → {DAYS[dates.indexOf(assignedDate)]}
+              <span className="text-[10px] text-emerald-600 mr-1" title={`Planned on ${dayLabel(assignedDate)}`}>
+                → {dayLabel(assignedDate).split(' ')[0]}
               </span>
             )}
-            <select value={selected} onChange={e => onAssign(item, e.target.value)}
+            <select value={assignedDate || ''} onChange={e => onAssign(item, e.target.value)}
               title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
               className={`w-full text-[10px] border rounded px-1 py-0.5 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
               <option value="">Sort to day…</option>
-              {DAYS.map((d, i) => <option key={d} value={i}>{d} {formatDateShort(dates[i])}</option>)}
+              {(item.options || []).map(iso => (
+                <option key={iso} value={iso}>{dayLabel(iso)}</option>
+              ))}
             </select>
           </>
         )}
@@ -113,15 +138,22 @@ export default function WeeklyOverview() {
   }
   const dowOf = iso => (new Date(iso + 'T12:00:00').getDay() + 6) % 7
 
-  // The week "menu": every class/appointment, deadline and lecture prep of the
-  // selected week. Calendar items (classes AND private appointments) sit
-  // locked on their own weekday; prep and deadline work is sortable into any
-  // day of the week.
+  // The week "menu": every class/appointment, deadline and lecture prep
+  // related to this week. Calendar items (classes AND private appointments)
+  // sit locked on their own weekday. Prep and deadline work is sortable, and
+  // its planning window reaches PLAN_LEAD_DAYS days before the class/due date
+  // — so an item whose anchor falls early next week already shows up here.
   const items = useMemo(() => {
-    const inWeek = d => d && dates.includes(d)
+    const weekStart = dates[0]
+    const weekEnd = dates[6]
+    const overlapsWeek = iso => {
+      if (!iso) return false
+      const from = addDaysISO(iso, -PLAN_LEAD_DAYS)
+      return from <= weekEnd && iso >= weekStart
+    }
     const out = []
     for (const e of calendarEvents || []) {
-      if (!inWeek(e.date)) continue
+      if (!e.date || e.date < weekStart || e.date > weekEnd) continue
       const isCourseItem = !!e.course
       const type = inferEventType(e.summary, e.description)
       out.push({
@@ -131,14 +163,17 @@ export default function WeeklyOverview() {
         symbol: typeSymbol(type),
         course: e.course || '',
         title: e.summary,
-        when: `${formatDateShort(e.date)}${e.startTime ? ` · ${e.startTime}${e.endTime ? `–${e.endTime}` : ''}` : ''}`,
+        when: `${DOW_SHORT[new Date(e.date + 'T12:00:00').getDay()]} ${formatDateShort(e.date)}${e.startTime ? ` · ${e.startTime}${e.endTime ? `–${e.endTime}` : ''}` : ''}`,
         fixedDow: dowOf(e.date),
+        dateISO: e.date,
         taskText: e.summary,
         hours: durHours(e),
       })
     }
     for (const i of deadlines || []) {
-      if (!inWeek(i.deadline)) continue
+      // Deadline work can start up to five days before the due date — include
+      // it in any week that window touches.
+      if (!overlapsWeek(i.deadline)) continue
       out.push({
         menuId: `dl|${i.course || ''}|${i.contentId || i.topic || ''}|${i.deadline}`,
         kind: 'deadline',
@@ -146,14 +181,16 @@ export default function WeeklyOverview() {
         symbol: typeSymbol(i.type || 'deadline'),
         course: i.course || '',
         title: i.description || i.topic || i.contentId || 'Deadline',
-        when: `due ${formatDateShort(i.deadline)}${i.end ? ` ${i.end}` : ''}`,
+        when: `due ${dayLabel(i.deadline)}${i.end ? ` ${i.end}` : ''}`,
         fixedDow: null,
+        dateISO: i.deadline,
+        options: planOptions(i.deadline),
         taskText: i.description || i.topic || i.contentId || 'Work on deadline',
         hours: 0,
       })
     }
     for (const i of content || []) {
-      if (!i.prep || !inWeek(i.date)) continue
+      if (!i.prep || !overlapsWeek(i.date)) continue
       if (String(i.done || '').trim().toLowerCase() === 'done') continue
       out.push({
         menuId: `prep|${i.course || ''}|${i.contentId || ''}|${i.date}`,
@@ -162,8 +199,10 @@ export default function WeeklyOverview() {
         symbol: '🧳',
         course: i.course || '',
         title: i.prep,
-        when: `for ${i.description || i.topic || i.contentId || 'class'} (${formatDateShort(i.date)}${i.start ? ` ${i.start}` : ''})`,
+        when: `for ${i.description || i.topic || i.contentId || 'class'} (${dayLabel(i.date)}${i.start ? ` ${i.start}` : ''})`,
         fixedDow: null,
+        dateISO: i.date,
+        options: planOptions(i.date),
         taskText: `Prep: ${i.prep}`,
         hours: 0,
       })
@@ -183,15 +222,16 @@ export default function WeeklyOverview() {
     return m
   }, [dailyPlan])
 
-  // Sorting an item into a weekday removes any previous placement of the same
-  // item and writes one planner task on the chosen day under its course. An
-  // empty selection un-plans the item again.
-  function assign(item, dowStr) {
+  // Sorting an item into a day removes any previous placement of the same
+  // item and writes one planner task on the chosen date under its course. An
+  // empty selection un-plans the item again. The chosen day may lie outside
+  // the viewed week (prep windows reach back five days before the class).
+  function assign(item, isoDate) {
     const tag = menuTagOf(item.menuId)
     for (const r of (dailyPlan || []).filter(x => x.notes === tag)) deletePlannerTask(r.id)
-    if (dowStr === '') return
+    if (!isoDate) return
     addPlannerTask({
-      date: dates[parseInt(dowStr, 10)],
+      date: isoDate,
       course: item.course || 'Other University Stuff',
       task: item.taskText,
       plannedHours: item.hours || 0,
@@ -245,7 +285,7 @@ export default function WeeklyOverview() {
 
       <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
         <p className="text-xs text-slate-500 mb-3">
-          Everything on the plate this week, one column per course. Classes and appointments already sit on their calendar day; prep work and deadline work can be sorted into a weekday with the dropdown — it is added automatically to that day (and its course) on the Daily Planner. Changing the day moves it; clearing it removes it again.
+          Everything on the plate this week, one column per course. Classes and appointments already sit on their calendar day; prep and deadline work can be sorted into any day from five days before its class/due date up to that date — even across week boundaries. Sorting adds the item to that day (and its course) on the Daily Planner; changing the day moves it, clearing it removes it again.
         </p>
         {items.length === 0 ? (
           <div className="py-8 text-center text-slate-400 text-sm">Nothing scheduled this week yet.</div>
@@ -270,7 +310,7 @@ export default function WeeklyOverview() {
                   <td key={col.course} className="align-top pt-2 pr-3 last:pr-0">
                     <div className="space-y-1.5">
                       {col.items.map(item => (
-                        <ItemCard key={item.menuId} item={item} dates={dates} today={todayISO()}
+                        <ItemCard key={item.menuId} item={item} today={todayISO()}
                           assignedDate={assignedByMenuId.get(item.menuId)?.date || null}
                           onAssign={assign} />
                       ))}
