@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { computeXp, courseWeightFor, XP_CONSTANTS } from '../data/xp'
 import { formatDateShort, getCourseStyle } from '../utils/helpers'
+import { isoWeekOf, weekdayIndex } from '../data/normalize'
+
+const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ScatterChart, Scatter,
@@ -211,6 +214,43 @@ export default function Analysis() {
     (!filterKey || catKey(e.category) === filterKey)
   ), [inputLog, rangeFrom, rangeTo, courseFilter, filterKey])
 
+  // --- Weekly breakdown (Work Week x weekday) ------------------------------
+  // Hours per ISO week, split by weekday. Aims for the "Work Week | Mon–Sun"
+  // grid the user keeps in their Master Tracker: one table per year, columns
+  // = work weeks, rows = Year total + each weekday.
+  const weeklyBreakdown = useMemo(() => {
+    const byYear = new Map() // year -> Map<week, { total, day[7] }>
+    for (const e of entries) {
+      if (!e.date || !(e.durationHours > 0)) continue
+      const wk = isoWeekOf(e.date)
+      if (!wk) continue
+      if (!byYear.has(wk.year)) byYear.set(wk.year, new Map())
+      const weeks = byYear.get(wk.year)
+      if (!weeks.has(wk.week)) weeks.set(wk.week, { week: wk.week, total: 0, day: Array.from({ length: 7 }, () => 0) })
+      const w = weeks.get(wk.week)
+      w.total += e.durationHours || 0
+      w.day[weekdayIndex(e.date)] += e.durationHours || 0
+    }
+    return [...byYear.keys()].sort().map(year => {
+      const weeks = [...byYear.get(year).values()].sort((a, b) => a.week - b.week)
+      const maxWeek = weeks.length ? weeks[weeks.length - 1].week : 0
+      const cols = Array.from({ length: maxWeek }, (_, i) => {
+        const w = weeks.find(x => x.week === i + 1)
+        return w || { week: i + 1, total: 0, day: Array.from({ length: 7 }, () => 0) }
+      })
+      const dayTotals = cols.reduce((acc, c) => {
+        for (let d = 0; d < 7; d++) acc[d] += c.day[d]
+        return acc
+      }, Array.from({ length: 7 }, () => 0))
+      return {
+        year,
+        cols,
+        dayAvg: dayTotals.map(h => (maxWeek ? h / maxWeek : 0)),
+        yearAvg: cols.reduce((s, c) => s + c.total, 0) / (maxWeek || 1),
+      }
+    })
+  }, [entries])
+
   // --- Trend buckets ------------------------------------------------------
   const trends = useMemo(() => {
     const keyOf = iso => gran === 'day' ? iso : gran === 'week' ? mondayOf(iso) : iso.slice(0, 7)
@@ -353,8 +393,18 @@ export default function Analysis() {
       const endMon = mondayOf(g.max)
       const weeks = Math.max(1, Math.round((new Date(endMon + 'T12:00:00') - new Date(startMon + 'T12:00:00')) / 604800000) + 1)
       const nCourses = g.courses.size
+      // Quartile period: earliest course start -> latest course finish across
+      // the courses that make up this quartile. Falls back to the session span
+      // when a course has no dates.
+      const courseDates = [...g.courses].map(n => meta.get(n)).filter(Boolean)
+      const starts = courseDates.map(c => c.start).filter(Boolean)
+      const finishes = courseDates.map(c => c.finish).filter(Boolean)
+      const startDate = starts.length ? starts.reduce((a, b) => a < b ? a : b) : g.min
+      const endDate = finishes.length ? finishes.reduce((a, b) => a > b ? a : b) : g.max
       return {
         key: g.key,
+        start: startDate,
+        end: endDate,
         nCourses,
         total: g.total,
         weeks,
@@ -472,6 +522,76 @@ export default function Analysis() {
         </p>
       </div>
 
+      {/* Weekly breakdown: Work Week x weekday */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+        <h2 className="text-sm font-semibold text-slate-700 mb-1">Weekly hours by weekday</h2>
+        <p className="text-[10px] text-slate-400 mb-3">
+          Hours per work week (ISO), split by weekday — matches the Work Week grid in your Master Tracker.
+          The <span className="font-medium text-slate-500">Year [h]</span> row is that week's total.
+        </p>
+        {weeklyBreakdown.length === 0 ? (
+          <p className="text-xs text-slate-400 py-4 text-center">No session data in this range.</p>
+        ) : (
+          <div className="space-y-5">
+            {weeklyBreakdown.map(y => (
+              <div key={y.year}>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <h3 className="text-xs font-semibold text-slate-600">Work Week — {y.year}</h3>
+                  <div className="text-[10px] text-slate-400">
+                    avg <span className="font-semibold text-slate-600 tabular-nums">{y.yearAvg.toFixed(1)}</span> h/week
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-6">
+                  <div className="min-w-[360px] max-w-full overflow-x-auto">
+                    <table className="text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-slate-500">
+                          <th className="text-left px-2 py-1.5 font-medium">Work Week</th>
+                          {y.cols.map(c => (
+                            <th key={c.week} className="text-center px-1 py-1.5 font-medium tabular-nums">{c.week}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b border-slate-100 bg-slate-50/60">
+                          <td className="px-2 py-1.5 font-semibold text-slate-700">{y.year} [h]</td>
+                          {y.cols.map(c => (
+                            <td key={c.week} className="px-1 py-1.5 text-center tabular-nums font-semibold text-slate-800">{c.total > 0 ? c.total.toFixed(1) : ''}</td>
+                          ))}
+                        </tr>
+                        {DOW.map((d, di) => (
+                          <tr key={d} className="border-b border-slate-50">
+                            <td className="px-2 py-1 text-slate-500">{d}</td>
+                            {y.cols.map(c => (
+                              <td key={c.week} className={`px-1 py-1 text-center tabular-nums ${c.day[di] > 0 ? 'text-slate-600' : 'text-slate-300'}`}>
+                                {c.day[di] > 0 ? c.day[di].toFixed(1) : ''}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="shrink-0">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Average per weekday (h/week)</div>
+                    <table className="text-xs border-collapse">
+                      <tbody>
+                        {DOW.map((d, i) => (
+                          <tr key={d} className="border-b border-slate-50">
+                            <td className="pr-4 py-1 text-slate-500">{d}</td>
+                            <td className="text-right tabular-nums font-medium text-slate-700">{y.dayAvg[i].toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Quartile analysis */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
         <h2 className="text-sm font-semibold text-slate-700 mb-1">Quartile analysis</h2>
@@ -484,7 +604,7 @@ export default function Analysis() {
             No quartile data yet — set Year and Quartile on your courses so sessions can be grouped.
           </p>
         ) : (
-          <table className="w-full text-xs border-collapse min-w-[760px]">
+          <table className="w-full text-xs border-collapse min-w-[560px]">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="text-left px-2 py-1.5 font-medium">Period</th>
@@ -493,23 +613,33 @@ export default function Analysis() {
                 <th className="text-right px-2 py-1.5 font-medium">Total h</th>
                 <th className="text-right px-2 py-1.5 font-medium">Avg h/week</th>
                 <th className="text-right px-2 py-1.5 font-medium">h/course/week</th>
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-                  <th key={d} className="text-center px-1.5 py-1.5 font-medium">{d}</th>
-                ))}
+                <th className="text-left px-2 py-1.5 font-medium">Avg per weekday</th>
               </tr>
             </thead>
             <tbody>
               {quartileStats.map(q => (
-                <tr key={q.key} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="px-2 py-1.5 font-medium text-slate-700 whitespace-nowrap">{q.key}</td>
+                <tr key={q.key} className="border-b border-slate-50 hover:bg-slate-50/60 align-top">
+                  <td className="px-2 py-1.5">
+                    <div className="font-medium text-slate-700 whitespace-nowrap">{q.key}</div>
+                    <div className="text-[10px] text-slate-400 whitespace-nowrap">{formatDateShort(q.start)} – {formatDateShort(q.end)}</div>
+                  </td>
                   <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">{q.nCourses}</td>
                   <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">{q.weeks}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{q.total.toFixed(0)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-slate-800">{q.avgWeek.toFixed(1)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-indigo-600 font-medium">{q.avgPerCourse.toFixed(1)}</td>
-                  {q.dayAvg.map((h, i) => (
-                    <td key={i} className="px-1.5 py-1.5 text-center tabular-nums text-slate-500">{h.toFixed(1)}</td>
-                  ))}
+                  <td className="px-2 py-1.5">
+                    <table className="text-[10px] w-full">
+                      <tbody>
+                        {DOW.map((d, i) => (
+                          <tr key={d}>
+                            <td className="pr-2 text-slate-400">{d}</td>
+                            <td className="text-right tabular-nums text-slate-600">{q.dayAvg[i].toFixed(1)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td>
                 </tr>
               ))}
             </tbody>
