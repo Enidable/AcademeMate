@@ -20,6 +20,20 @@ function heatStyle(v, max) {
   const alpha = 0.10 + 0.30 * t
   return { backgroundColor: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})` }
 }
+
+// Yellow (low) -> purple (high) tint for the per-weekday averages, so the day
+// with the most hours stands out. Same subtle alpha treatment.
+function heatStyleDay(v, max) {
+  if (!(v > 0) || !(max > 0)) return null
+  const t = Math.min(1, v / max)
+  const lo = [250, 204, 21] // yellow-400
+  const hi = [168, 85, 247] // purple-500
+  const r = Math.round(lo[0] + (hi[0] - lo[0]) * t)
+  const g = Math.round(lo[1] + (hi[1] - lo[1]) * t)
+  const b = Math.round(lo[2] + (hi[2] - lo[2]) * t)
+  const alpha = 0.12 + 0.32 * t
+  return { backgroundColor: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})` }
+}
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ScatterChart, Scatter,
@@ -545,7 +559,8 @@ export default function Analysis() {
         <p className="text-[10px] text-slate-400 mb-3">
           Hours per work week (ISO), split by weekday — matches the Work Week grid in your Master Tracker.
           The <span className="font-medium text-slate-500">Year [h]</span> row is that week's total. Cells are tinted by
-          intensity: warm (orange) for low hours, cool (blue) for high.
+          intensity: warm (orange) for low hours, cool (blue) for high. The daily averages use yellow → purple so
+          the busiest weekday stands out.
         </p>
         {weeklyBreakdown.length === 0 ? (
           <p className="text-xs text-slate-400 py-4 text-center">No session data in this range.</p>
@@ -597,7 +612,9 @@ export default function Analysis() {
                         {DOW.map((d, i) => (
                           <tr key={d} className="border-b border-slate-50">
                             <td className="pr-4 py-1 text-slate-500">{d}</td>
-                            <td className="text-right tabular-nums font-medium text-slate-700">{y.dayAvg[i].toFixed(2)}</td>
+                            <td className="text-right tabular-nums font-medium text-slate-700" style={heatStyleDay(y.dayAvg[i], Math.max(...y.dayAvg))}>
+                              {y.dayAvg[i].toFixed(2)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
