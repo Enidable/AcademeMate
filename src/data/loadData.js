@@ -9,6 +9,7 @@ import {
   TAB_HOURS,
   TAB_CALENDAR,
   TAB_ADDITIONAL,
+  TAB_ACADEMIC_YEAR,
   CONTENT_TYPES,
 } from '../config'
 import { toFloat, toInt, parseDateDDMMYYYY } from './normalize.js'
@@ -21,6 +22,7 @@ const CSV_FILES = {
   [TAB_DAILY]: `${ASSET_BASE}data/AcademeMate - Daily Plan.csv`,
   [TAB_HOURS]: `${ASSET_BASE}data/AcademeMate - Weekly Totals.csv`,
   [TAB_CALENDAR]: `${ASSET_BASE}data/AcademeMate - Calendar.csv`,
+  [TAB_ACADEMIC_YEAR]: `${ASSET_BASE}data/AcademeMate - Academic Year.csv`,
 }
 
 // --- Study Log ------------------------------------------------------------
@@ -322,6 +324,29 @@ function parseCalendar(rows, resolveCourse) {
     })
 }
 
+// --- Academic Year (quarter/holiday structure) ---------------------------
+
+// Flat rows: year, period (Q1..Q4 or Holiday), label (holidays), start, finish.
+// Output shape: [{ year, quarters: { Q1: {start, finish}, … }, holidays: [{label, start, finish}] }]
+function parseAcademicYears(rows) {
+  const byYear = new Map()
+  for (const r of parseCSVRows(rows)) {
+    const year = String(r.year || '').trim()
+    if (!year) continue
+    const period = String(r.period || '').trim().toUpperCase()
+    if (!byYear.has(year)) byYear.set(year, { year, quarters: {}, holidays: [] })
+    const y = byYear.get(year)
+    const start = parseDateDDMMYYYY((r.start || '').trim())
+    const finish = parseDateDDMMYYYY((r.finish || '').trim())
+    if (/^Q[1-4]$/.test(period)) {
+      y.quarters[period] = { start, finish }
+    } else if (period === 'HOLIDAY') {
+      y.holidays.push({ label: (r.label || '').trim(), start, finish })
+    }
+  }
+  return [...byYear.values()].sort((a, b) => a.year.localeCompare(b.year))
+}
+
 // --- Aggregation ---------------------------------------------------------
 
 export function attachCourseGrades(courses, gradeComponents) {
@@ -353,6 +378,7 @@ export function parseAll(rowsByTab) {
     weeklyOverrides: parseWeeklyOverrides(parseCSVRows(rowsByTab[TAB_HOURS] || [])),
     calendarEvents: parseCalendar(parseCSVRows(rowsByTab[TAB_CALENDAR] || []), resolveCourse),
     additionalLog: parseAdditionalLog(parseCSVRows(rowsByTab[TAB_ADDITIONAL] || [])),
+    academicYears: parseAcademicYears(rowsByTab[TAB_ACADEMIC_YEAR] || []),
   }
 }
 

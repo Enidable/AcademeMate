@@ -191,7 +191,7 @@ function CorrelationCard({ title, points, xLabel, yLabel }) {
 
 export default function Analysis() {
   const {
-    inputLog, additionalLog, dailyPlan, masterCourses, gradeComponents,
+    inputLog, additionalLog, dailyPlan, masterCourses, gradeComponents, academicYears,
   } = useAppData()
 
   const [gran, setGran] = useState('week')
@@ -396,9 +396,18 @@ export default function Analysis() {
   // --- Quartile analysis ---------------------------------------------------
   // Sessions are assigned to the (year, quartile) of their course, then per
   // period: total hours, weeks spanned, average h/week, h/course/week and
-  // average hours per weekday.
+  // average hours per weekday. When the Academic Year structure is defined
+  // (Courses tab), its Q1-Q4 date ranges supply the period's start/end dates;
+  // otherwise they fall back to the courses'/sessions' spans.
   const quartileStats = useMemo(() => {
     const meta = new Map((masterCourses || []).map(c => [c.course, c]))
+    // Defined quartile ranges: "2026 · Q1" -> {start, finish}
+    const definedRanges = new Map()
+    for (const ay of academicYears || []) {
+      for (const [period, q] of Object.entries(ay.quarters || {})) {
+        if (q?.start || q?.finish) definedRanges.set(`${ay.year} · ${period}`, { start: q.start, finish: q.finish })
+      }
+    }
     const groups = new Map()
     for (const e of inputLog || []) {
       if (!e.date || !(e.durationHours > 0)) continue
@@ -424,14 +433,14 @@ export default function Analysis() {
       const endMon = mondayOf(g.max)
       const weeks = Math.max(1, Math.round((new Date(endMon + 'T12:00:00') - new Date(startMon + 'T12:00:00')) / 604800000) + 1)
       const nCourses = g.courses.size
-      // Quartile period: earliest course start -> latest course finish across
-      // the courses that make up this quartile. Falls back to the session span
-      // when a course has no dates.
+      // Period dates: the Academic Year definition wins; otherwise earliest
+      // course start -> latest course finish; otherwise the session span.
+      const defined = definedRanges.get(g.key)
       const courseDates = [...g.courses].map(n => meta.get(n)).filter(Boolean)
       const starts = courseDates.map(c => c.start).filter(Boolean)
       const finishes = courseDates.map(c => c.finish).filter(Boolean)
-      const startDate = starts.length ? starts.reduce((a, b) => a < b ? a : b) : g.min
-      const endDate = finishes.length ? finishes.reduce((a, b) => a > b ? a : b) : g.max
+      const startDate = defined?.start || (starts.length ? starts.reduce((a, b) => a < b ? a : b) : g.min)
+      const endDate = defined?.finish || (finishes.length ? finishes.reduce((a, b) => a > b ? a : b) : g.max)
       return {
         key: g.key,
         start: startDate,
@@ -444,7 +453,7 @@ export default function Analysis() {
         dayAvg: g.dayHours.map(h => h / weeks),
       }
     }).sort((a, b) => a.key.localeCompare(b.key))
-  }, [inputLog, masterCourses])
+  }, [inputLog, masterCourses, academicYears])
 
   // --- Per-course outcomes --------------------------------------------------
   const courseOutcomes = useMemo(() => {

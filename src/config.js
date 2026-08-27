@@ -47,6 +47,7 @@ export const TAB_DAILY = 'Daily Plan'
 export const TAB_HOURS = 'Weekly Totals'
 export const TAB_CALENDAR = 'Calendar'
 export const TAB_ADDITIONAL = 'Additional Time Log'
+export const TAB_ACADEMIC_YEAR = 'Academic Year'
 
 // Content item types: lectures/lectorials/tutorials/practicals are *scheduled*
 // (they have a `date`), assessments are *due* (they have a `deadline`).
@@ -78,7 +79,7 @@ export const DEADLINE_TYPES = new Set([
   'presentation',
 ])
 
-export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR, TAB_ADDITIONAL]
+export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR, TAB_ADDITIONAL, TAB_ACADEMIC_YEAR]
 
 // Categories logged in the "Additional Time Log" tab (work, other obligations,
 // commute, exercise). These hours are logged and count toward total weekly

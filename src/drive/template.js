@@ -3,7 +3,7 @@
 // fallback reads.
 
 import { parseCSVRaw } from '../utils/csv'
-import { ASSET_BASE, TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR } from '../config'
+import { ASSET_BASE, TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR, TAB_ACADEMIC_YEAR } from '../config'
 
 const TEMPLATE_FILES = {
   [TAB_STUDY_LOG]: `${ASSET_BASE}data/AcademeMate - Study Log.csv`,
@@ -13,6 +13,7 @@ const TEMPLATE_FILES = {
   [TAB_DAILY]: `${ASSET_BASE}data/AcademeMate - Daily Plan.csv`,
   [TAB_HOURS]: `${ASSET_BASE}data/AcademeMate - Weekly Totals.csv`,
   [TAB_CALENDAR]: `${ASSET_BASE}data/AcademeMate - Calendar.csv`,
+  [TAB_ACADEMIC_YEAR]: `${ASSET_BASE}data/AcademeMate - Academic Year.csv`,
 }
 
 export async function fetchTemplateRows() {

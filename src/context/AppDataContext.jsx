@@ -10,6 +10,7 @@ import {
   serializeWeeklyOverrides,
   serializeCalendar,
   serializeAdditionalLog,
+  serializeAcademicYears,
 } from '../data/serialize'
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
@@ -46,6 +47,7 @@ import {
   TAB_HOURS,
   TAB_CALENDAR,
   TAB_ADDITIONAL,
+  TAB_ACADEMIC_YEAR,
   ASSET_BASE,
 } from '../config'
 
@@ -311,6 +313,7 @@ const TITLE_BY_KEY = {
   weeklyTotals: TAB_HOURS,
   calendarEvents: TAB_CALENDAR,
   additionalLog: TAB_ADDITIONAL,
+  academicYears: TAB_ACADEMIC_YEAR,
 }
 
 function serializeTabByTitle(title, data, _planner) {
@@ -325,6 +328,7 @@ function serializeTabByTitle(title, data, _planner) {
     case TAB_DAILY: return serializeDailyPlan(data?.dailyPlan, codeMap)
     case TAB_CALENDAR: return serializeCalendar(data?.calendarEvents, codeMap)
     case TAB_ADDITIONAL: return serializeAdditionalLog(data?.additionalLog)
+    case TAB_ACADEMIC_YEAR: return serializeAcademicYears(data?.academicYears)
     default: return []
   }
 }
@@ -2033,6 +2037,14 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     syncTabs(['additionalLog'])
   }
 
+  // Academic year structure (Q1-Q4 date ranges + holidays). Saved to its own
+  // tab so the Analysis tab can compute per-quartile time investment.
+  function updateAcademicYears(years) {
+    const prev = dataRef.current || {}
+    setAll({ ...prev, academicYears: years }, plannerRef.current)
+    syncTabs(['academicYears'])
+  }
+
   return (
     <AppDataContext.Provider value={{
       inputLog: data?.studyLog || [],
@@ -2046,6 +2058,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       dailyPlan: data?.dailyPlan || [],
       calendarEvents: data?.calendarEvents || [],
       additionalLog: data?.additionalLog || [],
+      academicYears: data?.academicYears || [],
       loading,
       error,
       drive,
@@ -2088,6 +2101,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       addAdditionalEntry,
       updateAdditionalEntry,
       deleteAdditionalEntry,
+      updateAcademicYears,
     }}>
       {children}
     </AppDataContext.Provider>

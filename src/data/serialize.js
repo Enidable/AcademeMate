@@ -13,6 +13,7 @@ export const DAILY_PLAN_HEADER = 'date,course_id,task,planned_hours,actual_hours
 export const WEEKLY_TOTALS_HEADER = 'year,week,total_hours,notes'
 export const CALENDAR_HEADER = 'date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id'
 export const ADDITIONAL_HEADER = 'date,category,task,hours,notes,done'
+export const ACADEMIC_YEAR_HEADER = 'year,period,label,start,finish'
 
 const splitHeader = h => h.split(',')
 
@@ -164,4 +165,19 @@ export function serializeCalendar(events, codeMap) {
     e.calId || '',
   ])
   return [splitHeader(CALENDAR_HEADER), ...rows]
+}
+
+// Academic year structure: one row per period. period is Q1..Q4 or Holiday;
+// holidays carry a label, quarters don't. Dates serialised as dd/mm/yyyy.
+export function serializeAcademicYears(years) {
+  const rows = []
+  for (const y of years || []) {
+    for (const [period, q] of Object.entries(y.quarters || {})) {
+      rows.push([y.year, period, '', isoDateToDDMMYYYY(q?.start), isoDateToDDMMYYYY(q?.finish)])
+    }
+    for (const h of y.holidays || []) {
+      rows.push([y.year, 'Holiday', h.label || '', isoDateToDDMMYYYY(h.start), isoDateToDDMMYYYY(h.finish)])
+    }
+  }
+  return [splitHeader(ACADEMIC_YEAR_HEADER), ...rows]
 }

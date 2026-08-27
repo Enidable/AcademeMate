@@ -4,6 +4,7 @@ import { useAppData } from '../context/AppDataContext'
 import { deriveAbbrev } from '../drive/driveClient'
 import { AddCourseModal } from '../components/forms/Modals'
 import CourseDetail from '../components/CourseDetail'
+import AcademicYearEditor from '../components/AcademicYearEditor'
 
 const statusColors = {
   'Completed': 'bg-green-100 text-green-700',
@@ -23,7 +24,7 @@ const TYPE_LABELS = { exam: 'Exam', assignment: 'Assignment', presentation: 'Pre
 const COMPONENT_COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#eab308', '#3b82f6', '#f97316', '#a855f7', '#22c55e']
 
 export default function Courses({ courses }) {
-  const { inputLog, gradeComponents, deleteCourse, updateCourse, reorderCourses } = useAppData()
+  const { inputLog, gradeComponents, deleteCourse, updateCourse, reorderCourses, academicYears, updateAcademicYears } = useAppData()
   const [editing, setEditing] = useState(null)
   const [viewing, setViewing] = useState(null)
   const [sortBy, setSortBy] = useState('custom')
@@ -143,6 +144,7 @@ export default function Courses({ courses }) {
 
   return (
     <>
+      <AcademicYearEditor academicYears={academicYears} onChange={updateAcademicYears} courses={courses} />
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex items-center gap-1.5">
           {[
