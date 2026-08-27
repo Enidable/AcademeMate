@@ -1094,22 +1094,23 @@ export function AppDataProvider({ children }) {
           if (abbrMatch) course = abbrMatch.course
         }
       }
-      return {
-        id: `${ev.id}|${date}|${startTime}`,
-        date,
-        startTime,
-        endTime,
-        allDay,
-        summary,
-        course,
-        location: (ev.location || '').trim() || null,
-        description: (ev.description || '').trim() || null,
-        source: calendarSummary || calendarId,
-        uid: ev.id,
-        status: null,
-        lectureId: null,
-        calId: null,
-      }
+return {
+          id: `${ev.id}|${date}|${startTime}`,
+          date,
+          startTime,
+          endTime,
+          allDay,
+          summary,
+          course,
+          location: (ev.location || '').trim() || null,
+          description: (ev.description || '').trim() || null,
+          source: calendarSummary || calendarId,
+          uid: ev.id,
+          status: null,
+          lectureId: null,
+          calId: null,
+          personalImport: true,
+        }
     }).filter(Boolean)
 
     const existing = dataRef.current?.calendarEvents || []
@@ -1185,7 +1186,7 @@ export function AppDataProvider({ children }) {
     // id (update instead of a fresh insert), and surplus exact duplicates a past
     // bug left behind get removed — so re-pushes converge instead of piling up.
     const unlinked = [
-      ...events.filter(e => isDate(e.date) && !e.calId),
+      ...events.filter(e => isDate(e.date) && !e.calId && !e.personalImport),
       ...deadlines.filter(i => isDate(i.deadline) && !i.calId),
     ]
     const existingByKey = new Map()
@@ -1226,7 +1227,7 @@ export function AppDataProvider({ children }) {
     // sharing the exam component ID) must not create a second copy — skip any
     // exam-type content row that falls on a day the timetable already covers.
     const examEventDays = new Set(
-      events.filter(e => isDate(e.date)).map(e => `${e.course || ''}|${e.date}`),
+      events.filter(e => isDate(e.date) && !e.personalImport).map(e => `${e.course || ''}|${e.date}`),
     )
     // Leftover safety net: a content row that shares an event's Google id
     // would PUT the same resource twice in one batch (400).
@@ -1261,6 +1262,7 @@ export function AppDataProvider({ children }) {
 
     for (const ev of events) {
       if (!isDate(ev.date)) continue
+      if (ev.personalImport) continue
       if (ev.calId && deadlineCalIds.has(ev.calId)) continue
       queueOp('event', ev, toGcalEvent(ev, courseColorMap))
     }
