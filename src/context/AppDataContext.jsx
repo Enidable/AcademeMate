@@ -1028,12 +1028,18 @@ export function AppDataProvider({ children }) {
 
     const contentFinal = content.filter(i => !consumed.has(i.id))
 
-    const d = { ...(dataRef.current || {}), calendarEvents: merged, content: contentFinal }
+    // Preserve previously imported personal Google Calendar events. They are NOT
+    // part of the .ics timetable and must survive an .ics re-import — otherwise
+    // the Calendar tab silently loses them every time the timetable is refreshed.
+    const personalImports = existing.filter(e => e.personalImport || (e.source && !String(e.source).endsWith('.ics')))
+    const calendarFinal = [...merged, ...personalImports]
+
+    const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: contentFinal }
     const planner = plannerRef.current || []
     setAll(d, planner)
     const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
     await writeTabsBatch(info.fileId, {
-      [TAB_CALENDAR]: serializeCalendar(merged, codeMap),
+      [TAB_CALENDAR]: serializeCalendar(calendarFinal, codeMap),
       [TAB_CONTENT]: serializeContent(contentFinal, codeMap),
     })
     return { imported: merged.length, files: files.length }
@@ -1117,19 +1123,23 @@ return {
     const existingKeys = new Set(existing.map(e => `${e.uid}|${e.date}|${e.startTime}`))
     const seen = new Set()
     let added = 0
+    // Build a NEW array (spread) so the calendarEvents reference changes and the
+    // calendar view recomputes its day map — mutating the live array in place
+    // left newly imported events invisible until the next reload.
+    const merged = [...existing]
     for (const r of rows) {
       const k = `${r.uid}|${r.date}|${r.startTime}`
       if (existingKeys.has(k) || seen.has(k)) continue
       seen.add(k)
-      existing.push(r)
+      merged.push(r)
       added += 1
     }
 
-    const d = { ...(dataRef.current || {}), calendarEvents: existing }
+    const d = { ...(dataRef.current || {}), calendarEvents: merged }
     setAll(d, plannerRef.current)
     const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
     await writeTabsBatch(info.fileId, {
-      [TAB_CALENDAR]: serializeCalendar(existing, codeMap),
+      [TAB_CALENDAR]: serializeCalendar(merged, codeMap),
     })
     return { imported: rows.length, added, source: calendarSummary || calendarId }
   }
