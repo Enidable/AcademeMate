@@ -1373,17 +1373,29 @@ return {
       }
     }
 
+    // Delete personal calendar import events that were previously pushed to the
+    // AcademeMate Google Calendar. These should only exist locally for time-blocking
+    // visibility, not on the shared calendar.
+    const personalImportCalIds = new Set(
+      events.filter(e => e.personalImport && e.calId).map(e => e.calId)
+    )
+    for (const calId of personalImportCalIds) {
+      await deleteCalendarEvent(calId, calendarId)
+    }
+
     // Internal duplicates spotted before insert are dropped from the local
     // data too, so the next load/push doesn't resurrect them.
     const eventsFinal = dupRefs.size > 0 ? events.filter(e => !dupRefs.has(e)) : events
+    // Clear calId from personal import events so they never get re-pushed
+    const eventsFinalClean = eventsFinal.map(e => e.personalImport && e.calId ? { ...e, calId: null } : e)
     const contentFinal = dupRefs.size > 0 ? (data.content || []).filter(i => !dupRefs.has(i)) : data.content
 
     saveCalFp(fp)
 
-    if (applied.size > 0 || dupRefs.size > 0) {
+    if (applied.size > 0 || dupRefs.size > 0 || personalImportCalIds.size > 0) {
       // cal_ids were written onto the source objects above, so the in-memory
       // data already carries them — no re-keying by id needed.
-      const d = { ...data, calendarEvents: eventsFinal, content: contentFinal }
+      const d = { ...data, calendarEvents: eventsFinalClean, content: contentFinal }
       dataRef.current = d
       saveJSON({ data: d, plannerWeeks: plannerRef.current, weeklyHours: weeklyRef.current })
       setData(d)
@@ -1391,7 +1403,7 @@ return {
       if (info) {
         const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
         await writeTabsBatch(info.fileId, {
-          [TAB_CALENDAR]: serializeCalendar(eventsFinal, codeMap),
+          [TAB_CALENDAR]: serializeCalendar(eventsFinalClean, codeMap),
           [TAB_CONTENT]: serializeContent(contentFinal, codeMap),
         })
       }
