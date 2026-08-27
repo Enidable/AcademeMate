@@ -11,6 +11,13 @@ import { ADDITIONAL_CATEGORIES } from '../config'
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const ADDITIONAL_SET = new Set(ADDITIONAL_CATEGORIES)
 
+// Personal-calendar events whose title/description mark them as work land in
+// the "Work" additional-time row (never counted as study). Matches English
+// ("work", "shift", "job") and German ("arbeit", "arbeitstag", "schicht",
+// "dienst") work words, among others.
+const WORK_RE = /(^|[^a-z0-9])work(s|ing|ed|day|days)?([^a-z0-9]|$)|arbeit|schicht|dienst|shift|job|client|kunde|werktag/i
+const isWorkEvent = e => WORK_RE.test(`${e.summary || ''} ${e.description || ''}`)
+
 function pad(n) {
   return String(n).padStart(2, '0')
 }
@@ -405,12 +412,17 @@ export default function DailyPlanner({ onLogTask }) {
       if (!e.date || !dates.includes(e.date)) continue
       let rowName = e.course || ''
       if (!rowName) {
-        if ((e.source || '').trim() !== 'Gym Time') continue
-        rowName = 'Exercise'
+        // Imported personal calendars (no course): route by title/source —
+        // work-titled events into the Work additional-time row, "Gym Time"
+        // imports into the Exercise row, everything else stays out of the plan.
+        if (isWorkEvent(e)) rowName = 'Work'
+        else if ((e.source || '').trim() !== 'Gym Time') continue
+        else rowName = 'Exercise'
       } else {
         courseRows.add(rowName)
       }
-      const noteItem = rowName !== 'Exercise' && e.lectureId ? noteById.get(`${rowName}|${e.lectureId}`) : null
+      const isAdditional = rowName === 'Work' || rowName === 'Exercise'
+      const noteItem = !isAdditional && e.lectureId ? noteById.get(`${rowName}|${e.lectureId}`) : null
       const k = `${rowName}|${e.date}`
       if (!map[k]) map[k] = []
       map[k].push({
@@ -422,10 +434,10 @@ export default function DailyPlanner({ onLogTask }) {
         date: e.date,
         startTime: e.startTime || '',
         endTime: e.endTime || '',
-        lectureId: rowName !== 'Exercise' ? (e.lectureId || '') : '',
+        lectureId: !isAdditional ? (e.lectureId || '') : '',
         type: inferEventType(e.summary, e.description),
         course: rowName,
-        loggable: rowName !== 'Exercise',
+        loggable: !isAdditional,
       })
     }
     map.__courses = [...courseRows]
@@ -810,7 +822,7 @@ export default function DailyPlanner({ onLogTask }) {
       )}
 
       <div className="text-xs text-slate-400 italic">
-        Type straight into a course row to plan a task (Enter confirms, optional “h” field sets the estimate). “+” opens a form with a note field for an extra entry. Hours sit on the right of each to-do. Scheduled classes and imported calendar events (lectures, Gym Time, …) appear automatically as read-only entries with their duration; lectures also show their syllabus note (hover for the full text). Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Additional-time rows are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
+        Type straight into a course row to plan a task (Enter confirms, optional “h” field sets the estimate). “+” opens a form with a note field for an extra entry. Hours sit on the right of each to-do. Scheduled classes and imported calendar events (lectures, Gym Time, work-titled entries, …) appear automatically as read-only entries with their duration; lectures also show their syllabus note (hover for the full text). Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Additional-time rows are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
       </div>
     </div>
   )
