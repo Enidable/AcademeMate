@@ -5,6 +5,21 @@ import { formatDateShort, getCourseStyle } from '../utils/helpers'
 import { isoWeekOf, weekdayIndex } from '../data/normalize'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+// Subtle heat-map background for an hour value scaled against the range's max.
+// Low values lean warm (orange), high values cool (blue) — kept light so the
+// numbers stay readable. Returns a style object (or null to leave transparent).
+function heatStyle(v, max) {
+  if (!(v > 0) || !(max > 0)) return null
+  const t = Math.min(1, v / max)
+  const lo = [251, 146, 60] // orange-400
+  const hi = [59, 130, 246] // blue-500
+  const r = Math.round(lo[0] + (hi[0] - lo[0]) * t)
+  const g = Math.round(lo[1] + (hi[1] - lo[1]) * t)
+  const b = Math.round(lo[2] + (hi[2] - lo[2]) * t)
+  const alpha = 0.10 + 0.30 * t
+  return { backgroundColor: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})` }
+}
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ScatterChart, Scatter,
@@ -247,6 +262,8 @@ export default function Analysis() {
         cols,
         dayAvg: dayTotals.map(h => (maxWeek ? h / maxWeek : 0)),
         yearAvg: cols.reduce((s, c) => s + c.total, 0) / (maxWeek || 1),
+        maxTotal: cols.reduce((m, c) => Math.max(m, c.total), 0),
+        maxDay: cols.reduce((m, c) => c.day.reduce((mm, v) => Math.max(mm, v), m), 0),
       }
     })
   }, [entries])
@@ -527,7 +544,8 @@ export default function Analysis() {
         <h2 className="text-sm font-semibold text-slate-700 mb-1">Weekly hours by weekday</h2>
         <p className="text-[10px] text-slate-400 mb-3">
           Hours per work week (ISO), split by weekday — matches the Work Week grid in your Master Tracker.
-          The <span className="font-medium text-slate-500">Year [h]</span> row is that week's total.
+          The <span className="font-medium text-slate-500">Year [h]</span> row is that week's total. Cells are tinted by
+          intensity: warm (orange) for low hours, cool (blue) for high.
         </p>
         {weeklyBreakdown.length === 0 ? (
           <p className="text-xs text-slate-400 py-4 text-center">No session data in this range.</p>
@@ -556,14 +574,14 @@ export default function Analysis() {
                         <tr className="border-b border-slate-100 bg-slate-50/60">
                           <td className="px-2 py-1.5 font-semibold text-slate-700">{y.year} [h]</td>
                           {y.cols.map(c => (
-                            <td key={c.week} className="px-1 py-1.5 text-center tabular-nums font-semibold text-slate-800">{c.total > 0 ? c.total.toFixed(1) : ''}</td>
+                            <td key={c.week} style={heatStyle(c.total, y.maxTotal)} className="px-1 py-1.5 text-center tabular-nums font-semibold text-slate-800">{c.total > 0 ? c.total.toFixed(1) : ''}</td>
                           ))}
                         </tr>
                         {DOW.map((d, di) => (
                           <tr key={d} className="border-b border-slate-50">
                             <td className="px-2 py-1 text-slate-500">{d}</td>
                             {y.cols.map(c => (
-                              <td key={c.week} className={`px-1 py-1 text-center tabular-nums ${c.day[di] > 0 ? 'text-slate-600' : 'text-slate-300'}`}>
+                              <td key={c.week} style={heatStyle(c.day[di], y.maxDay)} className={`px-1 py-1 text-center tabular-nums ${c.day[di] > 0 ? 'text-slate-600' : 'text-slate-300'}`}>
                                 {c.day[di] > 0 ? c.day[di].toFixed(1) : ''}
                               </td>
                             ))}
