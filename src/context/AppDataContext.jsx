@@ -1163,6 +1163,17 @@ return {
 
     const fp = loadCalFp()
     const fpKey = id => `${calendarId}::${id}`
+
+    // If calendar was recreated (new calendarId), stale calIds on events will cause
+    // 404s on PUT. Clear calId for events whose fingerprint doesn't exist for
+    // this calendarId, so they get fresh INSERTs instead.
+    for (const ev of events) {
+      if (ev.calId && !fp[fpKey(ev.calId)]) ev.calId = null
+    }
+    for (const item of deadlines) {
+      if (item.calId && !fp[fpKey(item.calId)]) item.calId = null
+    }
+
     const ops = []
     const opGroups = []
     const failReason = (res) => {
@@ -1336,8 +1347,9 @@ return {
         if (!group || group.length === 0) return
         const ok = res?.data?.id && res.status >= 200 && res.status < 300
         if (ok) group.forEach(p => record(p, res.data.id, dedupOps[i].method))
-        else if (dedupOps[i].method === 'PUT' && res?.status === 404) {
-          // Event was deleted on the calendar since the last push — re-insert.
+        else if (dedupOps[i].method === 'PUT' && (res?.status === 404 || res?.status === 403)) {
+          // Event was deleted on the calendar since the last push, or permission
+          // issue (e.g. calendar recreated) — re-insert.
           retryList.push(...group)
         } else {
           for (const p of group) {
