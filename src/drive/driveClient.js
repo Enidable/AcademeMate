@@ -208,9 +208,10 @@ export async function ensureCalendar(name = 'AcademeMate') {
 }
 
 // Exam events are always Tomato (11) — a colour that non-exam events never use.
-// Exams are recognised by the word "exam" in the event's summary or description.
+// Exams are recognised by the word "exam" (or "resit") in the event's summary
+// or description.
 export function isExamEvent(ev) {
-  return /exam/i.test(`${ev.summary || ''} ${ev.description || ''}`)
+  return /exam|resit/i.test(`${ev.summary || ''} ${ev.description || ''}`)
 }
 
 // A symbol per event type, used to make different types recognisable at a

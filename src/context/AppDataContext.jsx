@@ -1246,6 +1246,17 @@ return {
       deadlines.filter(i => isDate(i.deadline) && i.calId).map(i => i.calId),
     )
 
+    // An exam-type content row whose day is already covered by a timetable
+    // event is skipped in the deadline loop below (examEventDays). When such a
+    // row shares its event's cal_id (imported exams are mirrored into the
+    // syllabus this way), the deadlineCalIds guard below would ALSO skip the
+    // event — double-skipping the exam so it never reaches Google Calendar.
+    // Detect that case so the timetable exam event is still pushed (Tomato-red).
+    const sharedDeadlineIsSkippedExam = calId => {
+      const shared = deadlines.find(i => i.calId === calId)
+      return !!shared && shared.type === 'exam' && examEventDays.has(`${shared.course || ''}|${shared.deadline}`)
+    }
+
     // Never insert more than one fresh copy of the same payload per push:
     // extra local rows that match an already-planned insert are internal
     // duplicates — they get dropped locally instead of multiplying on Google.
@@ -1276,7 +1287,7 @@ return {
       if (ev.personalImport) continue
       // Also skip events imported from Google Calendar (source is calendar name, not .ics file)
       if (ev.source && !String(ev.source).endsWith('.ics')) continue
-      if (ev.calId && deadlineCalIds.has(ev.calId)) continue
+      if (ev.calId && deadlineCalIds.has(ev.calId) && !sharedDeadlineIsSkippedExam(ev.calId)) continue
       queueOp('event', ev, toGcalEvent(ev, courseColorMap))
     }
 
