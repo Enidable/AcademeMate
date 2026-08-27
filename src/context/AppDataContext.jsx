@@ -1186,7 +1186,7 @@ return {
     // id (update instead of a fresh insert), and surplus exact duplicates a past
     // bug left behind get removed — so re-pushes converge instead of piling up.
     const unlinked = [
-      ...events.filter(e => isDate(e.date) && !e.calId && !e.personalImport),
+      ...events.filter(e => isDate(e.date) && !e.calId && !e.personalImport && !(e.source && !String(e.source).endsWith('.ics'))),
       ...deadlines.filter(i => isDate(i.deadline) && !i.calId),
     ]
     const existingByKey = new Map()
@@ -1227,7 +1227,7 @@ return {
     // sharing the exam component ID) must not create a second copy — skip any
     // exam-type content row that falls on a day the timetable already covers.
     const examEventDays = new Set(
-      events.filter(e => isDate(e.date) && !e.personalImport).map(e => `${e.course || ''}|${e.date}`),
+      events.filter(e => isDate(e.date) && !e.personalImport && !(e.source && !String(e.source).endsWith('.ics'))).map(e => `${e.course || ''}|${e.date}`),
     )
     // Leftover safety net: a content row that shares an event's Google id
     // would PUT the same resource twice in one batch (400).
@@ -1263,6 +1263,8 @@ return {
     for (const ev of events) {
       if (!isDate(ev.date)) continue
       if (ev.personalImport) continue
+      // Also skip events imported from Google Calendar (source is calendar name, not .ics file)
+      if (ev.source && !String(ev.source).endsWith('.ics')) continue
       if (ev.calId && deadlineCalIds.has(ev.calId)) continue
       queueOp('event', ev, toGcalEvent(ev, courseColorMap))
     }
@@ -1376,8 +1378,9 @@ return {
     // Delete personal calendar import events that were previously pushed to the
     // AcademeMate Google Calendar. These should only exist locally for time-blocking
     // visibility, not on the shared calendar.
+    // Also catch old imports (before personalImport flag was added) by checking source.
     const personalImportCalIds = new Set(
-      events.filter(e => e.personalImport && e.calId).map(e => e.calId)
+      events.filter(e => (e.personalImport || (e.source && !String(e.source).endsWith('.ics'))) && e.calId).map(e => e.calId)
     )
     for (const calId of personalImportCalIds) {
       await deleteCalendarEvent(calId, calendarId)
@@ -1387,7 +1390,9 @@ return {
     // data too, so the next load/push doesn't resurrect them.
     const eventsFinal = dupRefs.size > 0 ? events.filter(e => !dupRefs.has(e)) : events
     // Clear calId from personal import events so they never get re-pushed
-    const eventsFinalClean = eventsFinal.map(e => e.personalImport && e.calId ? { ...e, calId: null } : e)
+    // Also clear for old imports identified by source (not .ics file)
+    const isPersonalImport = e => e.personalImport || (e.source && !String(e.source).endsWith('.ics'))
+    const eventsFinalClean = eventsFinal.map(e => isPersonalImport(e) && e.calId ? { ...e, calId: null } : e)
     const contentFinal = dupRefs.size > 0 ? (data.content || []).filter(i => !dupRefs.has(i)) : data.content
 
     saveCalFp(fp)
