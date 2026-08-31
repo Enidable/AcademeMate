@@ -76,17 +76,22 @@ export function hoursForPlan(planId, studyLog) {
 // Drive a Daily Planner row's state from its linked Study Log sessions
 // (milestone 3): actual hours = sum of the linked sessions' durations; the item
 // is done while it has sessions and reopens (done + actual hours cleared) once
-// the last one is deleted. This is the canonical plan↔session write-back — no
-// component reaches across tables ad hoc anymore.
+// the last one is deleted. Auto-logged boxes (notes === "auto-logged") exist
+// only for their session, so they are removed entirely when it's gone. This is
+// the canonical plan↔session write-back — no component reaches across tables ad
+// hoc anymore.
 export function syncPlannerFromSessions(planId, studyLog, dailyPlan) {
   if (!planId) return dailyPlan || []
   const sessions = sessionsForPlan(planId, studyLog)
   const hours = sessions.reduce((sum, s) => sum + (s.durationHours || 0), 0)
-  return (dailyPlan || []).map(r => {
-    if (r.id !== planId) return r
-    if (sessions.length === 0) return { ...r, done: null, actualHours: null }
-    return { ...r, done: 'done', actualHours: Math.round(hours * 100) / 100 }
-  })
+  const isAuto = r => String(r.notes || '').trim() === 'auto-logged'
+  return (dailyPlan || [])
+    .filter(r => r.id !== planId || sessions.length > 0 || !isAuto(r))
+    .map(r => {
+      if (r.id !== planId) return r
+      if (sessions.length === 0) return { ...r, done: null, actualHours: null }
+      return { ...r, done: 'done', actualHours: Math.round(hours * 100) / 100 }
+    })
 }
 
 // All Study Log sessions referencing a lecture / component ID.

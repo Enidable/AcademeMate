@@ -303,9 +303,13 @@ export const MENU_TAG_SEPARATOR = '||'
 // The user-facing note of a planner row, with any menu tag stripped off.
 export function displayNotes(notes) {
   const n = notes || ''
-  if (!n.startsWith(MENU_TAG_PREFIX)) return n
-  const idx = n.indexOf(MENU_TAG_SEPARATOR)
-  return idx > -1 ? n.slice(idx + MENU_TAG_SEPARATOR.length) : ''
+  if (n.startsWith(MENU_TAG_PREFIX)) {
+    const idx = n.indexOf(MENU_TAG_SEPARATOR)
+    return idx > -1 ? n.slice(idx + MENU_TAG_SEPARATOR.length) : ''
+  }
+  // "auto-logged" marks planner entries created from logged sessions — internal.
+  if (String(n).trim() === 'auto-logged') return ''
+  return n
 }
 
 // The pure "menu:…" tag of a planner row's notes, or null when there is none.

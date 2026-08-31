@@ -252,7 +252,9 @@ function parseDailyPlan(rows, resolveCourse) {
         course,
         task,
         plannedHours: toFloat(r.planned_hours) ?? 0,
-        actualHours: toFloat(r.actual_hours) ?? 0,
+        // Empty actual_hours means "not recorded" (null) — never 0, so the
+        // estimate is shown until a session actually logs hours.
+        actualHours: toFloat(r.actual_hours) ?? null,
         done: (r.done || '').trim() || null,
         notes: (r.notes || '').trim() || null,
       }

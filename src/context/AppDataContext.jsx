@@ -1464,11 +1464,35 @@ return {
 
   function addSession(entry) {
     const prev = dataRef.current || {}
-    const row = { ...entry, id: nextId('session_', (prev.studyLog || []).map(e => e.id)) }
+    let planId = entry.planId || null
+    let dailyPlan = prev.dailyPlan || []
+    if (!planId && entry.date && entry.course) {
+      // A session added without a planner link (Time Log / header button) is
+      // reflected in the Daily Planner: attach to the course's open task for
+      // that day if one exists, else create a checked-off entry for the session
+      // so every logged session shows up on its day.
+      const open = (dailyPlan || []).find(r => r.date === entry.date && r.course === entry.course && !r.done)
+      if (open) {
+        planId = open.id
+      } else {
+        const task = entry.notes || entry.project || entry.lectureId || entry.category || 'Logged study session'
+        const row = {
+          id: nextId('plan_', (dailyPlan || []).map(r => r.id)),
+          date: entry.date,
+          course: entry.course || '',
+          task,
+          plannedHours: 0,
+          actualHours: entry.durationHours || 0,
+          done: 'done',
+          notes: 'auto-logged',
+        }
+        dailyPlan = [...dailyPlan, row]
+        planId = row.id
+      }
+    }
+    const row = { ...entry, planId, id: nextId('session_', (prev.studyLog || []).map(e => e.id)) }
     const studyLog = [row, ...(prev.studyLog || [])]
-    // A session logged from ticking off a Daily Planner item carries its plan_id
-    // — reflect the logged time back on the planner row (done + actual hours).
-    const dailyPlan = syncPlannerFromSessions(row.planId, studyLog, prev.dailyPlan)
+    dailyPlan = syncPlannerFromSessions(planId, studyLog, dailyPlan)
     setAll({ ...prev, studyLog, dailyPlan }, plannerRef.current)
     syncTabs(['studyLog', 'dailyPlan'])
   }

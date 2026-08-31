@@ -751,7 +751,17 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
   }
 
   function deleteTask(id) {
-    if (!window.confirm('Delete this task?')) return
+    const row = (dailyPlan || []).find(r => r.id === id)
+    const linked = row?.id ? (planSessions[row.id] || []) : []
+    let msg = 'Delete this task?'
+    if (row && (row.done || linked.length > 0)) {
+      msg = `Delete "${row.task || 'this task'}"?`
+      if (linked.length > 0) {
+        msg += ` It has ${linked.length} linked session${linked.length === 1 ? '' : 's'} in the Time Log, which will stay logged.`
+      }
+      msg += ' The Daily Planner entry will be removed.'
+    }
+    if (!window.confirm(msg)) return
     if ((additionalLog || []).some(r => r.id === id)) deleteAdditionalEntry(id)
     else deletePlannerTask(id)
   }
