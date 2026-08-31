@@ -8,9 +8,10 @@ import Analysis from './pages/Analysis'
 import TimeLog from './pages/TimeLog'
 import Courses from './pages/Courses'
 import Calendar from './pages/Calendar'
+import AdditionalTimeLog from './pages/AdditionalTimeLog'
 import DriveSettings from './components/DriveSettings'
 import { AppDataProvider, useAppData } from './context/AppDataContext'
-import { AddSessionModal, AddDeadlineModal, AddCourseModal, PlannerMatchModal } from './components/forms/Modals'
+import { AddSessionModal, AddDeadlineModal, AddCourseModal, PlannerMatchModal, AdditionalLogModal } from './components/forms/Modals'
 import { durationBetween, nowTime, displayNotes } from './utils/helpers'
 
 // Small live clock badge shown next to "Close session" while a session runs.
@@ -33,15 +34,17 @@ const pages = {
   'Time Log': { component: TimeLog, title: 'Time Log' },
   Courses: { component: Courses, title: 'Courses' },
   Calendar: { component: Calendar, title: 'Calendar' },
+  'Additional Time Log': { component: AdditionalTimeLog, title: 'Additional Time Log' },
 }
 
 function AppContent() {
   const [active, setActive] = useState('Dashboard')
-  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, saveMsg, driveError, pushCalendarToGoogle, liveSession, startLiveSession, stopLiveSession, dailyPlan } = useAppData()
+  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, saveMsg, driveError, pushCalendarToGoogle, liveSession, startLiveSession, stopLiveSession, dailyPlan, updatePlannerTask } = useAppData()
   const [modal, setModal] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionPreset, setSessionPreset] = useState(null)
   const [plannerPickOpen, setPlannerPickOpen] = useState(false)
+  const [additionalModal, setAdditionalModal] = useState(null)
   const [syncMsg, setSyncMsg] = useState(null)
 
   // Today's planner items (not-done first, then alphabetical) offered in the
@@ -94,10 +97,10 @@ function AppContent() {
       setPlannerPickOpen(true)
       return
     }
-    finishCloseSession({})
+    openSessionLogger({})
   }
 
-  function finishCloseSession(extra) {
+  function openSessionLogger(extra) {
     setPlannerPickOpen(false)
     const s = stopLiveSession()
     if (!s) return
@@ -113,11 +116,23 @@ function AppContent() {
   }
 
   function pickPlannerItem(item) {
-    finishCloseSession({ course: item.course, notes: item.task || displayNotes(item.notes) || '' })
+    const s = liveSession
+    if (!s) {
+      setPlannerPickOpen(false)
+      return
+    }
+    const end = nowTime()
+    const duration = durationBetween(s.startTime, end)
+    // The task is already done — cross it off and attach the time it took.
+    updatePlannerTask(item.id, {
+      done: 'done',
+      actualHours: duration != null && duration > 0 ? duration : (item.actualHours ?? item.plannedHours ?? 0),
+    })
+    openSessionLogger({ course: item.course, notes: item.task || displayNotes(item.notes) || '' })
   }
 
   function skipPlannerItem() {
-    finishCloseSession({})
+    openSessionLogger({})
   }
 
   const headerActions = {
@@ -127,17 +142,19 @@ function AppContent() {
     'Time Log': { onAddSession: () => { setSessionPreset(null); setModal('session') } },
     Courses: { onAddCourse: () => setModal('course') },
     Calendar: { onAddDeadline: () => setModal('deadline') },
+    'Additional Time Log': { onAddAdditional: () => setAdditionalModal({ preset: null, existingId: null }) },
     Analysis: {},
   }
 
   const pageProps = {
-    Dashboard: { inputLog, courses: masterCourses, deadlines, weeklyHours, gradeComponents, onLogTask: t => { setSessionPreset(t); setModal('session') } },
+    Dashboard: { inputLog, courses: masterCourses, deadlines, weeklyHours, gradeComponents, onLogTask: t => { setSessionPreset(t); setModal('session') }, onLogAdditional: (preset, existingId) => setAdditionalModal({ preset, existingId }) },
     'Time Log': { entries: inputLog },
     Courses: { courses: masterCourses },
     Calendar: {},
     'Weekly Overview': {},
     Analysis: {},
-    'Daily Planner': { onLogTask: t => { setSessionPreset(t); setModal('session') } },
+    'Daily Planner': { onLogTask: t => { setSessionPreset(t); setModal('session') }, onLogAdditional: (preset, existingId) => setAdditionalModal({ preset, existingId }) },
+    'Additional Time Log': { onLogAdditional: (preset, existingId) => setAdditionalModal({ preset, existingId }) },
   }
 
   return (
@@ -162,6 +179,8 @@ function AppContent() {
         onClose={() => setPlannerPickOpen(false)}
         onPick={pickPlannerItem}
         onSkip={skipPlannerItem} />
+      <AdditionalLogModal open={!!additionalModal} preset={additionalModal?.preset} existingId={additionalModal?.existingId}
+        onClose={() => setAdditionalModal(null)} />
       <AddDeadlineModal open={modal === 'deadline'} onClose={() => setModal(null)} />
       <AddCourseModal open={modal === 'course'} onClose={() => setModal(null)} />
       <DriveSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />

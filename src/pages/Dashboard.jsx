@@ -13,7 +13,7 @@ function pad(n) {
 // scheduled classes and additional-time entries. Items can be ticked off right
 // here — ticking a to-do opens the pre-filled session logger, exactly like the
 // planner does.
-function TodayOverview({ onLogTask }) {
+function TodayOverview({ onLogTask, onLogAdditional }) {
   const {
     dailyPlan, additionalLog, calendarEvents, updatePlannerTask, updateAdditionalEntry,
     liveSession, stopLiveSession,
@@ -86,7 +86,15 @@ function TodayOverview({ onLogTask }) {
     })
   }
 
-  const toggleExtra = r => updateAdditionalEntry(r.id, { done: r.done ? null : 'done' })
+  const toggleExtra = r => {
+    // Un-ticking an already-logged item just reopens it; ticking one off opens
+    // its own additional-time logging window (never the study logger).
+    if (r.done) {
+      updateAdditionalEntry(r.id, { done: null })
+      return
+    }
+    if (onLogAdditional) onLogAdditional(r, r.id)
+  }
 
   const TaskLine = ({ checked, label, sub, hours, muted, onToggle }) => (
     <div className="flex items-center gap-2 py-0.5">
@@ -208,7 +216,7 @@ function gradeStats(list, gradeMap) {
   }
 }
 
-export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, gradeComponents, onLogTask }) {
+export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, gradeComponents, onLogTask, onLogAdditional }) {
   const stats = useMemo(() => {
     const { curriculum, extra } = splitByScope(courses)
     const gradeMap = {}
@@ -347,7 +355,7 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
         </div>
 
         <div className="grid grid-cols-1 gap-6">
-          <TodayOverview onLogTask={onLogTask} />
+          <TodayOverview onLogTask={onLogTask} onLogAdditional={onLogAdditional} />
 
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <h2 className="font-semibold text-slate-800 mb-3">Upcoming Deadlines</h2>

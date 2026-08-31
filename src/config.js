@@ -82,9 +82,9 @@ export const DEADLINE_TYPES = new Set([
 export const SHEET_TABS = [TAB_STUDY_LOG, TAB_COURSES, TAB_GRADES, TAB_CONTENT, TAB_DAILY, TAB_HOURS, TAB_CALENDAR, TAB_ADDITIONAL, TAB_ACADEMIC_YEAR]
 
 // Categories logged in the "Additional Time Log" tab (work, other obligations,
-// commute, exercise). These hours are logged and count toward total weekly
-// capacity (burnout tracking) but never toward study sessions.
-export const ADDITIONAL_CATEGORIES = ['Work', 'Other Obligations', 'Commute', 'Exercise']
+// commute, exercise, social obligation). These hours are logged and count
+// toward total weekly capacity (burnout tracking) but never toward study.
+export const ADDITIONAL_CATEGORIES = ['Work', 'Other Obligations', 'Commute', 'Exercise', 'Social Obligation']
 
 // Default pick-lists for the session logger. Users can extend/customise these
 // in the "Manage options" panel of the session modal; overrides are kept in

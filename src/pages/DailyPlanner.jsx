@@ -99,7 +99,7 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue }) {
 // personal calendar item). Course classes get a checkbox that opens the
 // session logger pre-filled with the class's known data. Shows the syllabus
 // note under the summary.
-function AutoTask({ entry, onLog }) {
+function AutoTask({ entry, onLog, onLogAdditional }) {
   return (
     <HoverCard card={
       <div className="space-y-1.5">
@@ -116,9 +116,15 @@ function AutoTask({ entry, onLog }) {
     }>
       <div className="flex items-start gap-1 px-0.5 py-0.5">
         {entry.loggable ? (
-          <input type="checkbox" checked={false} onChange={() => onLog(entry)}
-            title="Log this class as a study session (pre-filled with its course, times, location and lecture ID)"
-            className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0 mt-0.5" />
+          entry.isAdditional ? (
+            <input type="checkbox" checked={false} onChange={() => onLogAdditional(entry)}
+              title="Log this as additional time (work / exercise / obligations) with its own logging window"
+              className="h-3 w-3 accent-amber-600 cursor-pointer shrink-0 mt-0.5" />
+          ) : (
+            <input type="checkbox" checked={false} onChange={() => onLog(entry)}
+              title="Log this class as a study session (pre-filled with its course, times, location and lecture ID)"
+              className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0 mt-0.5" />
+          )
         ) : (
           <span className="w-3 shrink-0" />
         )}
@@ -210,7 +216,7 @@ function CourseRow({
   course, style, isActive, total, isEmptyExtra, dates, today,
   cellTasks, autoTasks, hoursOf, editId, editForm, setEditForm, addCell, cellForm, setCellForm,
   onEdit, onSaveEdit, onCancelEdit, onToggle, onDelete, onOpenAdd, onSaveAdd, onCancelAdd, onRemoveExtraRow,
-  onQuickAdd, onLogAuto, readOnly, draggable, dragging, onRowDragStart, onRowDragOver, onRowDrop,
+  onQuickAdd, onLogAuto, onLogAdditional, readOnly, draggable, dragging, onRowDragStart, onRowDragOver, onRowDrop,
 }) {
   return (
     <tr
@@ -254,7 +260,7 @@ function CourseRow({
                     onDelete={() => onDelete(row.id)} overdue={!row.done && date < today} />
             ))}
             {(autoTasks ? autoTasks(course, date) : []).map(entry => (
-              <AutoTask key={entry.id} entry={entry} onLog={onLogAuto} />
+              <AutoTask key={entry.id} entry={entry} onLog={onLogAuto} onLogAdditional={onLogAdditional} />
             ))}
             {addCell?.course === course && addCell?.date === date ? (
               <AddCellForm form={cellForm} setForm={setCellForm} onSave={onSaveAdd} onCancel={onCancelAdd} />
@@ -312,7 +318,7 @@ function RescheduleRow({ row, options, onReschedule, onSkip }) {
   )
 }
 
-export default function DailyPlanner({ onLogTask }) {
+export default function DailyPlanner({ onLogTask, onLogAdditional }) {
   const {
     dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog, content,
     addPlannerTask, updatePlannerTask, deletePlannerTask, reconcilePastDays,
@@ -512,7 +518,10 @@ export default function DailyPlanner({ onLogTask }) {
         lectureId: !isAdditional ? (e.lectureId || '') : '',
         type: inferEventType(e.summary, e.description),
         course: rowName,
-        loggable: !isAdditional,
+        // Additional-time rows (Work / Exercise) are checkable too — they open
+        // their own logging window (never the study session logger).
+        isAdditional,
+        loggable: true,
       })
     }
     map.__courses = [...courseRows]
@@ -623,7 +632,13 @@ export default function DailyPlanner({ onLogTask }) {
 
   function toggleDone(row) {
     if (row.isAdditional) {
-      updateAdditionalEntry(row.id, { done: row.done ? null : 'done' })
+      // Un-ticking an already-logged additional item just reopens it; ticking
+      // one off opens its own logging window (never the study logger).
+      if (row.done) {
+        updateAdditionalEntry(row.id, { done: null })
+        return
+      }
+      if (onLogAdditional) onLogAdditional(row, row.id)
       return
     }
     if (row.done) {
@@ -786,6 +801,7 @@ export default function DailyPlanner({ onLogTask }) {
                   onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
                   onQuickAdd={quickAddTask}
                   onLogAuto={logClassEntry}
+                  onLogAdditional={onLogAdditional}
                   onRemoveExtraRow={removeExtraRow}
                   draggable
                   dragging={dragCourse === course}
@@ -819,6 +835,7 @@ export default function DailyPlanner({ onLogTask }) {
                   onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
                   onQuickAdd={quickAddTask}
                   onLogAuto={logClassEntry}
+                  onLogAdditional={onLogAdditional}
                   onRemoveExtraRow={removeExtraRow} />
               ))}
               <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">

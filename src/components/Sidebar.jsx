@@ -8,6 +8,7 @@ const navItems = [
   { name: 'Analysis', icon: '📈' },
   { name: 'Courses', icon: '📚' },
   { name: 'Calendar', icon: '📅' },
+  { name: 'Additional Time Log', icon: '🧭' },
 ]
 
 export default function Sidebar({ active, onNavigate }) {

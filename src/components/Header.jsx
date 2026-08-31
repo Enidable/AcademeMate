@@ -1,4 +1,4 @@
-export default function Header({ title, onAddSession, onAddCourse, onAddDeadline, onRefresh, onDrive, hasDrive, syncing }) {
+export default function Header({ title, onAddSession, onAddCourse, onAddDeadline, onAddAdditional, onRefresh, onDrive, hasDrive, syncing }) {
   return (
     <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6">
       <h1 className="text-lg font-semibold text-slate-800">{title}</h1>
@@ -31,6 +31,11 @@ export default function Header({ title, onAddSession, onAddCourse, onAddDeadline
         {onAddDeadline && (
           <button onClick={onAddDeadline} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">
             + Deadline
+          </button>
+        )}
+        {onAddAdditional && (
+          <button onClick={onAddAdditional} className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">
+            + Additional Time
           </button>
         )}
       </div>

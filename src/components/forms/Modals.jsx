@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useAppData } from '../../context/AppDataContext'
 import CourseSelect from '../CourseSelect'
 import { getCourseStyle, isCourseActive } from '../../utils/helpers'
-import { DEFAULT_CATEGORIES, DEFAULT_LOCATIONS, DEFAULT_TRANSPORT, META_OPTIONS_KEY, DEADLINE_TYPES } from '../../config'
+import { DEFAULT_CATEGORIES, DEFAULT_LOCATIONS, DEFAULT_TRANSPORT, META_OPTIONS_KEY, DEADLINE_TYPES, ADDITIONAL_CATEGORIES } from '../../config'
 
 function Modal({ open, onClose, title, children }) {
   if (!open) return null
@@ -661,6 +661,160 @@ export function PlannerMatchModal({ open, items, onClose, onPick, onSkip }) {
         <button type="button" onClick={onClose} className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer">Cancel</button>
         <button type="button" onClick={onSkip} className="text-sm px-4 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Skip — open logger without an item</button>
       </div>
+    </Modal>
+  )
+}
+
+function localISODate() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function seedAdditional(p) {
+  const today = localISODate()
+  if (!p) {
+    return { date: today, category: 'Work', task: '', startTime: '', endTime: '', hours: '', efficiency: '', wellbeing: '', location: '', notes: '' }
+  }
+  return {
+    date: p.date || today,
+    category: p.category || p.course || 'Work',
+    task: p.task || '',
+    startTime: (p.startTime || '').slice(0, 5),
+    endTime: (p.endTime || '').slice(0, 5),
+    hours: p.hours ? String(p.hours) : '',
+    efficiency: p.efficiency != null ? String(p.efficiency) : '',
+    wellbeing: p.wellbeing != null ? String(p.wellbeing) : '',
+    location: p.location || '',
+    notes: p.notes || '',
+  }
+}
+
+// Dedicated logging window for additional-time items (work / exercise / other
+// obligations / commute / social). Opens when checking one of those off in the
+// planner or dashboard, or from the "Additional Time Log" page. Never a study
+// session — these hours count toward weekly capacity, not study.
+export function AdditionalLogModal({ open, onClose, preset, existingId }) {
+  const { addAdditionalEntry, updateAdditionalEntry } = useAppData()
+  const [meta] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(META_OPTIONS_KEY)) || {} } catch { return {} }
+  })
+  const [form, setForm] = useState(() => seedAdditional(preset))
+
+  const locations = meta.locations?.length ? meta.locations : DEFAULT_LOCATIONS
+
+  // Re-seed the form every time the dialog opens (checking off an item always
+  // opens with that item's known data pre-filled).
+  useEffect(() => {
+    if (!open) return
+    setForm(seedAdditional(preset))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  function timeToMin(t) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || ''))
+    return m ? +m[1] * 60 + +m[2] : null
+  }
+
+  // Start + end auto-fill the hours field; a manually typed hours value sticks.
+  function setField(field, value) {
+    setForm(prev => {
+      const next = { ...prev, [field]: value }
+      if (field === 'hours') return next
+      const s = timeToMin(next.startTime)
+      const e = timeToMin(next.endTime)
+      if (s != null && e != null && e > s) next.hours = String(+( (e - s) / 60 ).toFixed(2))
+      return next
+    })
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (!form.category) {
+      alert('Pick a category first.')
+      return
+    }
+    const payload = {
+      date: form.date,
+      category: form.category,
+      task: form.task.trim(),
+      hours: parseFloat(String(form.hours).replace(',', '.')) || 0,
+      startTime: form.startTime ? form.startTime + ':00' : '',
+      endTime: form.endTime ? form.endTime + ':00' : '',
+      efficiency: form.efficiency !== '' ? parseInt(form.efficiency, 10) : null,
+      wellbeing: form.wellbeing !== '' ? parseInt(form.wellbeing, 10) : null,
+      location: form.location || null,
+      notes: form.notes || null,
+      done: 'done',
+    }
+    if (existingId) updateAdditionalEntry(existingId, payload)
+    else addAdditionalEntry(payload)
+    onClose()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={existingId ? 'Edit Additional Time' : 'Log Additional Time'}>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Date *</label>
+            <input type="date" required value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Category *</label>
+            <select required value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+              {ADDITIONAL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">What was it?</label>
+          <input type="text" value={form.task} placeholder="e.g. Evening shift, 5k run, family dinner…" onChange={e => setForm(f => ({ ...f, task: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Start</label>
+            <input type="time" value={form.startTime} onChange={e => setField('startTime', e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">End</label>
+            <input type="time" value={form.endTime} onChange={e => setField('endTime', e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Hours</label>
+            <input type="text" inputMode="decimal" value={form.hours} placeholder="e.g. 2.5" onChange={e => setField('hours', e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Location</label>
+            <select value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+              <option value="">—</option>
+              {locations.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Efficiency (1-10)</label>
+            <ScorePicker value={form.efficiency} onChange={v => setForm(f => ({ ...f, efficiency: v }))} />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Wellbeing (1-10)</label>
+            <ScorePicker value={form.wellbeing} onChange={v => setForm(f => ({ ...f, wellbeing: v }))} />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">Note</label>
+          <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" rows={2} />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="text-sm px-4 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Cancel</button>
+          <button type="submit" className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">{existingId ? 'Save Changes' : 'Log It'}</button>
+        </div>
+      </form>
     </Modal>
   )
 }

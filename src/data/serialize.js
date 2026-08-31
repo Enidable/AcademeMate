@@ -12,7 +12,7 @@ export const CONTENT_HEADER = 'course_id,course_2,content_id,type,topic,date,dea
 export const DAILY_PLAN_HEADER = 'date,course_id,task,planned_hours,actual_hours,done,notes'
 export const WEEKLY_TOTALS_HEADER = 'year,week,total_hours,notes'
 export const CALENDAR_HEADER = 'date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id'
-export const ADDITIONAL_HEADER = 'date,category,task,hours,notes,done'
+export const ADDITIONAL_HEADER = 'date,category,task,hours,start_time,end_time,efficiency,wellbeing,location,notes,done'
 export const ACADEMIC_YEAR_HEADER = 'year,period,label,start,finish'
 
 const splitHeader = h => h.split(',')
@@ -142,6 +142,11 @@ export function serializeAdditionalLog(rows) {
       r.category || '',
       r.task || '',
       num(r.hours, 2),
+      r.startTime || '',
+      r.endTime || '',
+      num(r.efficiency),
+      num(r.wellbeing),
+      r.location || '',
       r.notes || '',
       r.done || '',
     ]),
