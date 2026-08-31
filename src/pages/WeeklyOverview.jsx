@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { formatDateShort, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR, menuTagOfNotes, isWorkEvent } from '../utils/helpers'
 import { inferEventType, typeSymbol } from '../drive/driveClient'
+import HoverCard from '../components/HoverCard'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -64,45 +65,66 @@ function planOptions(anchorISO) {
 
 function ItemCard({ item, assignedDate, today, onAssign }) {
   const isToday = item.fixedDow != null && item.dateISO === today
-  return (
-    <div className={`rounded-lg border px-2 py-1.5 ${isToday ? 'border-indigo-200 bg-indigo-50/50' : assignedDate ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+  // Hover detail: always reveals the full prep note plus WHICH lecture/class
+  // and day it belongs to — a long prep note truncates the card itself, but
+  // the popover shows everything.
+  const detail = (
+    <div className="space-y-1">
+      <div className="flex items-start gap-1.5">
+        <span className="text-sm shrink-0">{item.symbol}</span>
+        <span className="font-medium leading-snug break-words text-slate-800">{item.title}</span>
+      </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-[11px] shrink-0">{item.symbol}</span>
-        <span className={`text-[11px] font-medium truncate flex-1 ${item.kind === 'prep' ? 'text-slate-600' : 'text-slate-700'}`} title={item.title}>{item.title}</span>
+        <span className={`text-[10px] px-1.5 py-px rounded-full font-medium shrink-0 ${KIND_STYLES[item.kind] || 'bg-slate-100 text-slate-500'}`}>{item.kindLabel}</span>
+        {item.course && <span className="text-[11px] text-slate-400 truncate">{item.course}</span>}
       </div>
-      <div className="flex items-center gap-1 mt-0.5">
-        <span className={`text-[9px] px-1.5 py-px rounded-full font-medium shrink-0 ${KIND_STYLES[item.kind] || 'bg-slate-100 text-slate-500'}`}>{item.kindLabel}</span>
-        <span className="text-[10px] text-slate-400 truncate" title={item.when}>{item.when}</span>
-      </div>
-      <div className="mt-1">
-        {/* Classes and appointments are already on their calendar day — show
-            the fixed day instead of a dropdown. Prep work and deadline work
-            are plannable: sort them into any day from five days before their
-            deadline/class date up to that date itself. */}
-        {item.fixedDow != null ? (
-          <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
-            <span className="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-white font-semibold">{DAYS[item.fixedDow]}</span>
-            <span className="text-slate-400">on the calendar</span>
-          </span>
-        ) : (
-          <>
-            {assignedDate && (
-              <span className="text-[10px] text-emerald-600 mr-1" title={`Planned on ${dayLabel(assignedDate)}`}>
-                → {dayLabel(assignedDate).split(' ')[0]}
-              </span>
-            )}
-            <select value={assignedDate || ''} onChange={e => onAssign(item, e.target.value)}
-              title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
-              className={`w-full text-[10px] border rounded px-1 py-0.5 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
-              <option value="">Sort to day…</option>
-              {(item.options || []).map(iso => (
-                <option key={iso} value={iso}>{dayLabel(iso)}</option>
-              ))}
-            </select>
-          </>
-        )}
-      </div>
+      <div className="text-[11px] leading-snug text-slate-600">{item.when}</div>
+      {assignedDate && (
+        <div className="text-[11px] text-emerald-600">→ Planned on {dayLabel(assignedDate)}</div>
+      )}
     </div>
+  )
+  return (
+    <HoverCard card={detail}>
+      <div className={`rounded-lg border px-2 py-1.5 ${isToday ? 'border-indigo-200 bg-indigo-50/50' : assignedDate ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] shrink-0">{item.symbol}</span>
+          <span className={`text-[11px] font-medium truncate flex-1 ${item.kind === 'prep' ? 'text-slate-600' : 'text-slate-700'}`}>{item.title}</span>
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <span className={`text-[9px] px-1.5 py-px rounded-full font-medium shrink-0 ${KIND_STYLES[item.kind] || 'bg-slate-100 text-slate-500'}`}>{item.kindLabel}</span>
+          <span className="text-[10px] text-slate-400 truncate">{item.when}</span>
+        </div>
+        <div className="mt-1">
+          {/* Classes and appointments are already on their calendar day — show
+              the fixed day instead of a dropdown. Prep work and deadline work
+              are plannable: sort them into any day from five days before their
+              deadline/class date up to that date itself. */}
+          {item.fixedDow != null ? (
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+              <span className="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-white font-semibold">{DAYS[item.fixedDow]}</span>
+              <span className="text-slate-400">on the calendar</span>
+            </span>
+          ) : (
+            <>
+              {assignedDate && (
+                <span className="text-[10px] text-emerald-600 mr-1" title={`Planned on ${dayLabel(assignedDate)}`}>
+                  → {dayLabel(assignedDate).split(' ')[0]}
+                </span>
+              )}
+              <select value={assignedDate || ''} onChange={e => onAssign(item, e.target.value)}
+                title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
+                className={`w-full text-[10px] border rounded px-1 py-0.5 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
+                <option value="">Sort to day…</option>
+                {(item.options || []).map(iso => (
+                  <option key={iso} value={iso}>{dayLabel(iso)}</option>
+                ))}
+              </select>
+            </>
+          )}
+        </div>
+      </div>
+    </HoverCard>
   )
 }
 

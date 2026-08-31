@@ -125,6 +125,10 @@ function GradeEditor({ course, abbrev, code }) {
   function updateComp(i, field, value) {
     const next = [...comps]
     next[i] = { ...next[i], [field]: value }
+    // Editing the Project ID also updates the (invisible) name, so the stale
+    // auto-generated name never shadows an edited id on the next save/reload
+    // (#38). An empty id keeps the name until the auto-assign refills it.
+    if (field === 'id') next[i].name = value || next[i].name
     const filled = assignIds(next)
     setComps(filled)
     persist(filled)

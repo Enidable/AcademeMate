@@ -79,7 +79,10 @@ export function serializeGradeComponents(groups, codeMap) {
       rows.push([
         c.rowId || '',
         courseIdFor(codeMap, g.course),
-        c.name || c.id || (c.type && c.type !== 'other' ? c.type.charAt(0).toUpperCase() + c.type.slice(1) : ''),
+        // The component column IS the project/component ID. The user's edited
+        // id must win over the auto-assigned fallback name, otherwise an edited
+        // id reverts to the stale generated one on the next load (#38).
+        c.id || c.name || (c.type && c.type !== 'other' ? c.type.charAt(0).toUpperCase() + c.type.slice(1) : ''),
         (c.type || 'other') === 'other' ? '' : c.type || '',
         num(c.weight, 2),
         num(c.grade, 2),

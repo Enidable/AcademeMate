@@ -1904,7 +1904,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       if (comp.dueDate) {
         next.deadline = comp.dueDate
         next.date = null
-        const label = comp.notes ? `${comp.name || comp.id} · ${comp.notes}` : (comp.name || comp.id)
+        const label = comp.notes ? `${comp.id || comp.name} · ${comp.notes}` : (comp.id || comp.name)
         next.description = i.description || label
         next.topic = i.topic || label
       }
@@ -1923,8 +1923,8 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         course2: null,
         contentId: c.id,
         type: c.type || 'assignment',
-        topic: c.notes ? `${c.name || c.id} · ${c.notes}` : (c.name || c.id),
-        description: c.notes ? `${c.name || c.id} · ${c.notes}` : (c.name || c.id),
+        topic: c.notes ? `${c.id || c.name} · ${c.notes}` : (c.id || c.name),
+        description: c.notes ? `${c.id || c.name} · ${c.notes}` : (c.id || c.name),
         done: c.done || '',
         date: null,
         deadline: c.dueDate,
