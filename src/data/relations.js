@@ -140,3 +140,58 @@ export function sessionsForLecture(lectureId, studyLog) {
 export function sessionsForCourse(course, studyLog) {
   return (studyLog || []).filter(s => s.course === course)
 }
+
+// --- Content ↔ Calendar (milestone 5) -------------------------------------
+// A content item (lecture / deadline) and the calendar event row representing
+// it are linked by stable row ids in both directions (content.calendarId ↔
+// calendarEvent.contentId), backfilled on load from the shared Google calId.
+
+// The calendar event row linked to a content item (by row id, then calId).
+export function calendarForContent(content, calendarEvents) {
+  if (!content) return null
+  if (content.calendarId) {
+    for (const ev of calendarEvents || []) if (ev.id === content.calendarId) return ev
+  }
+  if (content.calId) {
+    for (const ev of calendarEvents || []) if (ev.calId && ev.calId === content.calId) return ev
+  }
+  return null
+}
+
+// The content item a calendar event represents (by row id, then calId).
+export function contentForCalendar(ev, content) {
+  if (!ev) return null
+  if (ev.contentId) {
+    for (const c of content || []) if (c.id === ev.contentId) return c
+  }
+  if (ev.calId) {
+    for (const c of content || []) if (c.calId && c.calId === ev.calId) return c
+  }
+  return null
+}
+
+// Link a content item and a calendar row by stable id (both directions).
+export function linkContentCalendar(content, ev) {
+  if (!content || !ev) return
+  if (content.id) ev.contentId = content.id
+  if (ev.id) content.calendarId = ev.id
+}
+
+// One-time backfill: connect content items and calendar rows that share a
+// Google calId but have no row-id link yet. Idempotent — returns whether any
+// links were made.
+export function relinkContentCalendar(data) {
+  const calByCalId = new Map()
+  for (const ev of data.calendarEvents || []) if (ev.calId) calByCalId.set(ev.calId, ev)
+  let changed = false
+  for (const c of data.content || []) {
+    if (c.calendarId || !c.calId) continue
+    const ev = calByCalId.get(c.calId)
+    if (ev && !ev.contentId) {
+      ev.contentId = c.id
+      c.calendarId = ev.id
+      changed = true
+    }
+  }
+  return changed
+}

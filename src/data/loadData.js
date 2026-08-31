@@ -237,6 +237,7 @@ function parseContent(rows, rc) {
         content: (r.content || '').trim() || null,
         calId: (r.cal_id || '').trim() || null,
         prep: (r.prep || '').trim() || null,
+        calendarId: (r.calendar_id || '').trim() || null,
         done,
         urgency: urgencyFor(r.marker, done),
         time: hoursSpent ?? 0,
@@ -344,6 +345,7 @@ function parseCalendar(rows, rc) {
         status: (r.status || '').trim() || null,
         lectureId: (r.lecture_id || '').trim() || null,
         calId: (r.cal_id || '').trim() || null,
+        contentId: (r.content_id || '').trim() || null,
       }
     })
 }

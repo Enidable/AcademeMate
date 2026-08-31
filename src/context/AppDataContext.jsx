@@ -15,7 +15,7 @@ import {
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -283,6 +283,8 @@ function buildState(rowsByTab) {
   assignEntityIds(data)
   // Sessions logged before the plan↔session link existed get backfilled links.
   backfillPlanLinks(data)
+  // Content ↔ calendar row links backfilled from the shared Google calId.
+  relinkContentCalendar(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
   return { data, weeklyHours, plannerWeeks }
 }
@@ -648,6 +650,7 @@ export function AppDataProvider({ children }) {
       const planner = ensureDefaultRows(saved.plannerWeeks || [])
       assignEntityIds(saved.data)
       backfillPlanLinks(saved.data)
+      relinkContentCalendar(saved.data)
       dataRef.current = saved.data
       plannerRef.current = planner
       weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides, saved.data.additionalLog)

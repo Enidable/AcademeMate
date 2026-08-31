@@ -8,10 +8,10 @@ import { num, isoDateToDDMMYYYY } from './normalize.js'
 export const STUDY_LOG_HEADER = 'id,date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes,plan_id'
 export const COURSES_HEADER = 'id,course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes,scope,color,order'
 export const GRADE_COMPONENTS_HEADER = 'id,course_id,component,type,weight,grade,due_date,hours_spent,done,notes'
-export const CONTENT_HEADER = 'id,course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id,prep'
+export const CONTENT_HEADER = 'id,course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id,prep,calendar_id'
 export const DAILY_PLAN_HEADER = 'id,date,course_id,task,planned_hours,actual_hours,done,notes'
 export const WEEKLY_TOTALS_HEADER = 'year,week,total_hours,notes'
-export const CALENDAR_HEADER = 'id,date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id'
+export const CALENDAR_HEADER = 'id,date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id,content_id'
 export const ADDITIONAL_HEADER = 'id,date,category,task,hours,start_time,end_time,efficiency,wellbeing,location,notes,done'
 export const ACADEMIC_YEAR_HEADER = 'year,period,label,start,finish'
 
@@ -112,6 +112,7 @@ export function serializeContent(items, codeMap) {
     i.done || '',
     i.calId || '',
     i.prep || '',
+    i.calendarId || '',
   ])
   return [splitHeader(CONTENT_HEADER), ...rows]
 }
@@ -176,6 +177,7 @@ export function serializeCalendar(events, codeMap) {
     e.status || '',
     e.lectureId || '',
     e.calId || '',
+    e.contentId || '',
   ])
   return [splitHeader(CALENDAR_HEADER), ...rows]
 }

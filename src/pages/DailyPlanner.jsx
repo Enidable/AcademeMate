@@ -491,6 +491,14 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return m
   }, [content])
 
+  // Content rows by stable id, so a calendar event's content_id FK resolves
+  // directly to its syllabus note/prep (milestone 5).
+  const contentById = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) if (i.id) m.set(i.id, i)
+    return m
+  }, [content])
+
   // Calendar events of the viewed week as read-only plan entries. Course
   // events land in their course's row; "Gym Time" imports feed the Exercise
   // additional-time row. Other personal calendars stay out of the plan.
@@ -517,7 +525,12 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         courseRows.add(rowName)
       }
       const isAdditional = rowName === 'Work' || rowName === 'Exercise'
-      const noteItem = !isAdditional && e.lectureId ? noteById.get(`${rowName}|${e.lectureId}`) : null
+      // Resolve the syllabus note/prep via the content_id FK first, falling
+      // back to the lectureId string match for legacy rows.
+      const linkedContent = e.contentId ? contentById.get(e.contentId) : null
+      const noteItem = !isAdditional
+        ? (linkedContent || (e.lectureId ? noteById.get(`${rowName}|${e.lectureId}`) : null))
+        : null
       const k = `${rowName}|${e.date}`
       if (!map[k]) map[k] = []
       map[k].push({
@@ -540,7 +553,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, dates, noteById])
+  }, [calendarEvents, dates, noteById, contentById])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the
