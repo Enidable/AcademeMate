@@ -1144,19 +1144,26 @@ return {
     }).filter(Boolean)
 
     const existing = dataRef.current?.calendarEvents || []
-    const existingKeys = new Set(existing.map(e => `${e.uid}|${e.date}|${e.startTime}`))
+    const existingByKey = new Map(existing.map(e => [`${e.uid}|${e.date}|${e.startTime}`, e]))
     const seen = new Set()
     let added = 0
-    // Build a NEW array (spread) so the calendarEvents reference changes and the
-    // calendar view recomputes its day map — mutating the live array in place
-    // left newly imported events invisible until the next reload.
-    const merged = [...existing]
+    let updated = 0
+    const newRowsByKey = new Map()
     for (const r of rows) {
       const k = `${r.uid}|${r.date}|${r.startTime}`
-      if (existingKeys.has(k) || seen.has(k)) continue
-      seen.add(k)
-      merged.push(r)
-      added += 1
+      if (!seen.has(k)) { newRowsByKey.set(k, r); seen.add(k) }
+    }
+    // Preserve existing events in their original order, updating fields in place
+    // when the re-import carries fresher data. New events are appended at the end.
+    const merged = existing.map(e => {
+      const k = `${e.uid}|${e.date}|${e.startTime}`
+      const r = newRowsByKey.get(k)
+      if (!r) return e
+      updated += 1
+      return { ...e, summary: r.summary, course: r.course, location: r.location, description: r.description, endTime: r.endTime, allDay: r.allDay, source: r.source }
+    })
+    for (const [k, r] of newRowsByKey) {
+      if (!existingByKey.has(k)) { merged.push(r); added += 1 }
     }
 
     const d = { ...(dataRef.current || {}), calendarEvents: merged }
@@ -1165,7 +1172,7 @@ return {
     await writeTabsBatch(info.fileId, {
       [TAB_CALENDAR]: serializeCalendar(merged, courseIdMap),
     })
-    return { imported: rows.length, added, source: calendarSummary || calendarId }
+    return { imported: rows.length, added, updated, source: calendarSummary || calendarId }
   }
 
   // Export the Calendar tab into the user's dedicated "AcademeMate" Google

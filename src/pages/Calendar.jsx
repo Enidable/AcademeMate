@@ -196,7 +196,10 @@ export default function Calendar() {
     try {
       const res = await importGoogleCalendar(cal.id, cal.summary)
       setCalImportOpen(false)
-      setMessage(`Imported ${res.added} event${res.added === 1 ? '' : 's'} from "${res.source}". ${res.imported - res.added} were already present.`)
+      const parts = []
+      if (res.added) parts.push(`${res.added} new`)
+      if (res.updated) parts.push(`${res.updated} updated`)
+      setMessage(`Imported ${parts.length ? parts.join(', ') : 'no changes'} from "${res.source}".`)
     } catch (e) {
       setCalImportError(e.message)
     } finally {
