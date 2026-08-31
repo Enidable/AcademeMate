@@ -194,12 +194,32 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     return c?.id || c?.code || null
   }, [form.course, masterCourses])
 
-  const projectOptions = useMemo(() =>
-    (content || []).filter(i => {
-      if (!i.contentId || i.done || !(i.deadline || DEADLINE_TYPES.has(i.type))) return false
-      return selectedCourseId ? (i.courseId === selectedCourseId || i.course === form.course) : i.course === form.course
-    }),
-  [content, selectedCourseId, form.course])
+  const projectOptions = useMemo(() => {
+    const opts = []
+    const seen = new Set()
+    const matchesCourse = (course, courseId) =>
+      selectedCourseId ? (courseId === selectedCourseId || course === form.course) : course === form.course
+    // Projects also live on the course's grade components — a component without
+    // a due date has no mirrored Course Content row, so list it here too, or
+    // projects would appear missing/empty in the dropdown (#36).
+    for (const g of gradeComponents || []) {
+      if (!matchesCourse(g.course, g.courseId)) continue
+      for (const c of g.components || []) {
+        if (!c.id || c.done || c.type === 'exam') continue
+        if (seen.has(c.id)) continue
+        seen.add(c.id)
+        opts.push({ id: c.id, label: `${c.id} · ${c.notes || c.name || c.type || 'Project'}` })
+      }
+    }
+    for (const i of content || []) {
+      if (!i.contentId || i.done || !(i.deadline || DEADLINE_TYPES.has(i.type))) continue
+      if (!matchesCourse(i.course, i.courseId)) continue
+      if (seen.has(i.contentId)) continue
+      seen.add(i.contentId)
+      opts.push({ id: i.contentId, label: `${i.contentId} · ${i.description || i.type || 'Project'}` })
+    }
+    return opts
+  }, [gradeComponents, content, selectedCourseId, form.course])
 
   // Lecture IDs strictly for the selected course (nothing else leaks in), in
   // natural number order (lecture 2, lecture 4, lecture 8, …). Requires a
@@ -408,10 +428,19 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
 
         <div>
           <label className="text-xs text-slate-500 block mb-1">Project</label>
-          <select value={form.project || ''} onChange={e => setForm(f => ({ ...f, project: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
+          <select value={form.project || ''} onChange={e => setForm(f => {
+            const project = e.target.value
+            return {
+              ...f,
+              project,
+              // A project is usually project work — pre-fill the category so the
+              // logger starts with it; the field stays fully editable (#36).
+              category: project && !f.category ? 'Project Work' : f.category,
+            }
+          })} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
             <option value="">None</option>
             {projectOptions.map(p => (
-              <option key={p.contentId} value={p.contentId}>{p.contentId} · {p.description || p.type}</option>
+              <option key={p.id} value={p.id}>{p.label}</option>
             ))}
           </select>
         </div>
