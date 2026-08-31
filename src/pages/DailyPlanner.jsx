@@ -702,6 +702,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       category: sessionCategoryForType(entry.type),
       location: 'University',
       lectureId: entry.lectureId || '',
+      lectureContentId: entry.contentId || '',
     })
   }
 

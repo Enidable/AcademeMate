@@ -135,6 +135,32 @@ export function sessionsForLecture(lectureId, studyLog) {
   return (studyLog || []).filter(s => s.lectureId === lectureId)
 }
 
+// --- Session ↔ Content/component (milestone 6) ----------------------------
+// A session's lecture reference is a real foreign key: STUDY_LOG.
+// lecture_content_id points at CONTENT.id (backfilled from the lectureId string
+// for legacy rows), so "which sessions referenced this lecture" is queryable.
+
+// All sessions that referenced a content/component row (by its content_ id).
+export function sessionsForLectureContent(contentId, studyLog) {
+  return (studyLog || []).filter(s => s.lectureContentId === contentId)
+}
+
+// One-time backfill: link sessions to their content row by course + lectureId
+// string. Idempotent — returns whether anything was linked.
+export function backfillLectureLinks(data) {
+  const byKey = new Map()
+  for (const i of data.content || []) {
+    if (i.contentId && i.course && i.id) byKey.set(`${i.course}|${i.contentId}`, i.id)
+  }
+  let changed = false
+  for (const s of data.studyLog || []) {
+    if (s.lectureContentId || !s.lectureId || !s.course) continue
+    const id = byKey.get(`${s.course}|${s.lectureId}`)
+    if (id) { s.lectureContentId = id; changed = true }
+  }
+  return changed
+}
+
 // All Study Log sessions for a course (matched by course name — the FK switch
 // to COURSES.id is milestone 4; once studyLog.courseId exists, prefer that).
 export function sessionsForCourse(course, studyLog) {

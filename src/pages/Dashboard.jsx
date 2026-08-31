@@ -86,6 +86,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
       category: sessionCategoryForType(inferEventType(e.summary, e.description)),
       location: 'University',
       lectureId: e.lectureId || '',
+      lectureContentId: e.contentId || '',
     })
   }
 

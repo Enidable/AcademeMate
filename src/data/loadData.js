@@ -55,6 +55,7 @@ function parseStudyLog(rows, rc) {
         commuteTime: toFloat((r.commute_minutes || '').trim()),
         notes: (r.notes || '').trim() || null,
         planId: (r.plan_id || '').trim() || null,
+        lectureContentId: (r.lecture_content_id || '').trim() || null,
       }
     })
 }

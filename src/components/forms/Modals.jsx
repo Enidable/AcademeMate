@@ -24,7 +24,7 @@ function seedSession(e) {
     return {
       date: '', startTime: '', endTime: '', durationHours: '',
       course: '', category: '', project: '', location: '',
-      efficiency: '', wellbeing: '', lectureId: '',
+      efficiency: '', wellbeing: '', lectureId: '', lectureContentId: '',
       transportMode: '', commuteTime: '', notes: '',
     }
   }
@@ -40,6 +40,7 @@ function seedSession(e) {
     efficiency: e.efficiency != null ? String(e.efficiency) : '',
     wellbeing: e.wellbeing != null ? String(e.wellbeing) : '',
     lectureId: e.lectureId || '',
+    lectureContentId: e.lectureContentId || '',
     transportMode: e.transportMode || '',
     commuteTime: e.commuteTime != null ? String(e.commuteTime) : '',
     notes: e.notes || '',
@@ -156,6 +157,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
         project: preset.project || '',
         location: preset.location || '',
         lectureId: preset.lectureId || '',
+        lectureContentId: preset.lectureContentId || '',
       })
     } else {
       setForm(seedSession(initial))
@@ -169,13 +171,17 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
 
   const lectureIds = useMemo(() => {
     const ids = []
+    // Map a course+component-id to its content row, so a component pick can
+    // carry the content_ foreign key too.
+    const contentRowByKey = new Map()
+    for (const i of content || []) if (i.contentId && i.course && i.id) contentRowByKey.set(`${i.course}|${i.contentId}`, i.id)
     for (const g of gradeComponents || []) {
       for (const c of g.components || []) {
-        if (c.id && !c.done) ids.push({ course: g.course, courseId: g.courseId, id: c.id, type: c.type })
+        if (c.id && !c.done) ids.push({ course: g.course, courseId: g.courseId, id: c.id, type: c.type, contentRowId: contentRowByKey.get(`${g.course}|${c.id}`) || null })
       }
     }
     for (const i of content || []) {
-      if (i.contentId && i.course && !i.done) ids.push({ course: i.course, courseId: i.courseId, id: i.contentId, type: i.type })
+      if (i.contentId && i.course && !i.done) ids.push({ course: i.course, courseId: i.courseId, id: i.contentId, type: i.type, contentRowId: i.id })
     }
     return ids
   }, [gradeComponents, content])
@@ -326,6 +332,9 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
       efficiency: form.efficiency ? parseInt(form.efficiency, 10) : null,
       wellbeing: form.wellbeing ? parseInt(form.wellbeing, 10) : null,
       lectureId: form.lectureId || null,
+      // The content/component foreign key (CONTENT.id) for the picked lecture.
+      lectureContentId: form.lectureContentId
+        || (form.lectureId ? (filteredLectureIds.find(a => a.id === form.lectureId)?.contentRowId || null) : null),
       transportMode: form.transportMode || null,
       commuteTime: form.commuteTime ? parseFloat(form.commuteTime) : null,
       notes: form.notes || null,
