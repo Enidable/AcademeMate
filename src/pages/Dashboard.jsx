@@ -87,6 +87,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
       location: 'University',
       lectureId: e.lectureId || '',
       lectureContentId: e.contentId || '',
+      skipPlannerAuto: true,
     })
   }
 

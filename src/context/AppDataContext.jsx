@@ -1488,7 +1488,9 @@ return {
     const prev = dataRef.current || {}
     let planId = entry.planId || null
     let dailyPlan = prev.dailyPlan || []
-    if (!planId && entry.date && entry.course) {
+    // A session logged by checking off a calendar event is already represented
+    // in the planner (the event's auto entry) — never spawn a second row for it.
+    if (!planId && entry.date && entry.course && !entry.skipPlannerAuto) {
       // A session added without a planner link (Time Log / header button) is
       // reflected in the Daily Planner: attach to the course's open task for
       // that day if one exists, else create a checked-off entry for the session

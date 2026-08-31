@@ -112,14 +112,14 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
         ]} />
       </div>
     }>
-      <div className="flex items-start gap-1 px-0.5 py-0.5">
+      <div className={`flex items-start gap-1 px-0.5 py-0.5 ${entry.logged ? 'opacity-60' : ''}`}>
         {entry.loggable ? (
           entry.isAdditional ? (
-            <input type="checkbox" checked={false} onChange={() => onLogAdditional(entry)}
+            <input type="checkbox" checked={!!entry.logged} onChange={() => onLogAdditional(entry)}
               title="Log this as additional time (work / exercise / obligations) with its own logging window"
               className="h-3 w-3 accent-amber-600 cursor-pointer shrink-0 mt-0.5" />
           ) : (
-            <input type="checkbox" checked={false} onChange={() => onLog(entry)}
+            <input type="checkbox" checked={!!entry.logged} onChange={() => onLog(entry)}
               title="Log this class as a study session (pre-filled with its course, times, location and lecture ID)"
               className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0 mt-0.5" />
           )
@@ -127,7 +127,7 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
           <span className="w-3 shrink-0" />
         )}
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] leading-tight text-slate-600 truncate">{entry.task}</div>
+          <div className={`text-[10px] leading-tight truncate ${entry.logged ? 'line-through text-slate-400' : 'text-slate-600'}`}>{entry.task}</div>
           {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
         </div>
         <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">{entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : ''}</span>
@@ -442,6 +442,22 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return map
   }, [inputLog])
 
+  // Which calendar events have already been logged (so their scheduled auto
+  // entry doesn't double-count once a session/additional entry exists for it).
+  const loggedEvents = useMemo(() => {
+    const study = new Set()
+    for (const s of inputLog || []) {
+      if (!s.date) continue
+      if (s.lectureContentId) study.add('content:' + s.lectureContentId)
+      else if (s.course && s.lectureId) study.add(`course:${s.course}|${s.lectureId}`)
+    }
+    const addl = new Set()
+    for (const a of additionalLog || []) {
+      if (a.date && a.category && a.task) addl.add(`${a.date}|${a.category}|${a.task}`)
+    }
+    return { study, addl }
+  }, [inputLog, additionalLog])
+
   const avgWeeklyHours = useMemo(() => getAverageWeeklyHours(weeklyHours), [weeklyHours])
 
   // Timetable events + deadlines for the week grid shown below the plan.
@@ -529,6 +545,9 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         : null
       const k = `${rowName}|${e.date}`
       if (!map[k]) map[k] = []
+      const logged = isAdditional
+        ? loggedEvents.addl.has(`${e.date}|${rowName}|${e.summary}`)
+        : (e.contentId ? loggedEvents.study.has('content:' + e.contentId) : loggedEvents.study.has(`course:${rowName}|${e.lectureId}`))
       map[k].push({
         id: `auto|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}|${e.summary}`,
         task: e.summary,
@@ -545,11 +564,13 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         // their own logging window (never the study session logger).
         isAdditional,
         loggable: true,
+        // True once a session / additional entry has been logged for this event.
+        logged,
       })
     }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, dates, noteById, contentById])
+  }, [calendarEvents, dates, noteById, contentById, loggedEvents])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the
@@ -634,7 +655,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
   }
   const rowHours = course => dates.reduce((s, date) => s + week.cellTasks(course, date).reduce((t, r) => t + week.hoursOf(r), 0), 0) + autoHours(course)
   const dayHours = date => week.study.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0) + week.autoTasks(c, date).reduce((t, r) => t + (r.hours || 0), 0), 0)
-  const additionalDayHours = date => week.additional.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0) + week.autoTasks(c, date).reduce((t, r) => t + (r.hours || 0), 0), 0)
+  const additionalDayHours = date => week.additional.reduce((s, c) => s + week.cellTasks(c, date).reduce((t, r) => t + week.hoursOf(r), 0) + week.autoTasks(c, date).reduce((t, r) => t + (r.logged ? 0 : (r.hours || 0)), 0), 0)
   const studyTotal = week.study.reduce((s, c) => s + rowHours(c), 0)
   const additionalTotal = week.additional.reduce((s, c) => s + rowHours(c), 0)
   const totalHours = studyTotal + additionalTotal
@@ -699,6 +720,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       location: 'University',
       lectureId: entry.lectureId || '',
       lectureContentId: entry.contentId || '',
+      skipPlannerAuto: true,
     })
   }
 

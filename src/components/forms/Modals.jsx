@@ -344,6 +344,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
       // A session logged from ticking off a Daily Planner item is linked to it
       // (plan_id); the planner row is then updated through the relation.
       if (preset?.plannerId) payload.planId = preset.plannerId
+      if (preset?.skipPlannerAuto) payload.skipPlannerAuto = true
       addSession(payload)
     }
     setForm({ date: '', startTime: '', endTime: '', durationHours: '', course: '', category: '', project: '', location: '', efficiency: '', wellbeing: '', lectureId: '', transportMode: '', commuteTime: '', notes: '' })
