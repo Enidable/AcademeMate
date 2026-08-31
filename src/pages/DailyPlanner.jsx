@@ -258,7 +258,7 @@ function CourseRow({
                 : <TaskRow key={row.id} row={row} hoursOf={hoursOf} onToggle={onToggle} onEdit={onEdit}
                     onDelete={() => onDelete(row.id)} overdue={!row.done && date < today} planSessions={planSessions} />
             ))}
-            {(autoTasks ? autoTasks(course, date) : []).map(entry => (
+            {(autoTasks ? autoTasks(course, date) : []).filter(entry => !(entry.isAdditional && entry.logged)).map(entry => (
               <AutoTask key={entry.id} entry={entry} onLog={onLogAuto} onLogAdditional={onLogAdditional} />
             ))}
             {addCell?.course === course && addCell?.date === date ? (
@@ -534,7 +534,8 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         else if ((e.source || '').trim() !== 'Gym Time') continue
         else rowName = 'Exercise'
       } else {
-        courseRows.add(rowName)
+        // Additional-category courses (Work / Exercise / …) are not study rows.
+        if (!ADDITIONAL_SET.has(rowName)) courseRows.add(rowName)
       }
       const isAdditional = rowName === 'Work' || rowName === 'Exercise'
       // Resolve the syllabus note/prep via the content_id FK first, falling
@@ -558,6 +559,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         startTime: e.startTime || '',
         endTime: e.endTime || '',
         lectureId: !isAdditional ? (e.lectureId || '') : '',
+        contentId: e.contentId || '',
         type: inferEventType(e.summary, e.description),
         course: rowName,
         // Additional-time rows (Work / Exercise) are checkable too — they open
@@ -623,7 +625,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return { study, additional, cellTasks, autoTasks, hoursOf, hasTasks }
   }, [dates, byDate, addByDate, extraRows, activeSet, autoByCell])
 
-  const autoHours = course => dates.reduce((s, date) => s + week.autoTasks(course, date).reduce((t, r) => t + (r.hours || 0), 0), 0)
+  const autoHours = course => dates.reduce((s, date) => s + week.autoTasks(course, date).reduce((t, r) => t + ((r.isAdditional && r.logged) ? 0 : (r.hours || 0)), 0), 0)
 
   // Study rows in the user's dragged order; unarranged courses stay alphabetical.
   const orderedStudy = useMemo(() => {

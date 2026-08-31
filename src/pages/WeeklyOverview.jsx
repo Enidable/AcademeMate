@@ -232,8 +232,8 @@ export default function WeeklyOverview() {
   function assign(item, isoDate) {
     const tag = menuTagOf(item.menuId)
     // Remove any previous placement of this item — with or without a user note
-    // appended after the tag.
-    for (const r of (dailyPlan || []).filter(x => x.notes === tag || x.notes.startsWith(tag + MENU_TAG_SEPARATOR))) deletePlannerTask(r.id)
+    // appended after the tag. Rows with no notes must not crash the match.
+    for (const r of (dailyPlan || []).filter(x => x.notes === tag || (x.notes && x.notes.startsWith(tag + MENU_TAG_SEPARATOR)))) deletePlannerTask(r.id)
     if (!isoDate) return
     addPlannerTask({
       date: isoDate,
