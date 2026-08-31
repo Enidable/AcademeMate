@@ -332,6 +332,15 @@ export function mergeNotesWithTag(edited, original) {
   return editedVal ? `${tag}${MENU_TAG_SEPARATOR}${editedVal}` : tag
 }
 
+// Personal-calendar events whose title/description mark them as work land in
+// the "Work" additional-time row (never counted as study). Matches English
+// ("work", "shift", "job") and German ("arbeit", "arbeitstag", "schicht",
+// "dienst") work words, among others.
+const WORK_RE = /(^|[^a-z0-9])work(s|ing|ed|day|days)?([^a-z0-9]|$)|arbeit|schicht|dienst|shift|job|client|kunde|werktag/i
+export function isWorkEvent(e) {
+  return WORK_RE.test(`${e.summary || ''} ${e.description || ''}`)
+}
+
 // The lecture/content ID referenced by a Weekly Overview prep or deadline row
 // (menu:prep|courses|contentId|date / menu:dl|courses|contentId|deadline), so
 // ticking one off can pre-fill the session logger's lecture ID.

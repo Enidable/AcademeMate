@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { formatDateShort, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR } from '../utils/helpers'
+import { formatDateShort, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR, menuTagOfNotes, isWorkEvent } from '../utils/helpers'
 import { inferEventType, typeSymbol } from '../drive/driveClient'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -297,24 +297,41 @@ export default function WeeklyOverview() {
       row.hours[dow] += a.hours || 0
       if (a.task) row.tasks[dow].push(a.task)
     }
-    // Timetable / imported calendar events carry their own duration: course
-    // classes land on their course row, private imports (Gym Time, work, …)
-    // on a row named after their source calendar. A primary calendar shows up
-    // as the account's e-mail address — display it as "Personal calendar".
+    // Timetable / imported calendar events carry their own duration. Course
+    // classes land on their course row, work-titled import events feed the
+    // "Work" additional row and "Gym Time" feeds "Exercise". Every other
+    // personal-calendar import keeps its source label (Social Obligation,
+    // Other Obligations, Commute, …) and stays visible in the totals, rather
+    // than being dropped.
+    //
+    // A calendar appointment that was sorted into the plan (via the menu
+    // above) is counted by its planner row — never twice from the raw event.
     const sourceLabel = s => {
       const t = String(s || '').trim()
       return /@/.test(t) ? 'Personal calendar' : t
     }
+    const placedEventKeys = new Set()
+    for (const r of dailyPlan || []) {
+      const tag = menuTagOfNotes(r.notes)
+      if (tag && tag.startsWith(`${MENU_TAG_PREFIX}evt|`)) placedEventKeys.add(tag.slice(MENU_TAG_PREFIX.length))
+    }
     for (const e of calendarEvents || []) {
       const dow = dates.indexOf(e.date)
       if (dow < 0) continue
+      const menuId = `evt|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}`
+      if (placedEventKeys.has(menuId)) continue
       const h = durHours(e)
       if (h <= 0) continue
-      const course = e.course || ((e.source || '').trim() === 'Gym Time' ? 'Exercise' : sourceLabel(e.source))
-      if (!course) continue
-      const row = rowOf(course)
+      let rowName = e.course || ''
+      if (!rowName) {
+        if (isWorkEvent(e)) rowName = 'Work'
+        else if ((e.source || '').trim() === 'Gym Time') rowName = 'Exercise'
+        else rowName = sourceLabel(e.source) || ''
+      }
+      if (!rowName) continue
+      const row = rowOf(rowName)
       row.hours[dow] += h
-      row.tasks[dow].push(e.summary || course)
+      row.tasks[dow].push(e.summary || rowName)
     }
     const rows = [...byCourse.entries()]
       .map(([course, data]) => ({ course, ...data, total: data.hours.reduce((s, h) => s + h, 0) }))

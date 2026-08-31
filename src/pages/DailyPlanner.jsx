@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
-import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag, lectureIdFromNotes } from '../utils/helpers'
+import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag, lectureIdFromNotes, isWorkEvent } from '../utils/helpers'
 import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
@@ -12,12 +12,8 @@ import { ADDITIONAL_CATEGORIES } from '../config'
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const ADDITIONAL_SET = new Set(ADDITIONAL_CATEGORIES)
 
-// Personal-calendar events whose title/description mark them as work land in
-// the "Work" additional-time row (never counted as study). Matches English
-// ("work", "shift", "job") and German ("arbeit", "arbeitstag", "schicht",
-// "dienst") work words, among others.
-const WORK_RE = /(^|[^a-z0-9])work(s|ing|ed|day|days)?([^a-z0-9]|$)|arbeit|schicht|dienst|shift|job|client|kunde|werktag/i
-const isWorkEvent = e => WORK_RE.test(`${e.summary || ''} ${e.description || ''}`)
+// The "Work" recogniser lives in utils/helpers so the Weekly Overview and the
+// Daily Planner route identical work events to the same additional-time row.
 
 // Label/value rows used inside the hover detail cards.
 function DetailList({ items }) {
