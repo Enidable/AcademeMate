@@ -50,7 +50,7 @@ export function serializeStudyLog(entries, codeMap) {
 export function serializeCourses(courses) {
   const rows = (courses || []).map(c => [
     c.id || '',
-    c.code || c.course || '',
+    c.id || c.code || c.course || '',
     c.course || '',
     c.code || '',
     c.abbrev || '',

@@ -28,14 +28,14 @@ const CSV_FILES = {
 
 // --- Study Log ------------------------------------------------------------
 
-function parseStudyLog(rows, resolveCourse) {
+function parseStudyLog(rows, rc) {
   return rows
     .filter(r => (r.course_id || '').trim())
     .map((r) => {
       const durationHours = toFloat(r.duration_hours)
       const durationMinutes = toInt(r.duration_minutes)
       const date = parseDateDDMMYYYY((r.date || '').trim())
-      const course = resolveCourse((r.course_id || '').trim())
+      const course = rc.resolve((r.course_id || '').trim())
       return {
         id: (r.id || '').trim(),
         date,
@@ -44,6 +44,7 @@ function parseStudyLog(rows, resolveCourse) {
         durationHours: durationHours ?? 0,
         durationMinutes: durationMinutes ?? 0,
         course,
+        courseId: rc.idOf(course),
         category: (r.category || '').trim(),
         project: (r.project || '').trim() || null,
         location: (r.location || '').trim(),
@@ -116,27 +117,37 @@ function parseCourses(rows) {
     })))
 }
 
-// course_id columns hold the university course code (new data) but historically
-// held the course name — resolve either back to the canonical course name.
+// course_id columns hold the canonical course id (course_…), but historically
+// held the course code or name — resolve any of the three back to the canonical
+// course name, and expose the stable id a name resolves to (the FK).
 function resolveCourseFor(courses) {
   const byName = new Map()
   const byCode = new Map()
+  const byId = new Map()
+  const idByName = new Map()
   for (const c of courses) {
-    if (c.course) byName.set(c.course, c.course)
+    if (c.course) {
+      byName.set(c.course, c.course)
+      idByName.set(c.course, c.id || null)
+    }
     if (c.code) byCode.set(c.code, c.course)
+    if (c.id) byId.set(c.id, c.course)
   }
-  return v => byName.get(v) || byCode.get(v) || v
+  return {
+    resolve: v => byName.get(v) || byCode.get(v) || byId.get(v) || v,
+    idOf: name => idByName.get(name) || null,
+  }
 }
 
 // --- Grade Components -----------------------------------------------------
 
-function parseGradeComponents(rows, resolveCourse) {
+function parseGradeComponents(rows, rc) {
   const map = {}
   for (const r of rows) {
-    const course = resolveCourse((r.course_id || '').trim())
+    const course = rc.resolve((r.course_id || '').trim())
     if (!course) continue
     if (!map[course]) {
-      map[course] = { course, components: [], totalGrade: null, check: null }
+      map[course] = { course, courseId: rc.idOf(course), components: [], totalGrade: null, check: null }
     }
     const entry = map[course]
     const weight = toFloat(r.weight)
@@ -178,7 +189,7 @@ function parseGradeComponents(rows, resolveCourse) {
 
 const CONTENT_TYPES_SET = new Set(CONTENT_TYPES)
 
-function parseContent(rows, resolveCourse) {
+function parseContent(rows, rc) {
   const urgencyFor = (marker, done) => {
     const m = (marker || '').trim().toLowerCase()
     if (done && String(done).toLowerCase() === 'done') return 'Complete'
@@ -190,7 +201,7 @@ function parseContent(rows, resolveCourse) {
   return rows
     .filter(r => (r.content_id || r.topic || '').trim())
     .map(r => {
-      const course = resolveCourse((r.course_id || '').trim())
+      const course = rc.resolve((r.course_id || '').trim())
       const course2 = (r.course_2 || '').trim() || null
       const type = ((r.type || '').trim().toLowerCase())
       const topic = (r.topic || '').trim()
@@ -210,6 +221,7 @@ function parseContent(rows, resolveCourse) {
         id: (r.id || '').trim(),
         description: topic || contentId || type || 'Task',
         course,
+        courseId: rc.idOf(course),
         course2,
         contentId: contentId || null,
         type: CONTENT_TYPES_SET.has(type) ? type : 'other',
@@ -239,17 +251,18 @@ function parseContent(rows, resolveCourse) {
 
 // --- Daily Plan (flat rows) ----------------------------------------------
 
-function parseDailyPlan(rows, resolveCourse) {
+function parseDailyPlan(rows, rc) {
   return rows
     .filter(r => (r.date || '').trim() && (r.course_id || '').trim())
     .map(r => {
       const date = parseDateDDMMYYYY((r.date || '').trim())
-      const course = resolveCourse((r.course_id || '').trim())
+      const course = rc.resolve((r.course_id || '').trim())
       const task = (r.task || '').trim()
       return {
         id: (r.id || '').trim(),
         date,
         course,
+        courseId: rc.idOf(course),
         task,
         plannedHours: toFloat(r.planned_hours) ?? 0,
         // Empty actual_hours means "not recorded" (null) — never 0, so the
@@ -309,11 +322,12 @@ function parseAdditionalLog(rows) {
 
 // --- Calendar (flattened timetable events) -------------------------------
 
-function parseCalendar(rows, resolveCourse) {
+function parseCalendar(rows, rc) {
   return rows
     .filter(r => (r.date || '').trim() && (r.summary || r.uid || '').trim())
     .map(r => {
       const allDay = String(r.all_day || '').trim()
+      const course = rc.resolve((r.course_id || '').trim()) || null
       return {
         id: (r.id || '').trim(),
         date: parseDateDDMMYYYY((r.date || '').trim()),
@@ -321,7 +335,8 @@ function parseCalendar(rows, resolveCourse) {
         endTime: (r.end_time || '').trim(),
         allDay: allDay === '1' || allDay.toLowerCase() === 'true',
         summary: (r.summary || '').trim(),
-        course: resolveCourse((r.course_id || '').trim()) || null,
+        course,
+        courseId: rc.idOf(course),
         location: (r.location || '').trim() || null,
         description: (r.description || '').trim() || null,
         source: (r.source || '').trim() || null,

@@ -56,6 +56,12 @@ const STORAGE_KEY = 'am_state'
 const CAL_FP_KEY = 'am_cal_fp'
 const LIVE_SESSION_KEY = 'am_live_session'
 
+// Stable course id for a course name, or null (unknown course). Keeps newly
+// created rows on the same course_id foreign key the parsers resolve.
+function courseIdForName(courses, name) {
+  return (courses || []).find(c => c.course === name)?.id || null
+}
+
 const AppDataContext = createContext(null)
 
 export function useAppData() {
@@ -322,16 +328,16 @@ const TITLE_BY_KEY = {
 }
 
 function serializeTabByTitle(title, data, _planner) {
-  // course_id columns store the course code; map each course name to its code.
-  const codeMap = new Map((data?.courses || []).map(c => [c.course, c.code || null]))
+  // course_id columns store the stable course id; map each course name to it.
+  const courseIdMap = new Map((data?.courses || []).map(c => [c.course, c.id || c.code || null]))
   switch (title) {
-    case TAB_STUDY_LOG: return serializeStudyLog(data?.studyLog, codeMap)
+    case TAB_STUDY_LOG: return serializeStudyLog(data?.studyLog, courseIdMap)
     case TAB_COURSES: return serializeCourses(data?.courses)
-    case TAB_GRADES: return serializeGradeComponents(data?.gradeComponents, codeMap)
-    case TAB_CONTENT: return serializeContent(data?.content, codeMap)
+    case TAB_GRADES: return serializeGradeComponents(data?.gradeComponents, courseIdMap)
+    case TAB_CONTENT: return serializeContent(data?.content, courseIdMap)
     case TAB_HOURS: return serializeWeeklyOverrides(data?.weeklyOverrides)
-    case TAB_DAILY: return serializeDailyPlan(data?.dailyPlan, codeMap)
-    case TAB_CALENDAR: return serializeCalendar(data?.calendarEvents, codeMap)
+    case TAB_DAILY: return serializeDailyPlan(data?.dailyPlan, courseIdMap)
+    case TAB_CALENDAR: return serializeCalendar(data?.calendarEvents, courseIdMap)
     case TAB_ADDITIONAL: return serializeAdditionalLog(data?.additionalLog)
     case TAB_ACADEMIC_YEAR: return serializeAcademicYears(data?.academicYears)
     default: return []
@@ -1049,10 +1055,10 @@ export function AppDataProvider({ children }) {
     const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: contentFinal }
     const planner = plannerRef.current || []
     setAll(d, planner)
-    const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
+    const courseIdMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.id || c.code || null]))
     await writeTabsBatch(info.fileId, {
-      [TAB_CALENDAR]: serializeCalendar(calendarFinal, codeMap),
-      [TAB_CONTENT]: serializeContent(contentFinal, codeMap),
+      [TAB_CALENDAR]: serializeCalendar(calendarFinal, courseIdMap),
+      [TAB_CONTENT]: serializeContent(contentFinal, courseIdMap),
     })
     return { imported: merged.length, files: files.length }
   }
@@ -1149,9 +1155,9 @@ return {
 
     const d = { ...(dataRef.current || {}), calendarEvents: merged }
     setAll(d, plannerRef.current)
-    const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
+    const courseIdMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.id || c.code || null]))
     await writeTabsBatch(info.fileId, {
-      [TAB_CALENDAR]: serializeCalendar(merged, codeMap),
+      [TAB_CALENDAR]: serializeCalendar(merged, courseIdMap),
     })
     return { imported: rows.length, added, source: calendarSummary || calendarId }
   }
@@ -1451,10 +1457,10 @@ return {
       setData(d)
       const info = driveRef.current
       if (info) {
-        const codeMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.code || null]))
+        const courseIdMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.id || c.code || null]))
         await writeTabsBatch(info.fileId, {
-          [TAB_CALENDAR]: serializeCalendar(eventsFinalClean, codeMap),
-          [TAB_CONTENT]: serializeContent(contentFinal, codeMap),
+          [TAB_CALENDAR]: serializeCalendar(eventsFinalClean, courseIdMap),
+          [TAB_CONTENT]: serializeContent(contentFinal, courseIdMap),
         })
       }
     }
@@ -1493,7 +1499,7 @@ return {
         planId = row.id
       }
     }
-    const row = { ...entry, planId, id: nextId('session_', (prev.studyLog || []).map(e => e.id)) }
+    const row = { ...entry, courseId: courseIdForName(prev.courses, entry.course), planId, id: nextId('session_', (prev.studyLog || []).map(e => e.id)) }
     const studyLog = [row, ...(prev.studyLog || [])]
     dailyPlan = syncPlannerFromSessions(planId, studyLog, dailyPlan)
     setAll({ ...prev, studyLog, dailyPlan }, plannerRef.current)
@@ -1508,15 +1514,17 @@ return {
     const f = String(courseData.finish || '')
     const ym = (s || f).match(/^(\d{4})/)
     if (ym) courseData.year = ym[1]
+    const newId = nextId('course_', (prev.courses || []).map(c => c.id))
     const updated = {
       ...prev,
-      courses: [...(prev.courses || []), { ...courseData, id: nextId('course_', (prev.courses || []).map(c => c.id)), course: courseData.course }],
+      courses: [...(prev.courses || []), { ...courseData, id: newId, course: courseData.course }],
     }
     const keys = ['courses']
     if (_gradeComponents && _gradeComponents.length > 0) {
       const gradeComps = [...(updated.gradeComponents || [])]
       gradeComps.push({
         course: courseData.course,
+        courseId: newId,
         components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || null })),
         totalGrade: calcWeightedGrade(_gradeComponents),
       })
@@ -1531,6 +1539,7 @@ return {
     const prev = dataRef.current || {}
     const item = {
       course: deadline.course || '',
+      courseId: courseIdForName(prev.courses, deadline.course),
       course2: null,
       contentId: deadline.contentId || deadline.id || null,
       type: deadline.type || 'assignment',
@@ -1603,23 +1612,33 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     courses[idx] = updated
     const updated2 = { ...prev, courses }
     const keys = ['courses']
+    const courseId = current.id || null
+    // Dependents reference the course by id, so a rename updates their display
+    // name everywhere while the data stays keyed by the id. Rows without a
+    // courseId yet (legacy) fall back to the old name.
+    const matchCourse = r => courseId ? (r.courseId === courseId || (!r.courseId && r.course === current.course)) : (r.course === current.course)
+    if (name !== current.course) {
+      const ren = arr => (arr || []).map(r => matchCourse(r) ? { ...r, course: name } : r)
+      updated2.studyLog = ren(updated2.studyLog)
+      updated2.content = ren(updated2.content)
+      updated2.calendarEvents = ren(updated2.calendarEvents)
+      updated2.dailyPlan = ren(updated2.dailyPlan)
+      updated2.gradeComponents = (updated2.gradeComponents || []).map(g => matchCourse(g) ? { ...g, course: name } : g)
+      keys.push('studyLog', 'content', 'calendarEvents', 'dailyPlan', 'gradeComponents')
+    }
 
     // When the abbreviation (or code) changes, re-derive every lecture/project
     // ID of this course so IDs switch from coursecode-** to abbreviation-**.
     const oldBase = (current.abbrev || current.code || deriveAbbrev(current.course)).replace(/\s+/g, '-')
     const newBase = (updated.abbrev || updated.code || deriveAbbrev(updated.course)).replace(/\s+/g, '-')
     if (newBase && oldBase && newBase !== oldBase) {
-      let content = (prev.content || []).map(item => {
-        if (item.course !== name) return item
+      updated2.content = (updated2.content || []).map(item => {
+        if (!matchCourse(item)) return item
         const renamed = renameIdPrefix(item.contentId, oldBase, newBase)
-        if (renamed === item.contentId) return item
-        return {
-          ...item,
-          contentId: renamed,
-        }
+        return renamed === item.contentId ? item : { ...item, contentId: renamed }
       })
-      const gradeComponents = (prev.gradeComponents || []).map(g => {
-        if (g.course !== name) return g
+      updated2.gradeComponents = (updated2.gradeComponents || []).map(g => {
+        if (!matchCourse(g)) return g
         return {
           ...g,
           components: g.components.map(c => ({
@@ -1629,8 +1648,6 @@ function renameIdPrefix(contentId, oldBase, newBase) {
           })),
         }
       })
-      updated2.content = content
-      updated2.gradeComponents = gradeComponents
       keys.push('content', 'gradeComponents')
     }
 
@@ -1740,6 +1757,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     const prev = dataRef.current || {}
     const newItem = {
       course: item.course || '',
+      courseId: courseIdForName(prev.courses, item.course),
       course2: item.course2 || null,
       contentId: item.contentId || item.id || null,
       type: item.type || 'lecture',
@@ -1784,18 +1802,22 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     const prev = dataRef.current || {}
     const course = (prev.courses || []).find(c => c.id === id || c.course === id)
     const courseName = course?.course || id
+    const courseId = course?.id || null
+    // Scrub dependents by the stable course id (falling back to the name for
+    // legacy rows that predate the id) so nothing is orphaned or re-added.
+    const isRef = r => courseId ? (r.courseId === courseId || (!r.courseId && r.course === courseName)) : (r.course === courseName)
     const updated = { ...prev, courses: (prev.courses || []).filter(c => c.course !== courseName) }
     const keys = ['courses']
-    updated.gradeComponents = (updated.gradeComponents || []).filter(g => g.course !== courseName)
+    updated.gradeComponents = (updated.gradeComponents || []).filter(g => !isRef(g))
     keys.push('gradeComponents')
     const beforeContent = (prev.content || []).length
-    updated.content = (prev.content || []).filter(i => i.course !== courseName)
+    updated.content = (prev.content || []).filter(i => !isRef(i))
     if (updated.content.length !== beforeContent) keys.push('content')
     const beforeLog = (prev.studyLog || []).length
-    updated.studyLog = (prev.studyLog || []).filter(e => e.course !== courseName)
+    updated.studyLog = (prev.studyLog || []).filter(e => !isRef(e))
     if (updated.studyLog.length !== beforeLog) keys.push('studyLog')
     const beforePlan = (prev.dailyPlan || []).length
-    updated.dailyPlan = (prev.dailyPlan || []).filter(r => r.course !== courseName)
+    updated.dailyPlan = (prev.dailyPlan || []).filter(r => !isRef(r))
     if (updated.dailyPlan.length !== beforePlan) keys.push('dailyPlan')
     setAll(updated, plannerRef.current)
     syncTabs(keys)
@@ -1833,6 +1855,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     }
     const entry = {
       course,
+      courseId: courseIdForName(prev.courses, course),
       components: components.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || c.type || null })),
       totalGrade: calcWeightedGrade(components),
     }
@@ -1877,6 +1900,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       content.push({
         id: null,
         course,
+        courseId: courseIdForName(prev.courses, course),
         course2: null,
         contentId: c.id,
         type: c.type || 'assignment',
@@ -1980,6 +2004,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       id: nextId('plan_', (prev.dailyPlan || []).map(r => r.id)),
       date: task.date,
       course: task.course || '',
+      courseId: courseIdForName(prev.courses, task.course),
       task: task.task || '',
       plannedHours: task.plannedHours ?? 0,
       actualHours: task.actualHours ?? null,

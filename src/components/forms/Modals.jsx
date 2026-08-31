@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAppData } from '../../context/AppDataContext'
 import CourseSelect from '../CourseSelect'
-import { getCourseStyle, isCourseActive } from '../../utils/helpers'
+import { getCourseStyle } from '../../utils/helpers'
 import { DEFAULT_CATEGORIES, DEFAULT_LOCATIONS, DEFAULT_TRANSPORT, META_OPTIONS_KEY, DEADLINE_TYPES, ADDITIONAL_CATEGORIES } from '../../config'
 
 function Modal({ open, onClose, title, children }) {
@@ -171,41 +171,29 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     const ids = []
     for (const g of gradeComponents || []) {
       for (const c of g.components || []) {
-        if (c.id && !c.done) ids.push({ course: g.course, id: c.id, type: c.type })
+        if (c.id && !c.done) ids.push({ course: g.course, courseId: g.courseId, id: c.id, type: c.type })
       }
     }
     for (const i of content || []) {
-      if (i.contentId && i.course && !i.done) ids.push({ course: i.course, id: i.contentId, type: i.type })
+      if (i.contentId && i.course && !i.done) ids.push({ course: i.course, courseId: i.courseId, id: i.contentId, type: i.type })
     }
     return ids
   }, [gradeComponents, content])
 
-  // Only projects and lectures from active courses are offered (or, once a
-  // course is picked, only the ones belonging to that course). Matching is by
-  // the course's full name, abbreviation AND code — content rows in the sheet
-  // may store any of the three in their course_id column.
-  const courseAliases = useMemo(() => {
-    const m = {}
-    for (const c of masterCourses || []) {
-      const aliases = [c.course]
-      if (c.abbrev) aliases.push(c.abbrev)
-      if (c.code) aliases.push(String(c.code))
-      m[c.course] = aliases
-    }
-    return m
-  }, [masterCourses])
-
-  const allowedCourses = useMemo(() => {
-    if (form.course) return new Set(courseAliases[form.course] || [form.course])
-    const today = new Date().toISOString().slice(0, 10)
-    return new Set((masterCourses || []).filter(c => isCourseActive(c, today)).map(c => c.course))
-  }, [form.course, masterCourses, courseAliases])
+  // The selected course's stable id, so projects and lectures are matched by
+  // the course_id foreign key (no more name/abbrev/code string matching).
+  const selectedCourseId = useMemo(() => {
+    if (!form.course) return null
+    const c = (masterCourses || []).find(c => c.course === form.course)
+    return c?.id || c?.code || null
+  }, [form.course, masterCourses])
 
   const projectOptions = useMemo(() =>
-    (content || []).filter(i =>
-      allowedCourses.has(i.course) && i.contentId && !i.done && (i.deadline || DEADLINE_TYPES.has(i.type))
-    ),
-  [content, allowedCourses])
+    (content || []).filter(i => {
+      if (!i.contentId || i.done || !(i.deadline || DEADLINE_TYPES.has(i.type))) return false
+      return selectedCourseId ? (i.courseId === selectedCourseId || i.course === form.course) : i.course === form.course
+    }),
+  [content, selectedCourseId, form.course])
 
   // Lecture IDs strictly for the selected course (nothing else leaks in), in
   // natural number order (lecture 2, lecture 4, lecture 8, …). Requires a
@@ -213,9 +201,9 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
   const filteredLectureIds = useMemo(() => {
     if (!form.course) return []
     return lectureIds
-      .filter(a => allowedCourses.has(a.course))
+      .filter(a => selectedCourseId ? (a.courseId === selectedCourseId || a.course === form.course) : a.course === form.course)
       .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))
-  }, [lectureIds, allowedCourses, form.course])
+  }, [lectureIds, selectedCourseId, form.course])
 
   function now() {
     const d = new Date()
