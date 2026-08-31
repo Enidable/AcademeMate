@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAppData } from '../../context/AppDataContext'
 import CourseSelect from '../CourseSelect'
-import { isCourseActive } from '../../utils/helpers'
+import { getCourseStyle, isCourseActive } from '../../utils/helpers'
 import { DEFAULT_CATEGORIES, DEFAULT_LOCATIONS, DEFAULT_TRANSPORT, META_OPTIONS_KEY, DEADLINE_TYPES } from '../../config'
 
 function Modal({ open, onClose, title, children }) {
@@ -632,6 +632,35 @@ export function AddCourseModal({ open, onClose, initial }) {
           <button type="submit" className="text-sm px-4 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer">{isEdit ? 'Save Changes' : 'Add Course'}</button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+// Shown when closing a live session: lets you match the session to one of
+// today's Daily Planner items, so the session logger opens pre-filled with the
+// item's course + note while keeping the session's own start/end times.
+export function PlannerMatchModal({ open, items, onClose, onPick, onSkip }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Was this session in your Daily Planner?">
+      <p className="text-xs text-slate-500 mb-3">
+        Pick the planner item this session was working on — its course and note are pre-filled, and the start/end times come from the session itself.
+      </p>
+      <div className="space-y-1.5 max-h-[45vh] overflow-y-auto mb-3">
+        {items.map(item => (
+          <button key={item.id} type="button" onClick={() => onPick(item)}
+            className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+            <span className={`w-2 h-2 rounded-full shrink-0 ${getCourseStyle(item.course).dot}`} style={getCourseStyle(item.course).dotCss} />
+            <span className="flex-1 min-w-0">
+              <span className="block text-xs font-medium text-slate-700 truncate">{item.task || '—'}</span>
+              <span className="block text-[10px] text-slate-400 truncate">{item.course}{item.plannedHours ? ` · ${item.plannedHours}h` : ''}{item.done ? ' · done' : ''}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={onClose} className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer">Cancel</button>
+        <button type="button" onClick={onSkip} className="text-sm px-4 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">Skip — open logger without an item</button>
+      </div>
     </Modal>
   )
 }

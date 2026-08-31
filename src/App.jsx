@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import Dashboard from './pages/Dashboard'
@@ -10,7 +10,7 @@ import Courses from './pages/Courses'
 import Calendar from './pages/Calendar'
 import DriveSettings from './components/DriveSettings'
 import { AppDataProvider, useAppData } from './context/AppDataContext'
-import { AddSessionModal, AddDeadlineModal, AddCourseModal } from './components/forms/Modals'
+import { AddSessionModal, AddDeadlineModal, AddCourseModal, PlannerMatchModal } from './components/forms/Modals'
 import { durationBetween, nowTime } from './utils/helpers'
 
 // Small live clock badge shown next to "Close session" while a session runs.
@@ -37,11 +37,22 @@ const pages = {
 
 function AppContent() {
   const [active, setActive] = useState('Dashboard')
-  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, saveMsg, driveError, pushCalendarToGoogle, liveSession, startLiveSession, stopLiveSession } = useAppData()
+  const { inputLog, masterCourses, deadlines, weeklyHours, gradeComponents, loading, error, refreshFromCSVs, hasDrive, syncing, saveMsg, driveError, pushCalendarToGoogle, liveSession, startLiveSession, stopLiveSession, dailyPlan } = useAppData()
   const [modal, setModal] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionPreset, setSessionPreset] = useState(null)
+  const [plannerPickOpen, setPlannerPickOpen] = useState(false)
   const [syncMsg, setSyncMsg] = useState(null)
+
+  // Today's planner items (not-done first, then alphabetical) offered in the
+  // close-session picker (#25).
+  const plannerTodayItems = useMemo(() => {
+    const d = new Date()
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return (dailyPlan || [])
+      .filter(r => r.date === today)
+      .sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0) || String(a.task || '').localeCompare(String(b.task || '')))
+  }, [dailyPlan])
 
   if (loading) {
     return <div className="flex h-screen bg-slate-50 items-center justify-center"><p className="text-slate-400 text-sm">Loading data…</p></div>
@@ -71,9 +82,23 @@ function AppContent() {
 
   const { component: Page, title } = pages[active]
 
-  // Close a running live session: its recorded start + "now" as end pre-fill
-  // the session logger; the rest is filled out like any study session.
+  // Closing a running session (#25): when today's Daily Planner has items,
+  // first ask which one this session was working on, so the logger can open
+  // pre-filled with the item's course + note while keeping the session's own
+  // start/end times. Without any planner items today it goes straight to the
+  // logger with just the times. The session only stops once an item is picked
+  // or skipped, so cancelling the picker leaves it running.
   function handleCloseSession() {
+    if (!liveSession) return
+    if (plannerTodayItems.length > 0) {
+      setPlannerPickOpen(true)
+      return
+    }
+    finishCloseSession({})
+  }
+
+  function finishCloseSession(extra) {
+    setPlannerPickOpen(false)
     const s = stopLiveSession()
     if (!s) return
     const end = nowTime()
@@ -82,8 +107,17 @@ function AppContent() {
       startTime: s.startTime,
       endTime: end,
       durationHours: durationBetween(s.startTime, end) ?? '',
+      ...extra,
     })
     setModal('session')
+  }
+
+  function pickPlannerItem(item) {
+    finishCloseSession({ course: item.course, notes: item.task || item.notes || '' })
+  }
+
+  function skipPlannerItem() {
+    finishCloseSession({})
   }
 
   const headerActions = {
@@ -124,6 +158,10 @@ function AppContent() {
       </div>
 
       <AddSessionModal open={modal === 'session'} onClose={() => { setModal(null); setSessionPreset(null) }} preset={sessionPreset} />
+      <PlannerMatchModal open={plannerPickOpen} items={plannerTodayItems}
+        onClose={() => setPlannerPickOpen(false)}
+        onPick={pickPlannerItem}
+        onSkip={skipPlannerItem} />
       <AddDeadlineModal open={modal === 'deadline'} onClose={() => setModal(null)} />
       <AddCourseModal open={modal === 'course'} onClose={() => setModal(null)} />
       <DriveSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
