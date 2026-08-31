@@ -128,7 +128,7 @@ function AppContent() {
       done: 'done',
       actualHours: duration != null && duration > 0 ? duration : (item.actualHours ?? item.plannedHours ?? 0),
     })
-    openSessionLogger({ course: item.course, notes: item.task || displayNotes(item.notes) || '' })
+    openSessionLogger({ course: item.course, notes: item.task || displayNotes(item.notes) || '', plannerId: item.id })
   }
 
   function skipPlannerItem() {

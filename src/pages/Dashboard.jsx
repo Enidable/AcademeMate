@@ -62,7 +62,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
       updatePlannerTask(r.id, { done: null })
     } else {
       updatePlannerTask(r.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: displayNotes(r.notes), date: today, ...consumeLiveTimes() })
+      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: displayNotes(r.notes), date: today, plannerId: r.id, ...consumeLiveTimes() })
     }
   }
 

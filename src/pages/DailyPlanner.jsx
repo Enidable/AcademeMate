@@ -645,7 +645,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       updatePlannerTask(row.id, { done: null })
     } else {
       updatePlannerTask(row.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: displayNotes(row.notes), date: row.date, ...consumeLiveTimes() })
+      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: displayNotes(row.notes), date: row.date, plannerId: row.id, ...consumeLiveTimes() })
     }
   }
 
