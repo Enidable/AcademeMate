@@ -65,6 +65,9 @@ function planOptions(anchorISO) {
 
 function ItemCard({ item, assignedDate, today, onAssign }) {
   const isToday = item.fixedDow != null && item.dateISO === today
+  // The calendar button swaps the dropdown for a native date picker, so an
+  // item can be sorted into ANY day — not just the five-day window.
+  const [customOpen, setCustomOpen] = useState(false)
   // Hover detail: always reveals the full prep note plus WHICH lecture/class
   // and day it belongs to — a long prep note truncates the card itself, but
   // the popover shows everything.
@@ -84,6 +87,11 @@ function ItemCard({ item, assignedDate, today, onAssign }) {
       )}
     </div>
   )
+  // When a custom date outside the dropdown window is chosen, add it as an
+  // option so the dropdown still reflects the current placement.
+  const options = item.options || []
+  const hasCustomAssigned = assignedDate && !options.includes(assignedDate)
+  const pickOptions = hasCustomAssigned ? [assignedDate, ...options] : options
   return (
     <HoverCard card={detail}>
       <div className={`rounded-lg border px-2 py-1.5 ${isToday ? 'border-indigo-200 bg-indigo-50/50' : assignedDate ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
@@ -106,21 +114,41 @@ function ItemCard({ item, assignedDate, today, onAssign }) {
               <span className="text-slate-400">on the calendar</span>
             </span>
           ) : (
-            <>
+            <div className="flex items-center gap-1">
               {assignedDate && (
-                <span className="text-[10px] text-emerald-600 mr-1" title={`Planned on ${dayLabel(assignedDate)}`}>
+                <span className="text-[10px] text-emerald-600 mr-0.5 shrink-0" title={`Planned on ${dayLabel(assignedDate)}`}>
                   → {dayLabel(assignedDate).split(' ')[0]}
                 </span>
               )}
-              <select value={assignedDate || ''} onChange={e => onAssign(item, e.target.value)}
-                title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
-                className={`w-full text-[10px] border rounded px-1 py-0.5 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
-                <option value="">Sort to day…</option>
-                {(item.options || []).map(iso => (
-                  <option key={iso} value={iso}>{dayLabel(iso)}</option>
-                ))}
-              </select>
-            </>
+              {customOpen ? (
+                <input type="date" value={assignedDate || ''} autoFocus
+                  onChange={e => { setCustomOpen(false); onAssign(item, e.target.value) }}
+                  onBlur={() => setCustomOpen(false)}
+                  onKeyDown={e => { if (e.key === 'Escape') setCustomOpen(false) }}
+                  title="Pick any day — the item is added to that day (and its course) on the Daily Planner"
+                  className="w-full text-[10px] border border-indigo-300 rounded px-1 py-0.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-300" />
+              ) : (
+                <select value={assignedDate || ''} onChange={e => onAssign(item, e.target.value)}
+                  title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
+                  className={`w-full text-[10px] border rounded px-1 py-0.5 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
+                  <option value="">Sort to day…</option>
+                  {pickOptions.map(iso => (
+                    <option key={iso} value={iso}>{dayLabel(iso)}</option>
+                  ))}
+                </select>
+              )}
+              <button onClick={() => setCustomOpen(o => !o)}
+                title={customOpen ? 'Close calendar' : 'Open calendar to pick any day'}
+                aria-label="Pick any date"
+                className="text-slate-400 hover:text-indigo-600 cursor-pointer shrink-0 p-0.5">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+              </button>
+            </div>
           )}
         </div>
       </div>
