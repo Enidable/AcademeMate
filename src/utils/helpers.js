@@ -238,6 +238,9 @@ export function shortCourseName(name) {
 // A course is "active" when it is currently being studied: marked in progress,
 // or (no status yet and) today falls inside its start/finish window.
 export function isCourseActive(course, todayISO) {
+  // Unknown / missing course rows are never "active" — never crash on them
+  // (a study-log entry can reference a course that isn't in the Courses tab).
+  if (!course) return false
   const status = normalizeStatus(course?.status)
   if (status === 'completed') return false
   if (status === 'in progress') return true
