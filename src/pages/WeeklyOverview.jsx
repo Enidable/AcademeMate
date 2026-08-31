@@ -287,7 +287,7 @@ export default function WeeklyOverview() {
       const dow = dates.indexOf(r.date)
       if (dow < 0) continue
       const row = rowOf(r.course || 'Other University Stuff')
-      row.hours[dow] += r.plannedHours || r.actualHours || 0
+      row.hours[dow] += r.actualHours ?? r.plannedHours ?? 0
       if (r.task) row.tasks[dow].push(r.task)
     }
     for (const a of additionalLog || []) {

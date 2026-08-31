@@ -60,9 +60,12 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
   const toggleTask = r => {
     if (r.done) {
       updatePlannerTask(r.id, { done: null })
+    } else if (onLogTask) {
+      // Only opens the logger — the item is marked done once the session is
+      // actually saved (plan↔session relation), so cancelling leaves it open.
+      onLogTask({ course: r.course, task: r.task, notes: displayNotes(r.notes), date: today, plannerId: r.id, lectureId: lectureIdFromNotes(r.notes), ...consumeLiveTimes() })
     } else {
       updatePlannerTask(r.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: displayNotes(r.notes), date: today, plannerId: r.id, lectureId: lectureIdFromNotes(r.notes), ...consumeLiveTimes() })
     }
   }
 

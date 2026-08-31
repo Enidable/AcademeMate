@@ -584,7 +584,9 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     // any) follow them.
     const additional = [...ADDITIONAL_CATEGORIES]
     for (const c of workSet) if (!ADDITIONAL_SET.has(c) && !additional.includes(c)) additional.push(c)
-    const hoursOf = r => r.plannedHours || r.actualHours || r.hours || 0
+    // Prefer the actually-logged hours once a task is done — an estimate must
+    // never outrank what really happened.
+    const hoursOf = r => r.actualHours ?? r.plannedHours ?? r.hours ?? 0
     const cellTasks = (course, date) => byCell[`${course}|${date}`] || []
     const autoTasks = (course, date) => autoByCell[`${course}|${date}`] || []
     const hasTasks = course => dates.some(date => cellTasks(course, date).length > 0)
@@ -657,9 +659,13 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     if (row.done) {
       updatePlannerTask(row.id, { done: null })
+    } else if (onLogTask) {
+      // Ticking a to-do only opens the session logger — the item is NOT marked
+      // done yet, so cancelling the logger leaves the box unchecked. Saving the
+      // session marks it done through the plan↔session relation.
+      onLogTask({ course: row.course, task: row.task, notes: displayNotes(row.notes), date: row.date, plannerId: row.id, lectureId: lectureIdFromNotes(row.notes), ...consumeLiveTimes() })
     } else {
       updatePlannerTask(row.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: displayNotes(row.notes), date: row.date, plannerId: row.id, lectureId: lectureIdFromNotes(row.notes), ...consumeLiveTimes() })
     }
   }
 
