@@ -222,6 +222,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
   const [form, setForm] = useState({
     // Default to the derived abbreviation (never blank) so the field always
     // shows the effective abbreviation and can simply be overwritten.
+    name: c.course || '',
     abbrev: c.abbrev || deriveAbbrev(c.course),
     code: c.code || '',
     ec: c.ec != null ? String(c.ec) : '',
@@ -238,6 +239,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
 
   function commit() {
     set({
+      course: form.name || null,
       abbrev: form.abbrev || null,
       code: form.code || null,
       ec: form.ec ? parseFloat(form.ec) : null,
@@ -361,6 +363,11 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
 
             <div className="space-y-3 min-w-0">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <Field label="Course name">
+                  <input type="text" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} onBlur={commit}
+                    title="Renaming updates every session, syllabus item, grade component and planner row for this course"
+                    className={inputCls} />
+                </Field>
                 <Field label="Abbreviation (IDs)">
                   <input type="text" value={form.abbrev} placeholder="e.g. ASDfR" onChange={(e) => setForm((f) => ({ ...f, abbrev: e.target.value }))} onBlur={commit} className={inputCls} />
                 </Field>

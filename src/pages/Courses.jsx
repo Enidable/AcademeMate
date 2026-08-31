@@ -140,7 +140,7 @@ export default function Courses({ courses }) {
     setDragName(null)
   }
 
-  const viewingCourse = viewing ? courses.find(c => c.course === viewing) || { course: viewing } : null
+  const viewingCourse = viewing ? courses.find(c => c.id === viewing || c.course === viewing) || { course: viewing } : null
 
   return (
     <>
@@ -202,7 +202,7 @@ export default function Courses({ courses }) {
               onDragOver={e => onDragOver(e, c.course)}
               onDrop={onDrop}
               onDragEnd={onDrop}
-              onDoubleClick={() => setViewing(c.course)}
+              onDoubleClick={() => setViewing(c.id)}
               title="Double-click to open the course page"
               className={`rounded-lg border ${style.border || 'border-slate-200'} ${style.soft} p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center transition-opacity ${dragging ? 'opacity-40' : ''}`}
               style={{ ...style.softCss, ...style.borderCss }}>
@@ -287,7 +287,7 @@ export default function Courses({ courses }) {
               )}
 
               <div className="flex items-center gap-3 sm:ml-auto shrink-0">
-                <button onClick={() => setViewing(c.course)}
+                <button onClick={() => setViewing(c.id)}
                   className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer">
                   Open →
                 </button>
