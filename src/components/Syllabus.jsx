@@ -200,9 +200,9 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
             className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
         </div>
       </div>
-      <div className="flex items-center gap-1 mt-0.5 pl-10 text-[10px] text-slate-400">
+      <div className="flex items-center gap-1 mt-0.5 pl-10 text-[10px] text-slate-400 min-w-0">
         {item.calId && <span className="text-emerald-500 shrink-0">linked ·</span>}
-        <span className="truncate shrink-0">{calLine}</span>
+        <span className="truncate">{calLine}</span>
         <span className="flex-1" />
         {!!item.prep && !item.done && (
           <span className="shrink-0 px-1.5 py-px rounded bg-red-600 text-white font-semibold" title={item.prep}>Prep</span>

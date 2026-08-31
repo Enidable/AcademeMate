@@ -268,12 +268,12 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-50">
-      <div className="max-w-5xl mx-auto p-4">
+      <div className="max-w-[90rem] mx-auto p-4">
         <div className={`rounded-xl border ${style.border || 'border-slate-200'} ${style.soft} p-4`} style={{ ...style.softCss, ...style.borderCss }}>
           <div className="flex items-center gap-2 mb-3">
             <button onClick={() => { commit(); onClose() }} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 bg-white cursor-pointer">Back to Courses</button>
             <span className={`w-3 h-3 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
-            <h2 className="font-semibold text-slate-800 text-base leading-tight truncate">{c.course}</h2>
+            <h2 className="font-semibold text-slate-800 text-base leading-tight truncate flex-1 min-w-0">{c.course}</h2>
             <div className="ml-auto flex items-center gap-2">
               <select value={status}
                 onChange={(e) => {
@@ -295,8 +295,8 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-x-24 gap-y-10 items-start">
-            <div className="space-y-3">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-x-10 gap-y-10 items-start">
+            <div className="space-y-3 min-w-0">
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
                   <div className="text-[10px] text-slate-400">Hours logged</div>
@@ -359,7 +359,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 min-w-0">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <Field label="Abbreviation (IDs)">
                   <input type="text" value={form.abbrev} placeholder="e.g. ASDfR" onChange={(e) => setForm((f) => ({ ...f, abbrev: e.target.value }))} onBlur={commit} className={inputCls} />
