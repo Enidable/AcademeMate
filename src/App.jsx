@@ -11,7 +11,7 @@ import Calendar from './pages/Calendar'
 import DriveSettings from './components/DriveSettings'
 import { AppDataProvider, useAppData } from './context/AppDataContext'
 import { AddSessionModal, AddDeadlineModal, AddCourseModal, PlannerMatchModal } from './components/forms/Modals'
-import { durationBetween, nowTime } from './utils/helpers'
+import { durationBetween, nowTime, displayNotes } from './utils/helpers'
 
 // Small live clock badge shown next to "Close session" while a session runs.
 function LiveBadge({ since }) {
@@ -113,7 +113,7 @@ function AppContent() {
   }
 
   function pickPlannerItem(item) {
-    finishCloseSession({ course: item.course, notes: item.task || item.notes || '' })
+    finishCloseSession({ course: item.course, notes: item.task || displayNotes(item.notes) || '' })
   }
 
   function skipPlannerItem() {

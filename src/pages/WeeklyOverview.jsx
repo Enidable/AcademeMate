@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { formatDateShort, getCourseStyle } from '../utils/helpers'
+import { formatDateShort, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR } from '../utils/helpers'
 import { inferEventType, typeSymbol } from '../drive/driveClient'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -39,8 +39,9 @@ function addDaysISO(iso, n) {
 const PLAN_LEAD_DAYS = 5
 
 // Planner rows created from this page are tagged in their notes field so the
-// dropdown can find (move / remove) them again after a reload.
-const MENU_TAG_PREFIX = 'menu:'
+// dropdown can find (move / remove) them again after a reload. The "menu:…"
+// prefix is internal bookkeeping — it is hidden from the planner UI, and a
+// user note typed on such a row is kept after the "||" separator.
 const menuTagOf = menuId => `${MENU_TAG_PREFIX}${menuId}`
 
 const KIND_STYLES = {
@@ -213,12 +214,13 @@ export default function WeeklyOverview() {
       (a.when || '').localeCompare(b.when || ''))
   }, [calendarEvents, deadlines, content, dates])
 
-  // Current day assignment per menu item, read back from the planner rows.
+  // Current day assignment per menu item, read back from the planner rows
+  // (a row's note is the "menu:…" tag, optionally followed by "||" + user note).
   const assignedByMenuId = useMemo(() => {
     const m = new Map()
     for (const r of dailyPlan || []) {
       if (!r.notes || !r.notes.startsWith(MENU_TAG_PREFIX)) continue
-      m.set(r.notes.slice(MENU_TAG_PREFIX.length), r)
+      m.set(r.notes.slice(MENU_TAG_PREFIX.length).split(MENU_TAG_SEPARATOR)[0], r)
     }
     return m
   }, [dailyPlan])
@@ -229,7 +231,9 @@ export default function WeeklyOverview() {
   // the viewed week (prep windows reach back five days before the class).
   function assign(item, isoDate) {
     const tag = menuTagOf(item.menuId)
-    for (const r of (dailyPlan || []).filter(x => x.notes === tag)) deletePlannerTask(r.id)
+    // Remove any previous placement of this item — with or without a user note
+    // appended after the tag.
+    for (const r of (dailyPlan || []).filter(x => x.notes === tag || x.notes.startsWith(tag + MENU_TAG_SEPARATOR))) deletePlannerTask(r.id)
     if (!isoDate) return
     addPlannerTask({
       date: isoDate,

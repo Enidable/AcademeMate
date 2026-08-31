@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
-import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime } from '../utils/helpers'
+import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag } from '../utils/helpers'
 import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
@@ -75,7 +75,7 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue }) {
           ['Planned', planned ? `${planned}h` : null],
           ['Actual', actual != null ? `${actual}h` : null],
           ['Status', status],
-          ['Notes', row.notes],
+          ['Notes', displayNotes(row.notes)],
         ]} />
       </div>
     }>
@@ -630,7 +630,7 @@ export default function DailyPlanner({ onLogTask }) {
       updatePlannerTask(row.id, { done: null })
     } else {
       updatePlannerTask(row.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: row.notes, date: row.date, ...consumeLiveTimes() })
+      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: displayNotes(row.notes), date: row.date, ...consumeLiveTimes() })
     }
   }
 
@@ -659,16 +659,16 @@ export default function DailyPlanner({ onLogTask }) {
 
   function startEdit(row) {
     setEditId(row.id)
-    setEditForm({ task: row.task || '', hours: String(row.hours != null ? row.hours : (row.plannedHours || row.actualHours || '')), notes: row.notes || '' })
+    setEditForm({ task: row.task || '', hours: String(row.hours != null ? row.hours : (row.plannedHours || row.actualHours || '')), notes: displayNotes(row.notes) })
   }
 
   function saveEdit(id) {
     const h = parseFloat(editForm.hours) || 0
     const target = (additionalLog || []).find(r => r.id === id)
     if (target) {
-      updateAdditionalEntry(id, { task: editForm.task, hours: h, notes: editForm.notes || null })
+      updateAdditionalEntry(id, { task: editForm.task, hours: h, notes: mergeNotesWithTag(editForm.notes, target.notes) })
     } else {
-      updatePlannerTask(id, { task: editForm.task, plannedHours: h, actualHours: null, notes: editForm.notes || null })
+      updatePlannerTask(id, { task: editForm.task, plannedHours: h, actualHours: null, notes: mergeNotesWithTag(editForm.notes, (dailyPlan || []).find(r => r.id === id)?.notes) })
     }
     setEditId(null)
   }

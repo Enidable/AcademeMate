@@ -291,3 +291,36 @@ export function nowTime() {
   const p = n => String(n).padStart(2, '0')
   return p(d.getHours()) + ':' + p(d.getMinutes())
 }
+
+// Planner rows sorted in from the Weekly Overview "menu" are tagged in their
+// notes field (menu:prep|…, menu:evt|…, menu:dl|…) so that page can find, move
+// and remove them again after a reload. The tag is internal bookkeeping and
+// must never surface to the user: a user note, if any, is kept after the "||"
+// separator, and the whole menu:… prefix is hidden from display and editing.
+export const MENU_TAG_PREFIX = 'menu:'
+export const MENU_TAG_SEPARATOR = '||'
+
+// The user-facing note of a planner row, with any menu tag stripped off.
+export function displayNotes(notes) {
+  const n = notes || ''
+  if (!n.startsWith(MENU_TAG_PREFIX)) return n
+  const idx = n.indexOf(MENU_TAG_SEPARATOR)
+  return idx > -1 ? n.slice(idx + MENU_TAG_SEPARATOR.length) : ''
+}
+
+// The pure "menu:…" tag of a planner row's notes, or null when there is none.
+export function menuTagOfNotes(notes) {
+  const n = notes || ''
+  if (!n.startsWith(MENU_TAG_PREFIX)) return null
+  const idx = n.indexOf(MENU_TAG_SEPARATOR)
+  return idx > -1 ? n.slice(0, idx) : n
+}
+
+// Re-attaches the menu tag (if the row had one) to user-edited notes, so
+// editing a tagged row keeps it linked to the Weekly Overview menu.
+export function mergeNotesWithTag(edited, original) {
+  const editedVal = (edited || '').trim()
+  const tag = menuTagOfNotes(original)
+  if (!tag) return editedVal || null
+  return editedVal ? `${tag}${MENU_TAG_SEPARATOR}${editedVal}` : tag
+}
