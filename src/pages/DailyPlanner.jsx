@@ -444,12 +444,16 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
 
   // Which calendar events have already been logged (so their scheduled auto
   // entry doesn't double-count once a session/additional entry exists for it).
+  // A session is indexed under BOTH keys when it has both: its content-row FK
+  // (content:…) and its lecture string (course|lectureId). Calendar rows only
+  // ever carry one of the two (content_id may be missing until a relink), so
+  // the lookup below matches whichever key the session actually landed on.
   const loggedEvents = useMemo(() => {
     const study = new Set()
     for (const s of inputLog || []) {
       if (!s.date) continue
       if (s.lectureContentId) study.add('content:' + s.lectureContentId)
-      else if (s.course && s.lectureId) study.add(`course:${s.course}|${s.lectureId}`)
+      if (s.course && s.lectureId) study.add(`course:${s.course}|${s.lectureId}`)
     }
     const addl = new Set()
     for (const a of additionalLog || []) {
@@ -548,7 +552,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       if (!map[k]) map[k] = []
       const logged = isAdditional
         ? loggedEvents.addl.has(`${e.date}|${rowName}|${e.summary}`)
-        : (e.contentId ? loggedEvents.study.has('content:' + e.contentId) : loggedEvents.study.has(`course:${rowName}|${e.lectureId}`))
+        : !!(e.contentId && loggedEvents.study.has('content:' + e.contentId)) || loggedEvents.study.has(`course:${rowName}|${e.lectureId}`)
       map[k].push({
         id: `auto|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}|${e.summary}`,
         task: e.summary,

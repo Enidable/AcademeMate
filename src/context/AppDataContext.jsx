@@ -1148,6 +1148,7 @@ return {
     const seen = new Set()
     let added = 0
     let updated = 0
+    let removed = 0
     const newRowsByKey = new Map()
     for (const r of rows) {
       const k = `${r.uid}|${r.date}|${r.startTime}`
@@ -1155,13 +1156,25 @@ return {
     }
     // Preserve existing events in their original order, updating fields in place
     // when the re-import carries fresher data. New events are appended at the end.
-    const merged = existing.map(e => {
-      const k = `${e.uid}|${e.date}|${e.startTime}`
-      const r = newRowsByKey.get(k)
-      if (!r) return e
-      updated += 1
-      return { ...e, summary: r.summary, course: r.course, location: r.location, description: r.description, endTime: r.endTime, allDay: r.allDay, source: r.source }
-    })
+    // Events that were DELETED on the source calendar no longer appear in this
+    // fetch, so they are pruned — but only rows of THIS calendar and inside the
+    // import window; .ics imports, other calendars and older history are untouched.
+    const source = calendarSummary || calendarId
+    const merged = existing
+      .map(e => {
+        const k = `${e.uid}|${e.date}|${e.startTime}`
+        const r = newRowsByKey.get(k)
+        if (!r) {
+          if ((e.source || '') === source && e.date && e.date >= timeMin && e.date <= timeMax) {
+            removed += 1
+            return null
+          }
+          return e
+        }
+        updated += 1
+        return { ...e, summary: r.summary, course: r.course, location: r.location, description: r.description, endTime: r.endTime, allDay: r.allDay, source: r.source }
+      })
+      .filter(Boolean)
     for (const [k, r] of newRowsByKey) {
       if (!existingByKey.has(k)) { merged.push(r); added += 1 }
     }
@@ -1172,7 +1185,7 @@ return {
     await writeTabsBatch(info.fileId, {
       [TAB_CALENDAR]: serializeCalendar(merged, courseIdMap),
     })
-    return { imported: rows.length, added, updated, source: calendarSummary || calendarId }
+    return { imported: rows.length, added, updated, removed, source: calendarSummary || calendarId }
   }
 
   // Export the Calendar tab into the user's dedicated "AcademeMate" Google

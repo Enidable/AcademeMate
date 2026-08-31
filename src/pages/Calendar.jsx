@@ -199,6 +199,7 @@ export default function Calendar() {
       const parts = []
       if (res.added) parts.push(`${res.added} new`)
       if (res.updated) parts.push(`${res.updated} updated`)
+      if (res.removed) parts.push(`${res.removed} removed`)
       setMessage(`Imported ${parts.length ? parts.join(', ') : 'no changes'} from "${res.source}".`)
     } catch (e) {
       setCalImportError(e.message)
