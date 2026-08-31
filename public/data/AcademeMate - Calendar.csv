@@ -1,1 +1,1 @@
-date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,cal_id
+id,date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id,content_id

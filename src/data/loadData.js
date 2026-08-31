@@ -23,6 +23,7 @@ const CSV_FILES = {
   [TAB_DAILY]: `${ASSET_BASE}data/AcademeMate - Daily Plan.csv`,
   [TAB_HOURS]: `${ASSET_BASE}data/AcademeMate - Weekly Totals.csv`,
   [TAB_CALENDAR]: `${ASSET_BASE}data/AcademeMate - Calendar.csv`,
+  [TAB_ADDITIONAL]: `${ASSET_BASE}data/AcademeMate - Additional Time Log.csv`,
   [TAB_ACADEMIC_YEAR]: `${ASSET_BASE}data/AcademeMate - Academic Year.csv`,
 }
 
