@@ -15,7 +15,7 @@ import {
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -275,6 +275,8 @@ function buildState(rowsByTab) {
   linkGradeComponents(data)
   // Stable primary keys for every entity (legacy rows get them backfilled).
   assignEntityIds(data)
+  // Sessions logged before the plan↔session link existed get backfilled links.
+  backfillPlanLinks(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
   return { data, weeklyHours, plannerWeeks }
 }
@@ -639,6 +641,7 @@ export function AppDataProvider({ children }) {
     if (saved?.data) {
       const planner = ensureDefaultRows(saved.plannerWeeks || [])
       assignEntityIds(saved.data)
+      backfillPlanLinks(saved.data)
       dataRef.current = saved.data
       plannerRef.current = planner
       weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides, saved.data.additionalLog)
@@ -2002,6 +2005,17 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     syncTabs(['dailyPlan'])
   }
 
+  // Hard-delete a planner item AND the study-log sessions linked to it (the
+  // Daily Planner's × button). Weekly Overview's sort/move uses deletePlannerTask
+  // so it never cascades.
+  function deletePlannerItem(id) {
+    const prev = dataRef.current || {}
+    const dailyPlan = (prev.dailyPlan || []).filter(r => r.id !== id)
+    const studyLog = (prev.studyLog || []).filter(s => s.planId !== id)
+    setAll({ ...prev, dailyPlan, studyLog }, plannerRef.current)
+    syncTabs(['dailyPlan', 'studyLog'])
+  }
+
   // --- Live session (#17) --------------------------------------------------
   // Start recording time now. Returns false (and keeps the running session)
   // when another session is already running and the user declines replacing it.
@@ -2142,6 +2156,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       addPlannerTask,
       updatePlannerTask,
         deletePlannerTask,
+        deletePlannerItem,
         reconcilePastDays,
         liveSession,
         startLiveSession,

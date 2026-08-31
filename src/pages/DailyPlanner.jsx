@@ -324,7 +324,7 @@ function RescheduleRow({ row, options, onReschedule, onSkip }) {
 export default function DailyPlanner({ onLogTask, onLogAdditional }) {
   const {
     dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog, content, inputLog,
-    addPlannerTask, updatePlannerTask, deletePlannerTask, reconcilePastDays,
+    addPlannerTask, updatePlannerTask, deletePlannerItem, reconcilePastDays,
     addAdditionalEntry, updateAdditionalEntry, deleteAdditionalEntry,
     liveSession, stopLiveSession,
   } = useAppData()
@@ -757,13 +757,13 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     if (row && (row.done || linked.length > 0)) {
       msg = `Delete "${row.task || 'this task'}"?`
       if (linked.length > 0) {
-        msg += ` It has ${linked.length} linked session${linked.length === 1 ? '' : 's'} in the Time Log, which will stay logged.`
+        msg += ` It has ${linked.length} linked session${linked.length === 1 ? '' : 's'} in the Time Log, which will be deleted too.`
       }
-      msg += ' The Daily Planner entry will be removed.'
+      msg += ' This removes the Daily Planner entry.'
     }
     if (!window.confirm(msg)) return
     if ((additionalLog || []).some(r => r.id === id)) deleteAdditionalEntry(id)
-    else deletePlannerTask(id)
+    else deletePlannerItem(id)
   }
 
   return (

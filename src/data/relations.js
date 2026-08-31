@@ -94,6 +94,42 @@ export function syncPlannerFromSessions(planId, studyLog, dailyPlan) {
     })
 }
 
+// One-time migration: sessions logged before the plan↔session link existed have
+// no plan_id, so editing/deleting them can't reach the planner. Link each such
+// session to the done planner row for the same course+day — when several rows
+// exist, the task text (vs the session's note/project/lecture) disambiguates.
+// Conservative: a session is only linked when the match is unambiguous.
+// Idempotent — returns whether anything was linked.
+export function backfillPlanLinks(data) {
+  const byKey = new Map()
+  for (const r of data.dailyPlan || []) {
+    if (!r.date || !r.course || !r.done) continue
+    const k = `${r.date}|${r.course}`
+    if (!byKey.has(k)) byKey.set(k, [])
+    byKey.get(k).push(r)
+  }
+  let changed = false
+  for (const s of data.studyLog || []) {
+    if (s.planId || !s.date || !s.course) continue
+    const candidates = byKey.get(`${s.date}|${s.course}`) || []
+    if (candidates.length === 0) continue
+    let pick = candidates.length === 1 ? candidates[0] : null
+    if (!pick && candidates.length > 1) {
+      const needle = String(s.notes || s.project || s.lectureId || '').trim().toLowerCase()
+      const found = candidates.filter(r => {
+        const t = String(r.task || '').trim().toLowerCase()
+        return needle && (t.includes(needle) || needle.includes(t))
+      })
+      if (found.length === 1) pick = found[0]
+    }
+    if (pick) {
+      s.planId = pick.id
+      changed = true
+    }
+  }
+  return changed
+}
+
 // All Study Log sessions referencing a lecture / component ID.
 export function sessionsForLecture(lectureId, studyLog) {
   return (studyLog || []).filter(s => s.lectureId === lectureId)
