@@ -5,14 +5,14 @@
 
 import { num, isoDateToDDMMYYYY } from './normalize.js'
 
-export const STUDY_LOG_HEADER = 'date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes'
-export const COURSES_HEADER = 'course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes,scope,color,order'
-export const GRADE_COMPONENTS_HEADER = 'course_id,component,type,weight,grade,due_date,hours_spent,done,notes'
-export const CONTENT_HEADER = 'course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id,prep'
-export const DAILY_PLAN_HEADER = 'date,course_id,task,planned_hours,actual_hours,done,notes'
+export const STUDY_LOG_HEADER = 'id,date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes'
+export const COURSES_HEADER = 'id,course_id,name,code,abbrev,year,quartile,start,finish,ec,status,est_hours,notes,scope,color,order'
+export const GRADE_COMPONENTS_HEADER = 'id,course_id,component,type,weight,grade,due_date,hours_spent,done,notes'
+export const CONTENT_HEADER = 'id,course_id,course_2,content_id,type,topic,date,deadline,start,end,location,marker,hours_spent,material_hours,content,done,cal_id,prep'
+export const DAILY_PLAN_HEADER = 'id,date,course_id,task,planned_hours,actual_hours,done,notes'
 export const WEEKLY_TOTALS_HEADER = 'year,week,total_hours,notes'
-export const CALENDAR_HEADER = 'date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id'
-export const ADDITIONAL_HEADER = 'date,category,task,hours,start_time,end_time,efficiency,wellbeing,location,notes,done'
+export const CALENDAR_HEADER = 'id,date,start_time,end_time,all_day,summary,course_id,location,description,source,uid,status,lecture_id,cal_id'
+export const ADDITIONAL_HEADER = 'id,date,category,task,hours,start_time,end_time,efficiency,wellbeing,location,notes,done'
 export const ACADEMIC_YEAR_HEADER = 'year,period,label,start,finish'
 
 const splitHeader = h => h.split(',')
@@ -26,6 +26,7 @@ function courseIdFor(codeMap, course) {
 
 export function serializeStudyLog(entries, codeMap) {
   const rows = (entries || []).map(e => [
+    e.id || '',
     isoDateToDDMMYYYY(e.date),
     e.startTime || '',
     e.endTime || '',
@@ -47,6 +48,7 @@ export function serializeStudyLog(entries, codeMap) {
 
 export function serializeCourses(courses) {
   const rows = (courses || []).map(c => [
+    c.id || '',
     c.code || c.course || '',
     c.course || '',
     c.code || '',
@@ -73,6 +75,7 @@ export function serializeGradeComponents(groups, codeMap) {
       const hasData = c.name || c.id || c.weight != null || c.grade != null || c.dueDate || c.hoursSpent != null || c.done
       if (!hasData) continue
       rows.push([
+        c.rowId || '',
         courseIdFor(codeMap, g.course),
         c.name || c.id || (c.type && c.type !== 'other' ? c.type.charAt(0).toUpperCase() + c.type.slice(1) : ''),
         (c.type || 'other') === 'other' ? '' : c.type || '',
@@ -90,6 +93,7 @@ export function serializeGradeComponents(groups, codeMap) {
 
 export function serializeContent(items, codeMap) {
   const rows = (items || []).map(i => [
+    i.id || '',
     courseIdFor(codeMap, i.course),
     i.course2 || '',
     i.contentId || i.lectureId || '',
@@ -113,6 +117,7 @@ export function serializeContent(items, codeMap) {
 
 export function serializeDailyPlan(rows, codeMap) {
   const out = (rows || []).map(r => [
+    r.id || '',
     isoDateToDDMMYYYY(r.date),
     courseIdFor(codeMap, r.course),
     r.task || '',
@@ -138,6 +143,7 @@ export function serializeAdditionalLog(rows) {
   return [
     splitHeader(ADDITIONAL_HEADER),
     ...(rows || []).map(r => [
+      r.id || '',
       isoDateToDDMMYYYY(r.date),
       r.category || '',
       r.task || '',
@@ -155,6 +161,7 @@ export function serializeAdditionalLog(rows) {
 
 export function serializeCalendar(events, codeMap) {
   const rows = (events || []).map(e => [
+    e.id || '',
     isoDateToDDMMYYYY(e.date),
     e.startTime || '',
     e.endTime || '',

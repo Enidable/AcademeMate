@@ -13,6 +13,7 @@ import {
   CONTENT_TYPES,
 } from '../config'
 import { toFloat, toInt, parseDateDDMMYYYY } from './normalize.js'
+import { assignEntityIds } from './relations.js'
 
 const CSV_FILES = {
   [TAB_STUDY_LOG]: `${ASSET_BASE}data/AcademeMate - Study Log.csv`,
@@ -30,13 +31,13 @@ const CSV_FILES = {
 function parseStudyLog(rows, resolveCourse) {
   return rows
     .filter(r => (r.course_id || '').trim())
-    .map((r, i) => {
+    .map((r) => {
       const durationHours = toFloat(r.duration_hours)
       const durationMinutes = toInt(r.duration_minutes)
       const date = parseDateDDMMYYYY((r.date || '').trim())
       const course = resolveCourse((r.course_id || '').trim())
       return {
-        id: `${date}|${course}|${(r.start_time || '').trim()}|${i}`,
+        id: (r.id || '').trim(),
         date,
         startTime: (r.start_time || '').trim(),
         endTime: (r.end_time || '').trim(),
@@ -94,7 +95,7 @@ function parseCourses(rows) {
   return mergeCourses(rows
     .filter(r => (r.course_id || '').trim())
     .map(r => ({
-      id: (r.course_id || '').trim(),
+      id: (r.id || '').trim(),
       course: (r.name || r.course_id || '').trim(),
       code: (r.code || '').trim() || null,
       abbrev: (r.abbrev || '').trim() || null,
@@ -205,7 +206,7 @@ function parseContent(rows, resolveCourse) {
         location = null
       }
       return {
-        id: `${course}|${course2 || ''}|${contentId}|${(r.date || '').trim()}|${(r.deadline || '').trim()}|${topic}`,
+        id: (r.id || '').trim(),
         description: topic || contentId || type || 'Task',
         course,
         course2,
@@ -245,7 +246,7 @@ function parseDailyPlan(rows, resolveCourse) {
       const course = resolveCourse((r.course_id || '').trim())
       const task = (r.task || '').trim()
       return {
-        id: `${date}|${course}|${task}`,
+        id: (r.id || '').trim(),
         date,
         course,
         task,
@@ -280,12 +281,12 @@ function parseWeeklyOverrides(rows) {
 function parseAdditionalLog(rows) {
   return rows
     .filter(r => (r.date || '').trim() && (r.category || '').trim())
-    .map((r, i) => {
+    .map((r) => {
       const category = (r.category || '').trim()
       const date = parseDateDDMMYYYY((r.date || '').trim())
       const done = (r.done || '').trim()
       return {
-        id: `${date}|${category.toLowerCase()}|${(r.task || '').trim()}|${i}`,
+        id: (r.id || '').trim(),
         date,
         course: category,
         category,
@@ -311,7 +312,7 @@ function parseCalendar(rows, resolveCourse) {
     .map(r => {
       const allDay = String(r.all_day || '').trim()
       return {
-        id: `${(r.uid || '').trim()}|${(r.date || '').trim()}|${(r.start_time || '').trim()}`,
+        id: (r.id || '').trim(),
         date: parseDateDDMMYYYY((r.date || '').trim()),
         startTime: (r.start_time || '').trim(),
         endTime: (r.end_time || '').trim(),
@@ -374,7 +375,7 @@ export function parseAll(rowsByTab) {
   const resolveCourse = resolveCourseFor(courses)
   const gradeComponents = parseGradeComponents(parseCSVRows(rowsByTab[TAB_GRADES] || []), resolveCourse)
   attachCourseGrades(courses, gradeComponents)
-  return {
+  const data = {
     studyLog: parseStudyLog(parseCSVRows(rowsByTab[TAB_STUDY_LOG] || []), resolveCourse),
     courses,
     gradeComponents,
@@ -385,6 +386,10 @@ export function parseAll(rowsByTab) {
     additionalLog: parseAdditionalLog(parseCSVRows(rowsByTab[TAB_ADDITIONAL] || [])),
     academicYears: parseAcademicYears(rowsByTab[TAB_ACADEMIC_YEAR] || []),
   }
+  // Stable primary keys: keep any id already persisted in the sheet, assign
+  // fresh ones to legacy rows (persisted on the next write).
+  assignEntityIds(data)
+  return data
 }
 
 export async function rowsByTabFromCSVs() {

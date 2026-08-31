@@ -15,6 +15,7 @@ import {
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
+import { nextId, assignIds, assignEntityIds } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -272,6 +273,8 @@ function buildState(rowsByTab) {
   ensureLoggedPastSessions(data)
   synthCourses(data)
   linkGradeComponents(data)
+  // Stable primary keys for every entity (legacy rows get them backfilled).
+  assignEntityIds(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
   return { data, weeklyHours, plannerWeeks }
 }
@@ -602,6 +605,7 @@ export function AppDataProvider({ children }) {
     const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
     await healCourses(d, savedLocal)
     cleanContent(d)
+    assignEntityIds(d)
     if ((ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) && driveRef.current) syncTabs(['dailyPlan'])
 
     dataRef.current = d
@@ -634,6 +638,7 @@ export function AppDataProvider({ children }) {
     const saved = loadJSON()
     if (saved?.data) {
       const planner = ensureDefaultRows(saved.plannerWeeks || [])
+      assignEntityIds(saved.data)
       dataRef.current = saved.data
       plannerRef.current = planner
       weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides, saved.data.additionalLog)
@@ -1459,7 +1464,7 @@ return {
 
   function addSession(entry) {
     const prev = dataRef.current || {}
-    const updated = { ...prev, studyLog: [{ ...entry, id: Date.now() }, ...(prev.studyLog || [])] }
+    const updated = { ...prev, studyLog: [{ ...entry, id: nextId('session_', (prev.studyLog || []).map(e => e.id)) }, ...(prev.studyLog || [])] }
     setAll(updated, plannerRef.current)
     syncTabs(['studyLog'])
   }
@@ -1474,7 +1479,7 @@ return {
     if (ym) courseData.year = ym[1]
     const updated = {
       ...prev,
-      courses: [...(prev.courses || []), { ...courseData, id: courseData.code || courseData.course, course: courseData.course }],
+      courses: [...(prev.courses || []), { ...courseData, id: nextId('course_', (prev.courses || []).map(c => c.id)), course: courseData.course }],
     }
     const keys = ['courses']
     if (_gradeComponents && _gradeComponents.length > 0) {
@@ -1514,9 +1519,9 @@ return {
       done: deadline.done || '',
       time: deadline.time ?? 0,
     }
-    // Stable id (same shape addContentItem builds) so the row can be matched
-    // reliably for dedupe, React keys and calendar cal_id write-back.
-    item.id = `${item.course}||${item.contentId || ''}|${item.date || ''}|${item.deadline || ''}|${item.topic}`
+    // Stable id so the row can be matched reliably for dedupe, React keys and
+    // calendar cal_id write-back.
+    item.id = nextId('content_', (prev.content || []).map(i => i.id))
     const updated = { ...prev, content: [...(prev.content || []), item] }
     setAll(updated, plannerRef.current)
     syncTabs(['content'])
@@ -1574,7 +1579,6 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         return {
           ...item,
           contentId: renamed,
-          id: `${item.course}|${item.course2 || ''}|${renamed}|${item.date || ''}|${item.deadline || ''}|${item.topic || ''}`,
         }
       })
       const gradeComponents = (prev.gradeComponents || []).map(g => {
@@ -1719,7 +1723,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       urgency: item.urgency || 'Medium',
       time: item.time ?? 0,
     }
-    newItem.id = `${newItem.course}||${newItem.contentId || ''}|${newItem.date || ''}|${newItem.deadline || ''}|${newItem.topic}`
+    newItem.id = nextId('content_', (prev.content || []).map(i => i.id))
     const updated = { ...prev, content: [...(prev.content || []), newItem] }
     setAll(updated, plannerRef.current)
     syncTabs(['content'])
@@ -1830,7 +1834,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     for (const c of entry.components) {
       if (c.id == null || !c.dueDate || seen.has(c.id)) continue
       content.push({
-        id: `${course}||${c.id}|${c.dueDate}||${c.name || c.id}`,
+        id: null,
         course,
         course2: null,
         contentId: c.id,
@@ -1852,6 +1856,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         time: 0,
       })
     }
+    assignIds(content, 'content_')
 
     // Drop auto-created deadlines whose component was removed (and that have no
     // logged hours), so removed assessments don't linger in the calendar.
@@ -1931,7 +1936,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
   function addPlannerTask(task) {
     const prev = dataRef.current || {}
     const row = {
-      id: `${task.date}|${task.course || ''}|${task.task || ''}`,
+      id: nextId('plan_', (prev.dailyPlan || []).map(r => r.id)),
       date: task.date,
       course: task.course || '',
       task: task.task || '',
@@ -2008,7 +2013,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
   function addAdditionalEntry(entry) {
     const prev = dataRef.current || {}
     const row = {
-      id: `${entry.date}|${String(entry.category || '').toLowerCase()}|${entry.task || ''}|${Date.now()}`,
+      id: nextId('addtl_', (prev.additionalLog || []).map(r => r.id)),
       date: entry.date,
       course: entry.category || 'Other Obligations',
       category: entry.category || 'Other Obligations',
