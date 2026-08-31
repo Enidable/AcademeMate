@@ -324,3 +324,14 @@ export function mergeNotesWithTag(edited, original) {
   if (!tag) return editedVal || null
   return editedVal ? `${tag}${MENU_TAG_SEPARATOR}${editedVal}` : tag
 }
+
+// The lecture/content ID referenced by a Weekly Overview prep or deadline row
+// (menu:prep|courses|contentId|date / menu:dl|courses|contentId|deadline), so
+// ticking one off can pre-fill the session logger's lecture ID.
+export function lectureIdFromNotes(notes) {
+  const tag = menuTagOfNotes(notes)
+  if (!tag) return ''
+  const parts = tag.slice(MENU_TAG_PREFIX.length).split('|')
+  if (parts[0] === 'prep' || parts[0] === 'dl') return parts[2] || ''
+  return ''
+}

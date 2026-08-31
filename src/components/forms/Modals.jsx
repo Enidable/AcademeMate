@@ -181,12 +181,25 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
   }, [gradeComponents, content])
 
   // Only projects and lectures from active courses are offered (or, once a
-  // course is picked, only the ones belonging to that course).
+  // course is picked, only the ones belonging to that course). Matching is by
+  // the course's full name, abbreviation AND code — content rows in the sheet
+  // may store any of the three in their course_id column.
+  const courseAliases = useMemo(() => {
+    const m = {}
+    for (const c of masterCourses || []) {
+      const aliases = [c.course]
+      if (c.abbrev) aliases.push(c.abbrev)
+      if (c.code) aliases.push(String(c.code))
+      m[c.course] = aliases
+    }
+    return m
+  }, [masterCourses])
+
   const allowedCourses = useMemo(() => {
-    if (form.course) return new Set([form.course])
+    if (form.course) return new Set(courseAliases[form.course] || [form.course])
     const today = new Date().toISOString().slice(0, 10)
     return new Set((masterCourses || []).filter(c => isCourseActive(c, today)).map(c => c.course))
-  }, [form.course, masterCourses])
+  }, [form.course, masterCourses, courseAliases])
 
   const projectOptions = useMemo(() =>
     (content || []).filter(i =>
@@ -194,9 +207,15 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     ),
   [content, allowedCourses])
 
-  const filteredLectureIds = useMemo(() =>
-    lectureIds.filter(a => allowedCourses.has(a.course)),
-  [lectureIds, allowedCourses])
+  // Lecture IDs strictly for the selected course (nothing else leaks in), in
+  // natural number order (lecture 2, lecture 4, lecture 8, …). Requires a
+  // course — with none picked the list stays empty.
+  const filteredLectureIds = useMemo(() => {
+    if (!form.course) return []
+    return lectureIds
+      .filter(a => allowedCourses.has(a.course))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))
+  }, [lectureIds, allowedCourses, form.course])
 
   function now() {
     const d = new Date()
@@ -394,6 +413,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
             <option value="">None</option>
             {filteredLectureIds.map(a => <option key={a.id} value={a.id}>{a.id} — {a.course} ({a.type})</option>)}
           </select>
+          {!form.course && <p className="text-[10px] text-slate-400 mt-1">Pick a course to see its lecture IDs.</p>}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
-import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag } from '../utils/helpers'
+import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag, lectureIdFromNotes } from '../utils/helpers'
 import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
@@ -645,7 +645,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       updatePlannerTask(row.id, { done: null })
     } else {
       updatePlannerTask(row.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: displayNotes(row.notes), date: row.date, plannerId: row.id, ...consumeLiveTimes() })
+      if (onLogTask) onLogTask({ course: row.course, task: row.task, notes: displayNotes(row.notes), date: row.date, plannerId: row.id, lectureId: lectureIdFromNotes(row.notes), ...consumeLiveTimes() })
     }
   }
 

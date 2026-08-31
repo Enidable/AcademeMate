@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { formatDate, formatTime, getCourseStyle, truncate, sessionCategoryForType, durationBetween, nowTime, displayNotes } from '../utils/helpers'
+import { formatDate, formatTime, getCourseStyle, truncate, sessionCategoryForType, durationBetween, nowTime, displayNotes, lectureIdFromNotes } from '../utils/helpers'
 import { computeXp, weeklyXpSeries, courseWeightFor, XP_CONSTANTS } from '../data/xp'
 import { useAppData } from '../context/AppDataContext'
 import { inferEventType } from '../drive/driveClient'
@@ -62,7 +62,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
       updatePlannerTask(r.id, { done: null })
     } else {
       updatePlannerTask(r.id, { done: 'done' })
-      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: displayNotes(r.notes), date: today, plannerId: r.id, ...consumeLiveTimes() })
+      if (onLogTask) onLogTask({ course: r.course, task: r.task, notes: displayNotes(r.notes), date: today, plannerId: r.id, lectureId: lectureIdFromNotes(r.notes), ...consumeLiveTimes() })
     }
   }
 
