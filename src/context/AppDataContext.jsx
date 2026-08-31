@@ -15,7 +15,7 @@ import {
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
-import { nextId, assignIds, assignEntityIds } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -1464,9 +1464,13 @@ return {
 
   function addSession(entry) {
     const prev = dataRef.current || {}
-    const updated = { ...prev, studyLog: [{ ...entry, id: nextId('session_', (prev.studyLog || []).map(e => e.id)) }, ...(prev.studyLog || [])] }
-    setAll(updated, plannerRef.current)
-    syncTabs(['studyLog'])
+    const row = { ...entry, id: nextId('session_', (prev.studyLog || []).map(e => e.id)) }
+    const studyLog = [row, ...(prev.studyLog || [])]
+    // A session logged from ticking off a Daily Planner item carries its plan_id
+    // — reflect the logged time back on the planner row (done + actual hours).
+    const dailyPlan = syncPlannerFromSessions(row.planId, studyLog, prev.dailyPlan)
+    setAll({ ...prev, studyLog, dailyPlan }, plannerRef.current)
+    syncTabs(['studyLog', 'dailyPlan'])
   }
 
   function addCourse(course) {
@@ -1529,9 +1533,13 @@ return {
 
   function updateSession(id, entry) {
     const prev = dataRef.current || {}
+    const before = (prev.studyLog || []).find(e => e.id === id)
     const studyLog = (prev.studyLog || []).map(e => e.id === id ? { ...e, ...entry, id } : e)
-    setAll({ ...prev, studyLog }, plannerRef.current)
-    syncTabs(['studyLog'])
+    // Keep the planner row in step with the linked session's (edited) hours.
+    const planId = { ...before, ...entry, id }.planId
+    const dailyPlan = syncPlannerFromSessions(planId, studyLog, prev.dailyPlan)
+    setAll({ ...prev, studyLog, dailyPlan }, plannerRef.current)
+    syncTabs(['studyLog', 'dailyPlan'])
   }
 
 // Renames the prefix of an ID (e.g. "202400250-01" -> "ASDfR-L01") when the
@@ -1554,7 +1562,9 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     const current = courses[idx]
     const name = courseData.course || current.course || id
     const updated = { ...current, ...courseData, course: name }
-    updated.id = updated.code || name
+    // Keep the stable row id (course_NNNNNN) — only fall back to code/name for
+    // legacy rows that never got one.
+    updated.id = current.id || updated.code || name
     // The year is always derived from the start (or finish) date, so it is
     // never entered by hand.
     if (courseData.start != null || courseData.finish != null) {
@@ -1731,9 +1741,13 @@ function renameIdPrefix(contentId, oldBase, newBase) {
 
   function deleteSession(id) {
     const prev = dataRef.current || {}
-    const updated = { ...prev, studyLog: (prev.studyLog || []).filter(e => e.id !== id) }
-    setAll(updated, plannerRef.current)
-    syncTabs(['studyLog'])
+    const removed = (prev.studyLog || []).find(e => e.id === id)
+    const studyLog = (prev.studyLog || []).filter(e => e.id !== id)
+    // Removing the last session of a planner item reopens it (done + actual
+    // hours cleared); with siblings left, actual hours shrink to their sum.
+    const dailyPlan = syncPlannerFromSessions(removed?.planId, studyLog, prev.dailyPlan)
+    setAll({ ...prev, studyLog, dailyPlan }, plannerRef.current)
+    syncTabs(['studyLog', 'dailyPlan'])
   }
 
   // Delete a course by id or name. Everything referencing it is scrubbed —

@@ -61,10 +61,11 @@ function todayISO() {
   return toISO(new Date())
 }
 
-function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue }) {
+function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue, planSessions }) {
   const planned = row.plannedHours != null ? row.plannedHours : row.hours
   const actual = row.actualHours != null && row.actualHours > 0 ? row.actualHours : null
   const status = row.done ? 'Done' : overdue ? 'Overdue' : 'Open'
+  const linked = planSessions ? planSessions[row.id] : null
   return (
     <HoverCard card={
       <div className="space-y-1.5">
@@ -74,6 +75,7 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue }) {
           ['Date', formatDateShort(row.date)],
           ['Planned', planned ? `${planned}h` : null],
           ['Actual', actual != null ? `${actual}h` : null],
+          ['Logged', linked?.length ? `${linked.reduce((t, s) => t + (s.durationHours || 0), 0).toFixed(2)}h · ${linked.length} session${linked.length === 1 ? '' : 's'}` : null],
           ['Status', status],
           ['Notes', displayNotes(row.notes)],
         ]} />
@@ -217,6 +219,7 @@ function CourseRow({
   cellTasks, autoTasks, hoursOf, editId, editForm, setEditForm, addCell, cellForm, setCellForm,
   onEdit, onSaveEdit, onCancelEdit, onToggle, onDelete, onOpenAdd, onSaveAdd, onCancelAdd, onRemoveExtraRow,
   onQuickAdd, onLogAuto, onLogAdditional, readOnly, draggable, dragging, onRowDragStart, onRowDragOver, onRowDrop,
+  planSessions,
 }) {
   return (
     <tr
@@ -257,7 +260,7 @@ function CourseRow({
               editId === row.id
                 ? <EditForm key={row.id} row={row} form={editForm} setForm={setEditForm} onSave={onSaveEdit} onCancel={onCancelEdit} />
                 : <TaskRow key={row.id} row={row} hoursOf={hoursOf} onToggle={onToggle} onEdit={onEdit}
-                    onDelete={() => onDelete(row.id)} overdue={!row.done && date < today} />
+                    onDelete={() => onDelete(row.id)} overdue={!row.done && date < today} planSessions={planSessions} />
             ))}
             {(autoTasks ? autoTasks(course, date) : []).map(entry => (
               <AutoTask key={entry.id} entry={entry} onLog={onLogAuto} onLogAdditional={onLogAdditional} />
@@ -320,7 +323,7 @@ function RescheduleRow({ row, options, onReschedule, onSkip }) {
 
 export default function DailyPlanner({ onLogTask, onLogAdditional }) {
   const {
-    dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog, content,
+    dailyPlan, weeklyHours, masterCourses, calendarEvents, deadlines, additionalLog, content, inputLog,
     addPlannerTask, updatePlannerTask, deletePlannerTask, reconcilePastDays,
     addAdditionalEntry, updateAdditionalEntry, deleteAdditionalEntry,
     liveSession, stopLiveSession,
@@ -431,6 +434,17 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     return map
   }, [additionalLog])
+
+  // Study sessions linked to planner items (plan_id), for the hover detail.
+  const planSessions = useMemo(() => {
+    const map = {}
+    for (const s of inputLog || []) {
+      if (!s.planId) continue
+      if (!map[s.planId]) map[s.planId] = []
+      map[s.planId].push(s)
+    }
+    return map
+  }, [inputLog])
 
   const avgWeeklyHours = useMemo(() => getAverageWeeklyHours(weeklyHours), [weeklyHours])
 
@@ -807,7 +821,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
                   dragging={dragCourse === course}
                   onRowDragStart={handleCourseDragStart(course)}
                   onRowDragOver={handleCourseDragOver(course)}
-                  onRowDrop={handleCourseDrop} />
+                  onRowDrop={handleCourseDrop} planSessions={planSessions} />
               ))}
               {orderedStudy.length === 0 && (
                 <tr>
@@ -836,7 +850,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
                   onQuickAdd={quickAddTask}
                   onLogAuto={logClassEntry}
                   onLogAdditional={onLogAdditional}
-                  onRemoveExtraRow={removeExtraRow} />
+                  onRemoveExtraRow={removeExtraRow} planSessions={planSessions} />
               ))}
               <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
                 <td className="px-3 py-2">Day total</td>

@@ -128,7 +128,7 @@ function ListEditor({ label, items, onAdd, onRemove }) {
 }
 
 export function AddSessionModal({ open, onClose, initial, preset }) {
-  const { addSession, updateSession, updatePlannerTask, masterCourses, gradeComponents, content } = useAppData()
+  const { addSession, updateSession, masterCourses, gradeComponents, content } = useAppData()
   const [form, setForm] = useState(() => seedSession(initial))
   const [manageOpen, setManageOpen] = useState(false)
   const [meta, setMeta] = useState(() => {
@@ -254,6 +254,15 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     const s = timeToMin(next.startTime)
     const e = timeToMin(next.endTime)
     const h = next.durationHours === '' ? null : parseFloat(String(next.durationHours).replace(',', '.'))
+    // The user is editing the duration (hours/minutes) directly — it wins over
+    // any start/end pair, so typing "12" minutes isn't overwritten on the next
+    // keystroke by a recompute from start+end (which typing the first digit
+    // just back-filled). Derive the missing time from the duration instead.
+    if (changed === 'durationHours') {
+      if (s != null && h != null && isFinite(h)) next.endTime = minToTime(s + h * 60)
+      else if (e != null && h != null && isFinite(h)) next.startTime = minToTime(e - h * 60)
+      return next
+    }
     if (s != null && e != null) {
       const mins = e - s + (e < s ? 1440 : 0)
       if (mins >= 0) next.durationHours = String(+(mins / 60).toFixed(2))
@@ -334,10 +343,12 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
       notes: form.notes || null,
     }
     if (isEdit && initial?.id) updateSession(initial.id, payload)
-    else addSession(payload)
-    // When this logger was opened from ticking off a Daily Planner item, write
-    // the actually-logged time back to that item (replacing the estimate).
-    if (preset?.plannerId && dh > 0) updatePlannerTask(preset.plannerId, { actualHours: dh })
+    else {
+      // A session logged from ticking off a Daily Planner item is linked to it
+      // (plan_id); the planner row is then updated through the relation.
+      if (preset?.plannerId) payload.planId = preset.plannerId
+      addSession(payload)
+    }
     setForm({ date: '', startTime: '', endTime: '', durationHours: '', course: '', category: '', project: '', location: '', efficiency: '', wellbeing: '', lectureId: '', transportMode: '', commuteTime: '', notes: '' })
     onClose()
   }

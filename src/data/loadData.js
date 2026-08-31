@@ -53,6 +53,7 @@ function parseStudyLog(rows, resolveCourse) {
         transportMode: (r.transport_mode || '').trim() || null,
         commuteTime: toFloat((r.commute_minutes || '').trim()),
         notes: (r.notes || '').trim() || null,
+        planId: (r.plan_id || '').trim() || null,
       }
     })
 }
