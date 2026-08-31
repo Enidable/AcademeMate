@@ -196,7 +196,7 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
         <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0" title={timeTitle}>{timeLabel}</span>
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
           <button onClick={() => onStartEdit(item)} className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
-          <button onClick={() => { if (window.confirm(`Remove "${item.description || item.contentId}" from the syllabus?`)) onDelete(item) }}
+          <button onClick={() => { if (window.confirm(`Remove "${item.description || item.contentId}" from the syllabus? Its linked calendar entry will be removed too.`)) onDelete(item) }}
             className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
         </div>
       </div>
@@ -274,7 +274,7 @@ function DeadlineRow({ item, isEditing, editing, setEditing, onStartEdit, onSave
         className="flex-1 min-w-0 text-[11px] px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-700 placeholder-slate-300 focus:border-slate-400 focus:outline-none" />
       <div className="flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
         <button onClick={() => onStartEdit(item)} className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer">Edit</button>
-        <button onClick={() => { if (window.confirm(`Remove "${item.description || item.contentId}" from the syllabus?`)) onDelete(item) }}
+        <button onClick={() => { if (window.confirm(`Remove "${item.description || item.contentId}" from the syllabus? Its linked calendar entry will be removed too.`)) onDelete(item) }}
           className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">×</button>
       </div>
     </div>

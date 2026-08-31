@@ -15,7 +15,7 @@ import {
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -1809,24 +1809,13 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     const course = (prev.courses || []).find(c => c.id === id || c.course === id)
     const courseName = course?.course || id
     const courseId = course?.id || null
-    // Scrub dependents by the stable course id (falling back to the name for
-    // legacy rows that predate the id) so nothing is orphaned or re-added.
-    const isRef = r => courseId ? (r.courseId === courseId || (!r.courseId && r.course === courseName)) : (r.course === courseName)
-    const updated = { ...prev, courses: (prev.courses || []).filter(c => c.course !== courseName) }
-    const keys = ['courses']
-    updated.gradeComponents = (updated.gradeComponents || []).filter(g => !isRef(g))
-    keys.push('gradeComponents')
-    const beforeContent = (prev.content || []).length
-    updated.content = (prev.content || []).filter(i => !isRef(i))
-    if (updated.content.length !== beforeContent) keys.push('content')
-    const beforeLog = (prev.studyLog || []).length
-    updated.studyLog = (prev.studyLog || []).filter(e => !isRef(e))
-    if (updated.studyLog.length !== beforeLog) keys.push('studyLog')
-    const beforePlan = (prev.dailyPlan || []).length
-    updated.dailyPlan = (prev.dailyPlan || []).filter(r => !isRef(r))
-    if (updated.dailyPlan.length !== beforePlan) keys.push('dailyPlan')
+    // Referential integrity (#31): cascade removes everything referencing the
+    // course — grade components, syllabus content, calendar events, planner
+    // rows and study-log sessions — so no dangling foreign keys survive.
+    const next = cascadeDeleteCourse(prev, courseId, courseName)
+    const updated = { ...prev, ...next }
     setAll(updated, plannerRef.current)
-    syncTabs(keys)
+    syncTabs(['courses', 'gradeComponents', 'content', 'studyLog', 'dailyPlan', 'calendarEvents'])
   }
 
   // Persist a manual course order (drag & drop). Each course gets an `order`
@@ -1847,9 +1836,11 @@ function renameIdPrefix(contentId, oldBase, newBase) {
 
   function deleteDeadline(id) {
     const prev = dataRef.current || {}
-    const updated = { ...prev, content: (prev.content || []).filter(d => d.id !== id) }
+    const next = cascadeDeleteContent(prev, id)
+    if (!next) return
+    const updated = { ...prev, ...next }
     setAll(updated, plannerRef.current)
-    syncTabs(['content'])
+    syncTabs(['content', 'calendarEvents', 'studyLog'])
   }
 
   function updateGradeComponents(course, components) {

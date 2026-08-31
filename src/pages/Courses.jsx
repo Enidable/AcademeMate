@@ -292,7 +292,7 @@ export default function Courses({ courses }) {
                   Open →
                 </button>
                 {sortBy === 'custom' && <span className="text-[10px] text-slate-300 cursor-grab" title="Drag to reorder">⠿</span>}
-                <button onClick={() => { if (window.confirm(`Delete course "${c.course}"? This also removes its grade components, syllabus items, study-log entries and planner to-dos.`)) deleteCourse(c.course) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">Delete</button>
+                <button onClick={() => { if (window.confirm(`Delete course "${c.course}"? This also removes its grade components, syllabus items, calendar events, study-log entries and planner to-dos. This cannot be undone.`)) deleteCourse(c.course) }} className="text-xs text-red-400 hover:text-red-600 cursor-pointer">Delete</button>
               </div>
             </div>
           )

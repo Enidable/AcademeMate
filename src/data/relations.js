@@ -221,3 +221,36 @@ export function relinkContentCalendar(data) {
   }
   return changed
 }
+
+// --- Referential integrity (milestone 7) ----------------------------------
+// Deleting an entity cleans up everything that references it, so no dangling
+// foreign keys survive. Policies:
+//   • Course delete — CASCADE: grade components, syllabus content, calendar
+//     events, daily planner rows and study-log sessions of the course are all
+//     removed (surfaced in the confirmation before the delete runs).
+//   • Content delete — CASCADE its linked calendar row; NULL-OUT the session
+//     lecture_content_id refs (history stays, the key goes).
+// Returns the replacement arrays for the touched tables.
+
+export function cascadeDeleteCourse(data, courseId, courseName) {
+  const isRef = r => courseId ? (r.courseId === courseId || (!r.courseId && r.course === courseName)) : (r.course === courseName)
+  return {
+    courses: (data.courses || []).filter(c => c.course !== courseName),
+    gradeComponents: (data.gradeComponents || []).filter(g => !isRef(g)),
+    content: (data.content || []).filter(i => !isRef(i)),
+    dailyPlan: (data.dailyPlan || []).filter(r => !isRef(r)),
+    studyLog: (data.studyLog || []).filter(s => !isRef(s)),
+    calendarEvents: (data.calendarEvents || []).filter(e => !isRef(e)),
+  }
+}
+
+export function cascadeDeleteContent(data, contentId) {
+  const item = byId(data.content, contentId)
+  if (!item) return null
+  const calendarId = item.calendarId
+  return {
+    content: (data.content || []).filter(i => i.id !== contentId),
+    calendarEvents: (data.calendarEvents || []).filter(e => !(calendarId && e.id === calendarId)),
+    studyLog: (data.studyLog || []).map(s => s.lectureContentId === contentId ? { ...s, lectureContentId: null } : s),
+  }
+}

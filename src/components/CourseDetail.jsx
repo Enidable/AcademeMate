@@ -252,7 +252,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
   }
 
   function confirmDelete() {
-    if (window.confirm('Delete course "' + c.course + '"? This also removes its grade components, syllabus items, study-log entries and planner to-dos.')) {
+    if (window.confirm('Delete course "' + c.course + '"? This also removes its grade components, syllabus items, calendar events, study-log entries and planner to-dos. This cannot be undone.')) {
       deleteCourse(c.course)
       onClose()
     }
