@@ -6,6 +6,7 @@ import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType
 import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
+import HoverCard from '../components/HoverCard'
 import { ADDITIONAL_CATEGORIES } from '../config'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -17,6 +18,22 @@ const ADDITIONAL_SET = new Set(ADDITIONAL_CATEGORIES)
 // "dienst") work words, among others.
 const WORK_RE = /(^|[^a-z0-9])work(s|ing|ed|day|days)?([^a-z0-9]|$)|arbeit|schicht|dienst|shift|job|client|kunde|werktag/i
 const isWorkEvent = e => WORK_RE.test(`${e.summary || ''} ${e.description || ''}`)
+
+// Label/value rows used inside the hover detail cards.
+function DetailList({ items }) {
+  return (
+    <div className="space-y-0.5">
+      {items.map(([label, value]) =>
+        value === null || value === undefined || value === '' ? null : (
+          <div key={label} className="flex gap-2 text-[11px] leading-snug">
+            <span className="w-20 shrink-0 text-slate-400">{label}</span>
+            <span className="min-w-0 flex-1 break-words text-slate-700">{value}</span>
+          </div>
+        )
+      )}
+    </div>
+  )
+}
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -45,19 +62,36 @@ function todayISO() {
 }
 
 function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue }) {
+  const planned = row.plannedHours != null ? row.plannedHours : row.hours
+  const actual = row.actualHours != null && row.actualHours > 0 ? row.actualHours : null
+  const status = row.done ? 'Done' : overdue ? 'Overdue' : 'Open'
   return (
-    <div className={`group flex items-center gap-1 rounded px-0.5 py-0.5 hover:bg-slate-100/70 ${overdue ? 'bg-orange-50/70' : ''}`}>
-      <input type="checkbox" checked={!!row.done} onChange={() => onToggle(row)}
-        className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0" />
-      <span className={`text-[10px] leading-tight flex-1 min-w-0 truncate ${row.done ? 'line-through text-slate-400' : overdue ? 'text-orange-700 font-medium' : 'text-slate-700'}`} title={row.task}>
-        {row.task || '—'}
-      </span>
-      <span className={`text-[10px] shrink-0 tabular-nums ${overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
-      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
-        <button onClick={() => onEdit(row)} className="text-[9px] px-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Edit">✎</button>
-        <button onClick={onDelete} className="text-[10px] text-red-400 hover:text-red-600 cursor-pointer" title="Delete">×</button>
+    <HoverCard card={
+      <div className="space-y-1.5">
+        <div className="font-medium leading-snug break-words text-slate-800">{row.task || '—'}</div>
+        <DetailList items={[
+          ['Course', row.course],
+          ['Date', formatDateShort(row.date)],
+          ['Planned', planned ? `${planned}h` : null],
+          ['Actual', actual != null ? `${actual}h` : null],
+          ['Status', status],
+          ['Notes', row.notes],
+        ]} />
       </div>
-    </div>
+    }>
+      <div className={`group flex items-center gap-1 rounded px-0.5 py-0.5 hover:bg-slate-100/70 ${overdue ? 'bg-orange-50/70' : ''}`}>
+        <input type="checkbox" checked={!!row.done} onChange={() => onToggle(row)}
+          className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0" />
+        <span className={`text-[10px] leading-tight flex-1 min-w-0 truncate ${row.done ? 'line-through text-slate-400' : overdue ? 'text-orange-700 font-medium' : 'text-slate-700'}`}>
+          {row.task || '—'}
+        </span>
+        <span className={`text-[10px] shrink-0 tabular-nums ${overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
+        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
+          <button onClick={() => onEdit(row)} className="text-[9px] px-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Edit">✎</button>
+          <button onClick={onDelete} className="text-[10px] text-red-400 hover:text-red-600 cursor-pointer" title="Delete">×</button>
+        </div>
+      </div>
+    </HoverCard>
   )
 }
 
@@ -67,20 +101,34 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue }) {
 // note under the summary.
 function AutoTask({ entry, onLog }) {
   return (
-    <div className="flex items-start gap-1 px-0.5 py-0.5" title={entry.note ? `${entry.task} — ${entry.note}` : entry.task}>
-      {entry.loggable ? (
-        <input type="checkbox" checked={false} onChange={() => onLog(entry)}
-          title="Log this class as a study session (pre-filled with its course, times, location and lecture ID)"
-          className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0 mt-0.5" />
-      ) : (
-        <span className="w-3 shrink-0" />
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="text-[10px] leading-tight text-slate-600 truncate">{entry.task}</div>
-        {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
+    <HoverCard card={
+      <div className="space-y-1.5">
+        <div className="font-medium leading-snug break-words text-slate-800">{entry.task}</div>
+        <DetailList items={[
+          ['Course', entry.course],
+          ['Date', formatDateShort(entry.date)],
+          ['Time', (entry.startTime || entry.endTime) ? `${entry.startTime || '?'} – ${entry.endTime || '?'}` : null],
+          ['Duration', entry.hours > 0 ? `${entry.hours}h` : null],
+          ['Lecture ID', entry.lectureId || null],
+          ['Note', entry.note],
+        ]} />
       </div>
-      <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">{entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : ''}</span>
-    </div>
+    }>
+      <div className="flex items-start gap-1 px-0.5 py-0.5">
+        {entry.loggable ? (
+          <input type="checkbox" checked={false} onChange={() => onLog(entry)}
+            title="Log this class as a study session (pre-filled with its course, times, location and lecture ID)"
+            className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0 mt-0.5" />
+        ) : (
+          <span className="w-3 shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-[10px] leading-tight text-slate-600 truncate">{entry.task}</div>
+          {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
+        </div>
+        <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">{entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : ''}</span>
+      </div>
+    </HoverCard>
   )
 }
 
@@ -166,25 +214,35 @@ function CourseRow({
 }) {
   return (
     <tr
-      draggable={!!draggable}
-      onDragStart={onRowDragStart}
       onDragOver={onRowDragOver}
       onDrop={onRowDrop}
-      onDragEnd={onRowDrop}
-      className={`border-b border-slate-100 ${style.soft} ${dragging ? 'opacity-40' : ''} ${draggable ? 'cursor-grab' : ''}`}
+      className={`border-b border-slate-100 ${style.soft} ${dragging ? 'opacity-40' : ''}`}
       style={style.softCss}>
       <td className="px-3 py-2">
-        <div className="flex items-center gap-2 pr-11">
-          <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
-          <span className="truncate font-medium text-slate-700" title={course}>{course}</span>
-          {isActive && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">active</span>
-          )}
-          {isEmptyExtra && (
-            <button onClick={() => onRemoveExtraRow(course)}
-              className="text-[10px] text-slate-300 hover:text-red-400 cursor-pointer shrink-0" title="Remove empty row">×</button>
-          )}
-        </div>
+        <HoverCard card={
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
+              <span className="font-medium leading-snug break-words text-slate-800">{course}</span>
+            </div>
+            <DetailList items={[
+              ['Status', isActive ? 'Active' : 'Inactive'],
+              ['Week total', total > 0 ? `${total.toFixed(2)}h` : null],
+            ]} />
+          </div>
+        }>
+          <div className="flex items-center gap-2 pr-11">
+            <span className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} style={style.dotCss} />
+            <span className="truncate font-medium text-slate-700">{course}</span>
+            {isActive && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">active</span>
+            )}
+            {isEmptyExtra && (
+              <button onClick={() => onRemoveExtraRow(course)}
+                className="text-[10px] text-slate-300 hover:text-red-400 cursor-pointer shrink-0" title="Remove empty row">×</button>
+            )}
+          </div>
+        </HoverCard>
       </td>
       {dates.map(date => (
         <td key={date} className={`px-1.5 py-1 align-top ${date === today ? 'bg-indigo-50/60' : ''}`}>
@@ -212,6 +270,23 @@ function CourseRow({
         </td>
       ))}
       <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-700">{total > 0 ? `${total.toFixed(2)}h` : ''}</td>
+      <td className="w-6">
+        {draggable && (
+          <span
+            draggable
+            onDragStart={onRowDragStart}
+            onDragEnd={onRowDrop}
+            title="Drag to reorder courses"
+            className="inline-flex items-center justify-center p-1.5 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500">
+            <span className="grid grid-cols-2 gap-[2px]">
+              <span className="h-[3px] w-[3px] rounded-full bg-current" />
+              <span className="h-[3px] w-[3px] rounded-full bg-current" />
+              <span className="h-[3px] w-[3px] rounded-full bg-current" />
+              <span className="h-[3px] w-[3px] rounded-full bg-current" />
+            </span>
+          </span>
+        )}
+      </td>
     </tr>
   )
 }
@@ -680,18 +755,19 @@ export default function DailyPlanner({ onLogTask }) {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200">
+      <div className="bg-white rounded-xl border border-slate-200 w-[calc(100%+1.5rem)] -ml-[0.75rem]">
         <table className="w-full table-fixed text-xs border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               <th className="text-left px-3 py-2 font-medium text-slate-500 w-56"><div className="pr-11">Course</div></th>
               {DAYS.map((day, i) => (
-                <th key={day} className={`px-1 py-2 font-medium text-center w-[calc((100%-18rem)/7)] ${dates[i] === today ? 'text-indigo-700' : 'text-slate-500'}`}>
+                <th key={day} className={`px-1 py-2 font-medium text-center w-[calc((100%-19.5rem)/7)] ${dates[i] === today ? 'text-indigo-700' : 'text-slate-500'}`}>
                   <div>{day}</div>
                   <div className={`text-[10px] font-normal ${dates[i] === today ? 'text-indigo-400' : 'text-slate-400'}`}>{formatDateShort(dates[i])}</div>
                 </th>
               ))}
               <th className="text-right px-3 py-2 font-medium text-slate-500 w-16">Total</th>
+              <th className="w-6" />
             </tr>
           </thead>
             <tbody>
@@ -719,12 +795,12 @@ export default function DailyPlanner({ onLogTask }) {
               ))}
               {orderedStudy.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-4 text-center text-slate-300 text-sm">No study tasks planned this week — type into a course row below, or use “+” in a day column.</td>
+                  <td colSpan={10} className="px-3 py-4 text-center text-slate-300 text-sm">No study tasks planned this week — type into a course row below, or use “+” in a day column.</td>
                 </tr>
               )}
 
               <tr>
-                <td colSpan={9} className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400">
+                <td colSpan={10} className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400">
                   Additional time — Work, Other Obligations, Commute &amp; Exercise (logged, never counted as study)
                 </td>
               </tr>
@@ -756,10 +832,11 @@ export default function DailyPlanner({ onLogTask }) {
                   )
                 })}
                 <td className="px-3 py-2 text-right tabular-nums w-16">{totalHours.toFixed(2)}h</td>
+                <td className="w-6" />
               </tr>
 
               <tr>
-                <td colSpan={9} className="px-3 py-2 border-t border-slate-100">
+                <td colSpan={10} className="px-3 py-2 border-t border-slate-100">
                   <div className="flex items-center gap-2">
                     <CourseSelect size="sm" value={rowCourse} onChange={addRow} courses={masterCourses}
                       placeholder="+ Add course row…"
@@ -774,20 +851,23 @@ export default function DailyPlanner({ onLogTask }) {
           </table>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 pt-3">
+      <div className="bg-white rounded-xl border border-slate-200 pt-3 w-[calc(100%+1.5rem)] -ml-[0.75rem]">
         <div className="flex items-center justify-between mb-2 px-3">
           <h3 className="text-sm font-semibold text-slate-700">Week timetable</h3>
           <span className="text-xs text-slate-400">Classes and deadlines for this week (06:00–22:00)</span>
         </div>
         {/* Same column geometry as the planner table above — course column
             (w-56, its right side doubles as the hour axis) / 7 equal days /
-            total column (w-16) — so Mon sits exactly above Mon. */}
+            total column (w-16) / drag-handle column (w-6). Both cards are
+            widened by 1.5rem so the added handle takes no width from the
+            day columns and Mon still sits exactly above Mon. */}
         <div className="flex items-stretch">
           <div className="w-56 shrink-0" />
           <div className="flex-1 min-w-0">
             <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} axisOutside />
           </div>
           <div className="w-16 shrink-0" />
+          <div className="w-6 shrink-0" />
         </div>
         <div className="h-3" />
       </div>
