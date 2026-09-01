@@ -15,6 +15,7 @@ import {
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
+import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
 import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent } from '../data/relations'
 import {
   ensureSpreadsheet,
@@ -834,15 +835,20 @@ export function AppDataProvider({ children }) {
     const rows = dedupeCalendarRows(parsed)
 
     // Link events to courses so each course keeps its own colour everywhere.
-    // Beyond an exact name/code match this also links events whose summary
-    // mentions the full course name or its abbreviation ("Exam Systems
-    // Engineering", "SE - Tutorial"), so exams and shorthand-titled events land
-    // in the right course instead of being dropped from the syllabus.
+    // User keyword rules (#43) win first ("Honours" -> Honours), then exact
+    // name/code match, then a summary mention of the full course name or its
+    // abbreviation ("Exam Systems Engineering", "SE - Tutorial"), so exams and
+    // shorthand-titled events land in the right course instead of being dropped.
+    const keywordRules = loadCourseKeywords()
     const courses = dataRef.current?.courses || []
     const codeToCourse = new Map()
     for (const c of courses) if (c.code) codeToCourse.set(c.code, c.course)
     const escapeRe2 = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     for (const r of rows) {
+      if (!r.course) {
+        const kw = matchKeywordCourse(r.summary, r.description, keywordRules)
+        if (kw) { r.course = kw; continue }
+      }
       if (!r.course) {
         const m = /\.?\s*(\d{6,9})\s*$/.exec(r.summary || '')
         if (m) r.course = codeToCourse.get(m[1]) || null
@@ -1100,6 +1106,7 @@ export function AppDataProvider({ children }) {
     const codeToCourse = new Map()
     for (const c of courses) if (c.code) codeToCourse.set(c.code, c.course)
     const escapeRe2 = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const keywordRules = loadCourseKeywords()
 
     const rows = items.map(ev => {
       const allDay = !!(ev.start && ev.start.date)
@@ -1108,47 +1115,49 @@ export function AppDataProvider({ children }) {
       const startTime = allDay ? '' : toLocalTime(ev.start.dateTime)
       const endTime = allDay ? '' : (ev.end?.dateTime ? toLocalTime(ev.end.dateTime) : '')
       const summary = ev.summary || 'Busy'
-      let course = null
-      const cm = /\.?\s*(\d{6,9})\s*$/.exec(summary)
-      if (cm) course = codeToCourse.get(cm[1]) || null
+      let course = matchKeywordCourse(summary, ev.description, keywordRules) || null
       if (!course) {
-        const s = summary.trim().toLowerCase()
-        const exact = courses.find(c => String(c.course || '').toLowerCase() === s)
-        if (exact) course = exact.course
+        const cm = /\.?\s*(\d{6,9})\s*$/.exec(summary)
+        if (cm) course = codeToCourse.get(cm[1]) || null
         if (!course) {
-          let nameMatch = null
-          for (const c of courses) {
-            const name = String(c.course || '').toLowerCase()
-            if (name.length > 4 && s.includes(name) && (!nameMatch || name.length > nameMatch.course.length)) nameMatch = c
+          const s = summary.trim().toLowerCase()
+          const exact = courses.find(c => String(c.course || '').toLowerCase() === s)
+          if (exact) course = exact.course
+          if (!course) {
+            let nameMatch = null
+            for (const c of courses) {
+              const name = String(c.course || '').toLowerCase()
+              if (name.length > 4 && s.includes(name) && (!nameMatch || name.length > nameMatch.course.length)) nameMatch = c
+            }
+            if (nameMatch) course = nameMatch.course
           }
-          if (nameMatch) course = nameMatch.course
-        }
-        if (!course) {
-          const abbrMatch = courses.find(c => {
-            const abbr = String(c.abbrev || '').toLowerCase()
-            if (!abbr || abbr.length < 2) return false
-            return new RegExp(`(^|[^a-z0-9])${escapeRe2(abbr)}([^a-z0-9]|$)`, 'i').test(summary || '')
-          })
-          if (abbrMatch) course = abbrMatch.course
+          if (!course) {
+            const abbrMatch = courses.find(c => {
+              const abbr = String(c.abbrev || '').toLowerCase()
+              if (!abbr || abbr.length < 2) return false
+              return new RegExp(`(^|[^a-z0-9])${escapeRe2(abbr)}([^a-z0-9]|$)`, 'i').test(summary || '')
+            })
+            if (abbrMatch) course = abbrMatch.course
+          }
         }
       }
-return {
-          id: `${ev.id}|${date}|${startTime}`,
-          date,
-          startTime,
-          endTime,
-          allDay,
-          summary,
-          course,
-          location: (ev.location || '').trim() || null,
-          description: (ev.description || '').trim() || null,
-          source: calendarSummary || calendarId,
-          uid: ev.id,
-          status: null,
-          lectureId: null,
-          calId: null,
-          personalImport: true,
-        }
+      return {
+        id: `${ev.id}|${date}|${startTime}`,
+        date,
+        startTime,
+        endTime,
+        allDay,
+        summary,
+        course,
+        location: (ev.location || '').trim() || null,
+        description: (ev.description || '').trim() || null,
+        source: calendarSummary || calendarId,
+        uid: ev.id,
+        status: null,
+        lectureId: null,
+        calId: null,
+        personalImport: true,
+      }
     }).filter(Boolean)
 
     const existing = dataRef.current?.calendarEvents || []

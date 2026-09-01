@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getCourseStyle } from '../utils/helpers'
 import { typeSymbol, inferEventType } from '../drive/driveClient'
+import { loadCourseKeywords, saveCourseKeywords } from '../utils/courseKeywords'
 import WeekGrid from '../components/WeekGrid'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -77,8 +78,27 @@ export default function Calendar() {
   const [courseColors, setCourseColors] = useState(() => {
     try { return JSON.parse(localStorage.getItem('am_calendar_colors')) || {} } catch { return {} }
   })
+  const [kwOpen, setKwOpen] = useState(false)
+  const [kwRules, setKwRules] = useState(() => loadCourseKeywords())
+  const [kwKeyword, setKwKeyword] = useState('')
+  const [kwCourse, setKwCourse] = useState('')
 
   const autoColor = i => String((i % 10) + 1)
+
+  function addKeywordRule() {
+    const keyword = kwKeyword.trim()
+    if (!keyword || !kwCourse) return
+    const next = [...kwRules, { keyword, course: kwCourse }]
+    setKwRules(next)
+    saveCourseKeywords(next)
+    setKwKeyword('')
+  }
+
+  function removeKeywordRule(idx) {
+    const next = kwRules.filter((_, i) => i !== idx)
+    setKwRules(next)
+    saveCourseKeywords(next)
+  }
 
   function openColors() {
     const map = { ...courseColors }
@@ -302,6 +322,11 @@ export default function Calendar() {
             className="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-500 disabled:opacity-50 cursor-pointer">
             {busy === 'calimport' ? 'Importing…' : '⇄ Import Google calendar'}
           </button>
+          <button onClick={() => setKwOpen(true)}
+            className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+            title="Sort calendar events into a course by a keyword (e.g. “Honours”), applied on import">
+            ⌗ Keyword → course
+          </button>
           <button onClick={openColors} disabled={!hasDrive || calendarEvents.length === 0 || busy !== ''}
             className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 cursor-pointer">
             {busy === 'push' ? 'Pushing…' : '↥ Push to Google Calendar'}
@@ -379,6 +404,61 @@ export default function Calendar() {
                 <button onClick={confirmPush} disabled={busy !== ''}
                   className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 cursor-pointer">
                   {busy === 'push' ? 'Pushing…' : 'Push with these colors'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {kwOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setKwOpen(false)}>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+              <h2 className="font-semibold text-slate-800">Keyword → course</h2>
+              <button onClick={() => setKwOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none cursor-pointer">&times;</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-slate-500">
+                When importing, any event whose title or description contains a keyword below is sorted into that course —
+                handy for things that aren't in your .ics files (e.g. “Honours”). Rules are applied on the next import.
+              </p>
+              <div className="space-y-1.5">
+                {kwRules.length === 0 && (
+                  <div className="text-xs text-slate-400 text-center py-3 border border-dashed border-slate-200 rounded-lg">
+                    No rules yet — add your first keyword below.
+                  </div>
+                )}
+                {kwRules.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-700 px-2 py-1 rounded bg-slate-100">“{r.keyword}”</span>
+                    <span className="text-slate-400 text-xs">→</span>
+                    <span className="text-sm text-slate-700 truncate">{r.course}</span>
+                    <button onClick={() => removeKeywordRule(i)}
+                      className="ml-auto text-[10px] text-red-400 hover:text-red-600 cursor-pointer" title="Remove rule">✕</button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="text-[10px] uppercase tracking-wide text-slate-400 font-medium">Keyword</label>
+                  <input value={kwKeyword} onChange={e => setKwKeyword(e.target.value)}
+                    placeholder="e.g. Honours"
+                    className="w-full text-sm px-2 py-1.5 border border-slate-200 rounded-lg focus:border-slate-400 outline-none" />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] uppercase tracking-wide text-slate-400 font-medium">Course</label>
+                  <select value={kwCourse} onChange={e => setKwCourse(e.target.value)}
+                    className="w-full text-sm px-2 py-1.5 border border-slate-200 rounded-lg bg-white focus:border-slate-400 outline-none">
+                    <option value="">Pick a course…</option>
+                    {(masterCourses || []).filter(c => c?.course).map(c => (
+                      <option key={c.course} value={c.course}>{c.course}</option>
+                    ))}
+                  </select>
+                </div>
+                <button onClick={addKeywordRule} disabled={!kwKeyword.trim() || !kwCourse}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-40 cursor-pointer">
+                  Add
                 </button>
               </div>
             </div>
