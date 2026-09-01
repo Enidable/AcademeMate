@@ -323,7 +323,7 @@ export default function Calendar() {
             {busy === 'calimport' ? 'Importing…' : '⇄ Import Google calendar'}
           </button>
           <button onClick={() => setKwOpen(true)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+            className="text-xs px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
             title="Sort calendar events into a course by a keyword (e.g. “Honours”), applied on import">
             ⌗ Keyword → course
           </button>
