@@ -615,7 +615,10 @@ export function AppDataProvider({ children }) {
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
     const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
-    await healCourses(d, savedLocal)
+    // A brand-new spreadsheet is a clean slate: never heal the stale
+    // localStorage snapshot (which may still hold the bundled example data
+    // from a previous connection) back into it.
+    await healCourses(d, file.createdNew ? null : savedLocal)
     cleanContent(d)
     assignEntityIds(d)
     if ((ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) && driveRef.current) syncTabs(['dailyPlan'])
@@ -632,15 +635,19 @@ export function AppDataProvider({ children }) {
   }
 
   // A spreadsheet created by the old schema (or one whose tabs were never
-  // filled) comes with the six canonical tabs empty. Seed them from the
-  // bundled template only when EVERY tab is empty, so a sheet already in use
-  // is never overwritten.
+  // filled) comes with the six canonical tabs empty. Seed them with only the
+  // template's header rows (no data) so a brand-new sheet starts as a clean
+  // slate — never the bundled example data, never an overwrite of a sheet
+  // already in use.
   async function seedEmptyTabs(fileId) {
     const rowsByTab = await readAllTabs(fileId)
     const hasData = Object.values(rowsByTab).some(rows => rows.length > 1)
     if (hasData) return
     const template = await fetchTemplateRows()
-    await writeAllTabs(fileId, template)
+    const headersOnly = Object.fromEntries(
+      Object.entries(template).map(([title, rows]) => [title, rows.length ? [rows[0]] : []]),
+    )
+    await writeAllTabs(fileId, headersOnly)
   }
 
   useEffect(() => {
@@ -674,8 +681,9 @@ export function AppDataProvider({ children }) {
           if (cancelled) return
           await ensureTabs(file.id)
           if (cancelled) return
-          // Seed the template ONLY into a brand-new spreadsheet. Seeding an
-          // existing one whenever its tabs looked empty has wiped real data.
+          // Seed header rows ONLY into a brand-new spreadsheet (a clean slate,
+          // never the bundled example data). Seeding an existing one whenever
+          // its tabs looked empty has wiped real data.
           if (file.createdNew) await seedEmptyTabs(file.id)
           if (cancelled) return
           await loadAndApplyFromDrive(file, saved)
