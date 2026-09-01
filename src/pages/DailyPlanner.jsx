@@ -127,7 +127,12 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
           <span className="w-3 shrink-0" />
         )}
         <div className="flex-1 min-w-0">
-          <div className={`text-[10px] leading-tight truncate ${entry.logged ? 'line-through text-slate-400' : 'text-slate-600'}`}>{entry.task}</div>
+          <div className={`text-[10px] leading-tight truncate ${entry.logged ? 'line-through text-slate-400' : 'text-slate-600'}`}>
+            {entry.task}
+            {entry.prep && (
+              <span className="ml-1 inline-block px-1 rounded bg-red-600 text-white text-[8px] font-semibold align-middle" title={`Prep required: ${entry.prep}`}>Prep</span>
+            )}
+          </div>
           {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
         </div>
         <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">{entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : ''}</span>
@@ -515,6 +520,29 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return m
   }, [content])
 
+  // Lectures that still require prep, keyed by content row id (the FK a
+  // calendar event carries) and by course|lectureId string, so the week-grid
+  // Prep marker shows reliably regardless of how the row is linked.
+  const prepById = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) {
+      if (!i.id || !i.prep) continue
+      if (String(i.done || '').trim().toLowerCase() === 'done') continue
+      m.set(i.id, i.prep)
+    }
+    return m
+  }, [content])
+
+  const prepByLecture = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) {
+      if (!i.course || !i.contentId || !i.prep) continue
+      if (String(i.done || '').trim().toLowerCase() === 'done') continue
+      m.set(`${i.course}|${i.contentId}`, i.prep)
+    }
+    return m
+  }, [content])
+
   // Calendar events of the viewed week as read-only plan entries. Course
   // events land in their course's row; "Gym Time" imports feed the Exercise
   // additional-time row. Other personal calendars stay out of the plan.
@@ -548,6 +576,10 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       const noteItem = !isAdditional
         ? (linkedContent || (e.lectureId ? noteById.get(`${rowName}|${e.lectureId}`) : null))
         : null
+      const linkedPrep = !isAdditional && e.contentId ? prepById.get(e.contentId) : null
+      const prepText = !isAdditional
+        ? (linkedPrep || (e.lectureId && !linkedContent ? prepByLecture.get(`${rowName}|${e.lectureId}`) : null) || null)
+        : null
       const k = `${rowName}|${e.date}`
       if (!map[k]) map[k] = []
       const logged = isAdditional
@@ -558,6 +590,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         task: e.summary,
         hours: e.allDay ? 0 : durHours(e),
         note: noteItem?.content || noteItem?.description || '',
+        prep: prepText || '',
         // Everything needed to pre-fill the session logger when ticked off.
         date: e.date,
         startTime: e.startTime || '',
@@ -576,7 +609,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, dates, noteById, contentById, loggedEvents])
+  }, [calendarEvents, dates, noteById, contentById, prepById, prepByLecture, loggedEvents])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the
@@ -949,7 +982,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         <div className="flex items-stretch">
           <div className="w-56 shrink-0" />
           <div className="flex-1 min-w-0">
-            <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} axisOutside />
+            <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} axisOutside prepMap={prepByLecture} prepById={prepById} />
           </div>
           <div className="w-16 shrink-0" />
           <div className="w-6 shrink-0" />

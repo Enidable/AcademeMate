@@ -115,6 +115,15 @@ export default function Calendar() {
     return m
   }, [content])
 
+  // Same notes keyed by content row id — the FK a calendar event holds in its
+  // content_id column. Reliable when the lectureId string drifted from the
+  // content row's contentId (re-keying, manual edits).
+  const noteById = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) if (i.id && (i.description || i.content)) m.set(i.id, i)
+    return m
+  }, [content])
+
   // Lectures that still require prep, keyed by course|lectureId — they get a
   // red "Prep" marker in every calendar view until the syllabus row is done.
   const prepByLecture = useMemo(() => {
@@ -123,6 +132,18 @@ export default function Calendar() {
       if (!i.course || !i.contentId || !i.prep) continue
       if (String(i.done || '').trim().toLowerCase() === 'done') continue
       m.set(`${i.course}|${i.contentId}`, i.prep)
+    }
+    return m
+  }, [content])
+
+  // Same prep set keyed by content row id (the FK), so a lecture's prep shows
+  // even when its lectureId string no longer matches the content row.
+  const prepById = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) {
+      if (!i.id || !i.prep) continue
+      if (String(i.done || '').trim().toLowerCase() === 'done') continue
+      m.set(i.id, i.prep)
     }
     return m
   }, [content])
@@ -219,9 +240,13 @@ export default function Calendar() {
       ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', border: 'border-red-200' }
       : eventColor(e.course)
     const time = e.allDay ? 'All day' : (e.startTime ? `${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '')
-    const note = !e.isDeadline && e.lectureId ? noteByLecture.get(`${e.course}|${e.lectureId}`) : ''
-    const needsPrep = !e.isDeadline && e.lectureId && prepByLecture.has(`${e.course}|${e.lectureId}`)
-    const prepText = needsPrep ? prepByLecture.get(`${e.course}|${e.lectureId}`) : null
+    // Resolve the syllabus note/prep via the content row id FK first (reliable),
+    // falling back to the lectureId string match for legacy rows.
+    const linked = !e.isDeadline && e.contentId ? noteById.get(e.contentId) : null
+    const linkedPrep = !e.isDeadline && e.contentId ? prepById.get(e.contentId) : null
+    const note = linked ? (linked.description || linked.content || '') : (!e.isDeadline && e.lectureId ? noteByLecture.get(`${e.course}|${e.lectureId}`) : '')
+    const needsPrep = !e.isDeadline && (!!linkedPrep || (!linked && e.lectureId && prepByLecture.has(`${e.course}|${e.lectureId}`)))
+    const prepText = linkedPrep || (needsPrep && e.lectureId ? prepByLecture.get(`${e.course}|${e.lectureId}`) : null)
     const symbol = eventSymbol(e)
     return (
       <div key={e.id || `${e.date}|${e.summary}|${e.startTime}`}
@@ -376,7 +401,7 @@ export default function Calendar() {
       {mode === 'week' && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div className="min-w-[720px]">
-            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} />
+            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} noteById={noteById} prepById={prepById} />
           </div>
         </div>
       )}
