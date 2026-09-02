@@ -169,22 +169,18 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
   const locations = meta.locations?.length ? meta.locations : DEFAULT_LOCATIONS
   const transports = meta.transport?.length ? meta.transport : DEFAULT_TRANSPORT
 
+  // Scheduled classes/lectures of every course (content rows that carry a
+  // concrete class date, no due date). The lecture dropdown is STRICTLY these —
+  // grade components (projects/assignments/exams) belong in the other dropdown
+  // and never leak in here (#44).
   const lectureIds = useMemo(() => {
     const ids = []
-    // Map a course+component-id to its content row, so a component pick can
-    // carry the content_ foreign key too.
-    const contentRowByKey = new Map()
-    for (const i of content || []) if (i.contentId && i.course && i.id) contentRowByKey.set(`${i.course}|${i.contentId}`, i.id)
-    for (const g of gradeComponents || []) {
-      for (const c of g.components || []) {
-        if (c.id && !c.done) ids.push({ course: g.course, courseId: g.courseId, id: c.id, type: c.type, contentRowId: contentRowByKey.get(`${g.course}|${c.id}`) || null })
-      }
-    }
     for (const i of content || []) {
-      if (i.contentId && i.course && !i.done) ids.push({ course: i.course, courseId: i.courseId, id: i.contentId, type: i.type, contentRowId: i.id })
+      if (!i.contentId || !i.course || !i.date || i.deadline || i.done) continue
+      ids.push({ course: i.course, courseId: i.courseId, id: i.contentId, type: i.type, contentRowId: i.id, date: i.date })
     }
     return ids
-  }, [gradeComponents, content])
+  }, [content])
 
   // The selected course's stable id, so projects and lectures are matched by
   // the course_id foreign key (no more name/abbrev/code string matching).
@@ -199,20 +195,24 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     const seen = new Set()
     const matchesCourse = (course, courseId) =>
       selectedCourseId ? (courseId === selectedCourseId || course === form.course) : course === form.course
-    // Projects also live on the course's grade components — a component without
-    // a due date has no mirrored Course Content row, so list it here too, or
-    // projects would appear missing/empty in the dropdown (#36).
+    // Projects / assignments / exams come from the course's grade components —
+    // a component without a due date has no mirrored Course Content row, so it
+    // is listed here too, or projects would look missing (#36).
     for (const g of gradeComponents || []) {
       if (!matchesCourse(g.course, g.courseId)) continue
       for (const c of g.components || []) {
-        if (!c.id || c.done || c.type === 'exam') continue
+        if (!c.id || c.done) continue
         if (seen.has(c.id)) continue
         seen.add(c.id)
-        opts.push({ id: c.id, label: `${c.id} · ${c.notes || c.name || c.type || 'Project'}` })
+        const kind = c.type && c.type !== 'other' ? c.type : 'component'
+        opts.push({ id: c.id, label: `${c.id} · ${c.notes || c.name || kind}` })
       }
     }
+    // Deadline-shaped content rows (assignment/exam/project deadlines that exist
+    // without a grade component). Scheduled classes are NEVER included here.
     for (const i of content || []) {
-      if (!i.contentId || i.done || !(i.deadline || DEADLINE_TYPES.has(i.type))) continue
+      if (!i.contentId || i.done) continue
+      if (!(i.deadline || (DEADLINE_TYPES.has(i.type) && !i.date))) continue
       if (!matchesCourse(i.course, i.courseId)) continue
       if (seen.has(i.contentId)) continue
       seen.add(i.contentId)
@@ -221,14 +221,22 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
     return opts
   }, [gradeComponents, content, selectedCourseId, form.course])
 
-  // Lecture IDs strictly for the selected course (nothing else leaks in), in
-  // natural number order (lecture 2, lecture 4, lecture 8, …). Requires a
-  // course — with none picked the list stays empty.
+  // Scheduled classes of the selected course only (nothing else leaks in), in
+  // natural number order (lecture 2, lecture 4, lecture 8, …). Duplicate ids
+  // (same class id on several legacy occurrences) collapse to one entry. With
+  // no course picked the list stays empty.
   const filteredLectureIds = useMemo(() => {
     if (!form.course) return []
-    return lectureIds
+    const seen = new Set()
+    const out = []
+    for (const a of lectureIds
       .filter(a => selectedCourseId ? (a.courseId === selectedCourseId || a.course === form.course) : a.course === form.course)
-      .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))) {
+      if (seen.has(a.id)) continue
+      seen.add(a.id)
+      out.push(a)
+    }
+    return out
   }, [lectureIds, selectedCourseId, form.course])
 
   function now() {
@@ -427,7 +435,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
         </div>
 
         <div>
-          <label className="text-xs text-slate-500 block mb-1">Project</label>
+          <label className="text-xs text-slate-500 block mb-1">Project / Assignment / Exam</label>
           <select value={form.project || ''} onChange={e => setForm(f => {
             const project = e.target.value
             return {
@@ -443,15 +451,16 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
               <option key={p.id} value={p.id}>{p.label}</option>
             ))}
           </select>
+          {!form.course && <p className="text-[10px] text-slate-400 mt-1">Pick a course to see its projects, assignments and exams.</p>}
         </div>
 
         <div>
-          <label className="text-xs text-slate-500 block mb-1">Component / Lecture ID</label>
+          <label className="text-xs text-slate-500 block mb-1">Lecture / Class</label>
           <select value={form.lectureId || ''} onChange={e => setForm(f => ({ ...f, lectureId: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300">
             <option value="">None</option>
-            {filteredLectureIds.map(a => <option key={a.id} value={a.id}>{a.id} — {a.course} ({a.type})</option>)}
+            {filteredLectureIds.map(a => <option key={a.id} value={a.id}>{a.id} · {a.date} ({a.type || 'Class'})</option>)}
           </select>
-          {!form.course && <p className="text-[10px] text-slate-400 mt-1">Pick a course to see its lecture IDs.</p>}
+          {!form.course && <p className="text-[10px] text-slate-400 mt-1">Pick a course to see its scheduled lectures and classes.</p>}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
