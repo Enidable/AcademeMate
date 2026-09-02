@@ -15,7 +15,7 @@ function pad(n) {
 // planner does.
 function TodayOverview({ onLogTask, onLogAdditional }) {
   const {
-    dailyPlan, additionalLog, calendarEvents, updatePlannerTask, updateAdditionalEntry,
+    dailyPlan, additionalLog, calendarEvents, inputLog, updatePlannerTask, updateAdditionalEntry,
     liveSession, stopLiveSession,
   } = useAppData()
 
@@ -34,9 +34,27 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
 
   const tasks = useMemo(() => (dailyPlan || []).filter(r => r.date === today), [dailyPlan, today])
   const extra = useMemo(() => (additionalLog || []).filter(r => r.date === today), [additionalLog, today])
+
+  // Study-log sessions that already fulfilled a scheduled class (same keys the
+  // Daily Planner uses), so a class logged from the planner / time log shows as
+  // done here too — never checkable a second time.
+  const loggedStudyKeys = useMemo(() => {
+    const s = new Set()
+    for (const e of inputLog || []) {
+      if (e.lectureContentId) s.add('content:' + e.lectureContentId)
+      if (e.course && e.lectureId) s.add(`course:${e.course}|${e.lectureId}`)
+    }
+    return s
+  }, [inputLog])
+
   const classes = useMemo(() => (calendarEvents || [])
     .filter(e => e.date === today)
-    .sort((a, b) => (a.startTime || '99').localeCompare(b.startTime || '99')), [calendarEvents, today])
+    .sort((a, b) => (a.startTime || '99').localeCompare(b.startTime || '99'))
+    .map(e => ({
+      ...e,
+      logged: (!!e.contentId && loggedStudyKeys.has('content:' + e.contentId)) ||
+        (e.course && e.lectureId && loggedStudyKeys.has(`course:${e.course}|${e.lectureId}`)),
+    })), [calendarEvents, today, loggedStudyKeys])
 
   const byCourse = useMemo(() => {
     const m = new Map()
@@ -131,17 +149,22 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
             <div>
               <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Scheduled</p>
               {classes.map(e => {
-                const loggable = !!e.course && !e.isDeadline
+                const loggable = !!e.course && !e.isDeadline && !e.logged
                 return (
-                  <div key={e.id || `${e.summary}|${e.startTime}`} className="flex items-center gap-2 py-0.5">
+                  <div key={e.id || `${e.summary}|${e.startTime}`} className={`flex items-center gap-2 py-0.5 ${e.logged ? 'opacity-60' : ''}`}>
                     {loggable ? (
                       <input type="checkbox" checked={false} onChange={() => logClass(e)}
                         title="Log this class as a study session (pre-filled with its course, times, location and lecture ID)"
                         className="h-3 w-3 accent-indigo-600 cursor-pointer shrink-0" />
                     ) : (
-                      <span className="w-3 shrink-0" />
+                      e.logged ? (
+                        <span className="w-3 h-3 inline-flex items-center justify-center text-[9px] text-emerald-600 shrink-0"
+                          title="Already logged as a study session — can't be logged twice">✓</span>
+                      ) : (
+                        <span className="w-3 shrink-0" />
+                      )
                     )}
-                    <span className={`text-xs flex-1 min-w-0 truncate ${e.isDeadline ? 'text-slate-700' : 'text-slate-600'}`}>
+                    <span className={`text-xs flex-1 min-w-0 truncate ${e.isDeadline ? 'text-slate-700' : e.logged ? 'line-through text-slate-400' : 'text-slate-600'}`}>
                       {e.isDeadline ? `Due: ${e.summary}` : e.summary}
                     </span>
                     <span className="text-[10px] text-slate-400 shrink-0">{e.allDay ? '' : `${e.startTime || ''}${e.endTime ? `–${e.endTime}` : ''}`}</span>
