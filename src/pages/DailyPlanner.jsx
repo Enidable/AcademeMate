@@ -601,7 +601,9 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       map[k].push({
         id: `auto|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}|${e.summary}`,
         task: e.summary,
-        hours: e.allDay ? 0 : durHours(e),
+        // Skipped classes (issue #42) stay visible but their hours never count
+        // toward the planner's totals.
+        hours: !attend ? 0 : (e.allDay ? 0 : durHours(e)),
         note: noteItem?.content || noteItem?.description || '',
         prep: prepText || '',
         // Everything needed to pre-fill the session logger when ticked off.

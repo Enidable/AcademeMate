@@ -63,6 +63,23 @@ function planOptions(anchorISO) {
   return out
 }
 
+// Resolve a calendar event to its syllabus content row (issue #42): content
+// row id FK first, then the lecture id string, then the day+time slot. The
+// caller passes the pre-built index maps so lookups stay O(1) in the week loops.
+function contentRowForEvent(e, rows) {
+  if (!e || !e.course) return null
+  return (e.contentId && rows.rowById.get(e.contentId)) ||
+    (e.lectureId ? rows.rowByLecture.get(`${e.course}|${e.lectureId}`) : null) ||
+    rows.rowBySlot.get(`${e.course}|${e.date}|${e.startTime || ''}`) ||
+    null
+}
+
+// True when a class was marked "Skip" (attend === false) in its course syllabus.
+function skippedEvent(e, rows) {
+  const row = contentRowForEvent(e, rows)
+  return row != null && row.attend === false
+}
+
 function ItemCard({ item, assignedDate, today, onAssign }) {
   const isToday = item.fixedDow != null && item.dateISO === today
   // Hover detail: always reveals the full prep note plus WHICH lecture/class
@@ -188,6 +205,18 @@ export default function WeeklyOverview() {
   }
   const dowOf = iso => (new Date(iso + 'T12:00:00').getDay() + 6) % 7
 
+  // Attendance lookups (issue #42): resolve a calendar event to its syllabus
+  // row so skipped classes stay visible but their hours never count anywhere.
+  const contentRows = useMemo(() => {
+    const rowById = new Map()
+    const rowByLecture = new Map()
+    for (const c of content || []) {
+      if (c.id) rowById.set(c.id, c)
+      if (c.course && c.contentId) rowByLecture.set(`${c.course}|${c.contentId}`, c)
+    }
+    return { rowById, rowByLecture, rowBySlot: slotIndexOfContent(content) }
+  }, [content])
+
   // The week "menu": every class/appointment, deadline and lecture prep
   // related to this week. Calendar items (classes AND private appointments)
   // sit locked on their own weekday. Prep and deadline work is sortable, and
@@ -202,23 +231,10 @@ export default function WeeklyOverview() {
       return from <= weekEnd && iso >= weekStart
     }
     const out = []
-    // Attendance (issue #42): resolve each class to its syllabus row so a class
-    // marked "Skip" in the course is greyed out here too.
-    const rowById = new Map()
-    const rowByLecture = new Map()
-    for (const c of content || []) {
-      if (c.id) rowById.set(c.id, c)
-      if (c.course && c.contentId) rowByLecture.set(`${c.course}|${c.contentId}`, c)
-    }
-    const rowBySlot = slotIndexOfContent(content)
-    const classRow = e => (e.contentId && rowById.get(e.contentId)) ||
-      (e.course && e.lectureId ? rowByLecture.get(`${e.course}|${e.lectureId}`) : null) ||
-      (e.course ? rowBySlot.get(`${e.course}|${e.date}|${e.startTime || ''}`) : null) || null
     for (const e of calendarEvents || []) {
       if (!e.date || e.date < weekStart || e.date > weekEnd) continue
       const isCourseItem = !!e.course
       const type = inferEventType(e.summary, e.description)
-      const row = classRow(e)
       out.push({
         menuId: `evt|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}`,
         kind: isCourseItem ? 'class' : 'other',
@@ -232,7 +248,7 @@ export default function WeeklyOverview() {
         dateISO: e.date,
         taskText: e.summary,
         hours: durHours(e),
-        skip: isCourseItem && row != null && row.attend === false,
+        skip: isCourseItem && skippedEvent(e, contentRows),
       })
     }
     for (const i of deadlines || []) {
@@ -275,7 +291,7 @@ export default function WeeklyOverview() {
     return out.sort((a, b) =>
       String(a.fixedDow ?? 9).localeCompare(String(b.fixedDow ?? 9), undefined, { numeric: true }) ||
       (a.when || '').localeCompare(b.when || ''))
-  }, [calendarEvents, deadlines, content, dates])
+  }, [calendarEvents, deadlines, content, contentRows, dates])
 
   // Current day assignment per menu item, read back from the planner rows
   // (a row's note is the "menu:…" tag, optionally followed by "||" + user note).
@@ -385,6 +401,8 @@ export default function WeeklyOverview() {
       if (placedEventKeys.has(menuId)) continue
       const h = durHours(e)
       if (h <= 0) continue
+      // Skipped classes (issue #42) stay on the menu but never count hours.
+      if (e.course && skippedEvent(e, contentRows)) continue
       let rowName = e.course || ''
       if (!rowName) {
         if (isWorkEvent(e)) rowName = 'Work'
@@ -401,7 +419,7 @@ export default function WeeklyOverview() {
       .sort((a, b) => b.total - a.total)
     const dayTotals = Array.from({ length: 7 }, (_, d) => rows.reduce((s, r) => s + r.hours[d], 0))
     return { rows, dayTotals, weekTotal: dayTotals.reduce((s, h) => s + h, 0) }
-  }, [dailyPlan, additionalLog, calendarEvents, dates])
+  }, [dailyPlan, additionalLog, calendarEvents, dates, contentRows])
 
   return (
     <div className="space-y-4">
