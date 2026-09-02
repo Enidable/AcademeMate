@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { formatDateShort, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR, menuTagOfNotes, isWorkEvent } from '../utils/helpers'
+import { formatDateShort, formatDate, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR, menuTagOfNotes, isWorkEvent } from '../utils/helpers'
 import { inferEventType, typeSymbol } from '../drive/driveClient'
 import HoverCard from '../components/HoverCard'
 
@@ -65,9 +65,6 @@ function planOptions(anchorISO) {
 
 function ItemCard({ item, assignedDate, today, onAssign }) {
   const isToday = item.fixedDow != null && item.dateISO === today
-  // The calendar button swaps the dropdown for a native date picker, so an
-  // item can be sorted into ANY day — not just the five-day window.
-  const [customOpen, setCustomOpen] = useState(false)
   // Hover detail: always reveals the full prep note plus WHICH lecture/class
   // and day it belongs to — a long prep note truncates the card itself, but
   // the popover shows everything.
@@ -83,7 +80,7 @@ function ItemCard({ item, assignedDate, today, onAssign }) {
       </div>
       <div className="text-[11px] leading-snug text-slate-600">{item.when}</div>
       {assignedDate && (
-        <div className="text-[11px] text-emerald-600">→ Planned on {dayLabel(assignedDate)}</div>
+        <div className="text-[11px] text-emerald-600">→ Planned on {formatDate(assignedDate)}</div>
       )}
     </div>
   )
@@ -116,38 +113,40 @@ function ItemCard({ item, assignedDate, today, onAssign }) {
           ) : (
             <div className="flex items-center gap-1">
               {assignedDate && (
-                <span className="text-[10px] text-emerald-600 mr-0.5 shrink-0" title={`Planned on ${dayLabel(assignedDate)}`}>
+                <span className="text-[10px] text-emerald-600 mr-0.5 shrink-0" title={`Planned on ${formatDate(assignedDate)}`}>
                   → {dayLabel(assignedDate).split(' ')[0]}
                 </span>
               )}
-              {customOpen ? (
-                <input type="date" value={assignedDate || ''} autoFocus
-                  onChange={e => { setCustomOpen(false); onAssign(item, e.target.value) }}
-                  onBlur={() => setCustomOpen(false)}
-                  onKeyDown={e => { if (e.key === 'Escape') setCustomOpen(false) }}
-                  title="Pick any day — the item is added to that day (and its course) on the Daily Planner"
-                  className="w-full text-[10px] border border-indigo-300 rounded px-1 py-0.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-300" />
-              ) : (
-                <select value={assignedDate || ''} onChange={e => onAssign(item, e.target.value)}
-                  title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
-                  className={`w-full text-[10px] border rounded px-1 py-0.5 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
-                  <option value="">Sort to day…</option>
-                  {pickOptions.map(iso => (
-                    <option key={iso} value={iso}>{dayLabel(iso)}</option>
-                  ))}
-                </select>
-              )}
-              <button onClick={() => setCustomOpen(o => !o)}
-                title={customOpen ? 'Close calendar' : 'Open calendar to pick any day'}
-                aria-label="Pick any date"
-                className="text-slate-400 hover:text-indigo-600 cursor-pointer shrink-0 p-0.5">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <select value={assignedDate || ''} onChange={e => onAssign(item, e.target.value)}
+                title="Sort this item into a weekday — it is added to that day (and its course) on the Daily Planner"
+                className={`flex-1 min-w-0 text-[10px] border rounded px-1 py-0.5 bg-white cursor-pointer ${assignedDate ? 'border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>
+                <option value="">Sort to day…</option>
+                {pickOptions.map(iso => (
+                  <option key={iso} value={iso}>{dayLabel(iso)}</option>
+                ))}
+              </select>
+              {/*
+                  A real native date picker for ANY day, folded open on click. The
+                  invisible <input type=date> sits over the calendar icon, and
+                  clicking it opens the browser's picker immediately (showPicker),
+                  so the chosen date is a proper ISO value the planner can use —
+                  no swap-in input, no layout jump, no stray year.
+              */}
+              <span className="relative inline-flex items-center justify-center w-5 h-5 shrink-0" title="Open a calendar and pick ANY day — the item is added to that day (and its course) on the Daily Planner">
+                <input
+                  type="date"
+                  value={assignedDate || ''}
+                  onChange={e => onAssign(item, e.target.value)}
+                  onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* older browsers: fall back to manual entry */ } }}
+                  aria-label="Pick any date"
+                  className="absolute inset-0 opacity-0 cursor-pointer" />
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none text-slate-400">
                   <rect x="3" y="4" width="18" height="18" rx="2" />
                   <line x1="16" y1="2" x2="16" y2="6" />
                   <line x1="8" y1="2" x2="8" y2="6" />
                   <line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
-              </button>
+              </span>
             </div>
           )}
         </div>
