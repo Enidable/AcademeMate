@@ -285,6 +285,12 @@ export function syncContentCalendarMirror(item, calendarEvents) {
     // row's contentId — link those instead of creating a duplicate row.
     ev = events.find(e => e.course === item.course && e.lectureId === item.contentId && !e.contentId) || null
   }
+  if (!ev && (item.start || '')) {
+    // Legacy rows whose lecture ids drifted from their events: the same slot
+    // (course + day + start time) is close enough to adopt. Timed events only,
+    // so an all-day exam never swallows an untimed class row.
+    ev = events.find(e => !e.contentId && e.course === item.course && e.date === item.date && e.startTime === item.start) || null
+  }
 
   if (!ev) {
     ev = {
@@ -326,6 +332,30 @@ export function syncContentCalendarMirror(item, calendarEvents) {
   }
   adopt(ev)
   return events
+}
+
+// Load-time reconciliation (#46): every scheduled content row (a class with a
+// concrete date) must end up linked to exactly one calendarEvents row so it
+// shows on the Calendar tab, Weekly Overview, Daily Planner and the Google
+// push, and so the event's content_id FK resolves its syllabus note/prep
+// reliably. Rows added before the mirror layer existed, or whose ids drifted
+// after an import, are adopted onto their existing event; genuinely orphaned
+// rows (e.g. a meeting the user added in a course) get a mirror row created.
+// Idempotent — returns true when anything was created or newly linked.
+export function ensureScheduledContentCalendarLinks(data) {
+  if (!data) return false
+  const content = Array.isArray(data.content) ? data.content : []
+  let events = Array.isArray(data.calendarEvents) ? [...data.calendarEvents] : []
+  let changed = false
+  for (const item of content) {
+    if (!isScheduledContentRow(item)) continue
+    const before = events.length
+    const wasLinked = !!item.calendarId || events.some(e => e.contentId === item.id)
+    events = syncContentCalendarMirror(item, events)
+    if (events.length !== before || (!wasLinked && events.some(e => e.contentId === item.id))) changed = true
+  }
+  data.calendarEvents = events
+  return changed
 }
 
 // --- Referential integrity (milestone 7) ----------------------------------

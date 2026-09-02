@@ -16,7 +16,7 @@ import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, isContentMirrorEvent } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, isContentMirrorEvent, ensureScheduledContentCalendarLinks } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -288,8 +288,12 @@ function buildState(rowsByTab) {
   relinkContentCalendar(data)
   // Session lecture references backfilled to CONTENT.id (milestone 6).
   backfillLectureLinks(data)
+  // Every scheduled content row (manual meetings/classes included) gets its
+  // linked calendarEvents row, so it shows in the Calendar tab, Weekly
+  // Overview, Daily Planner and Google push, and prep/notes resolve via the FK.
+  const contentCalChanged = ensureScheduledContentCalendarLinks(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
-  return { data, weeklyHours, plannerWeeks }
+  return { data, weeklyHours, plannerWeeks, contentCalChanged }
 }
 
 // Link existing grade components to their syllabus items so old data gets the
@@ -615,14 +619,17 @@ export function AppDataProvider({ children }) {
     setDrive(info)
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
-    const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
+    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged } = buildState(rowsByTab)
     // A brand-new spreadsheet is a clean slate: never heal the stale
     // localStorage snapshot (which may still hold the bundled example data
     // from a previous connection) back into it.
     await healCourses(d, file.createdNew ? null : savedLocal)
     cleanContent(d)
     assignEntityIds(d)
+    // Rows restored by the heal may need their calendar link too.
+    const contentCalChanged2 = ensureScheduledContentCalendarLinks(d) || contentCalChanged
     if ((ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) && driveRef.current) syncTabs(['dailyPlan'])
+    if (contentCalChanged2 && driveRef.current) syncTabs(['content', 'calendarEvents'])
 
     dataRef.current = d
     plannerRef.current = p
@@ -662,6 +669,7 @@ export function AppDataProvider({ children }) {
       backfillPlanLinks(saved.data)
       relinkContentCalendar(saved.data)
       backfillLectureLinks(saved.data)
+      ensureScheduledContentCalendarLinks(saved.data)
       dataRef.current = saved.data
       plannerRef.current = planner
       weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides, saved.data.additionalLog)
@@ -760,10 +768,12 @@ export function AppDataProvider({ children }) {
     setSyncing(true)
     try {
       const rowsByTab = await readAllTabs(info.fileId)
-      const { data: d, weeklyHours: wt, plannerWeeks: p } = buildState(rowsByTab)
+      const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged } = buildState(rowsByTab)
       await healCourses(d, loadJSON())
       cleanContent(d)
+      const contentCalChanged2 = ensureScheduledContentCalendarLinks(d) || contentCalChanged
       if (ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) syncTabs(['dailyPlan'])
+      if (contentCalChanged2) syncTabs(['content', 'calendarEvents'])
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt
@@ -1073,7 +1083,15 @@ export function AppDataProvider({ children }) {
     const preserved = existing.filter(e =>
       e.personalImport || isContentMirrorEvent(e) || (e.source && !String(e.source).endsWith('.ics')),
     )
-    const calendarFinal = [...merged, ...preserved]
+    let calendarFinal = [...merged, ...preserved]
+
+    // Link the imported events to their content rows and make sure any
+    // user-added scheduled row that has no calendar row yet (e.g. a meeting
+    // added in a course) gets one — so every class appears in the calendar
+    // views and prep/notes resolve by the content_id FK, not just by string.
+    const linked = { calendarEvents: calendarFinal, content: contentFinal }
+    ensureScheduledContentCalendarLinks(linked)
+    calendarFinal = linked.calendarEvents
 
     const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: contentFinal }
     const planner = plannerRef.current || []
