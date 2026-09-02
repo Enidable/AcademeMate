@@ -148,7 +148,9 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
     : (dateStr || 'No calendar element linked — double-click the ID to link one.')
 
   return (
-    <div className={`group px-1 py-1 rounded hover:bg-slate-50 ${item.done ? 'opacity-50' : ''} ${!attend ? 'opacity-40' : ''}`}>
+    // Skipping a class (attend=false) greys it out on the CALENDAR views only;
+    // here the row stays fully readable because its prep/notes are still work.
+    <div className={`group px-1 py-1 rounded hover:bg-slate-50 ${item.done ? 'opacity-50' : ''}`}>
       <div className="flex items-center gap-2">
         <input type="checkbox" checked={!!item.done} onChange={(e) => onToggleDone(item, e.target.checked)}
           title={item.done ? 'Marked as done' : 'Mark as done'}
