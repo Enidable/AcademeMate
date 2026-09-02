@@ -3,6 +3,7 @@ import { getStatus, getCourseStyle, colorToHex } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { nextDeadlineId } from '../utils/ids'
 import { deriveAbbrev } from '../drive/driveClient'
+import { estimateCourse } from '../data/estimate'
 import Syllabus from './Syllabus'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -209,19 +210,31 @@ function GradeEditor({ course, abbrev, code }) {
 // stats and a time-by-category pie chart, with inline auto-saving fields,
 // grade components and the syllabus, laid out to avoid scrolling.
 export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClose }) {
-  const { gradeComponents, deleteCourse, updateCourse, inputLog } = useAppData()
+  const { gradeComponents, deleteCourse, updateCourse, inputLog, masterCourses } = useAppData()
   const c = course
   const status = getStatus(c)
   const style = getCourseStyle(c.course, c.color)
   const gradeInfo = gradeComponents.find((g) => g.course === c.course)
+  const completed = status === 'Completed'
   const estimatedHours = c.estHours != null && c.estHours > 0
     ? c.estHours
     : c.ec != null && c.ec > 0
       ? c.ec * avgHoursPerEC
       : loggedHours * 2
   // A completed course's estimate matches what was actually invested (100%).
-  const effectiveEstimated = status === 'Completed' && loggedHours > estimatedHours ? loggedHours : estimatedHours
-  const progress = effectiveEstimated > 0 ? Math.min((loggedHours / effectiveEstimated) * 100, 100) : null
+  const effectiveEstimated = completed && loggedHours > estimatedHours ? loggedHours : estimatedHours
+
+  // Flexible time estimate (#39): calibrated from the finished courses in the
+  // data (personal hours per EC per exam/coursework weight), with personal
+  // priors used until enough courses have finished.
+  const timeEstimate = useMemo(() => {
+    if (completed || !(c.ec > 0)) return null
+    return estimateCourse(c, { courses: masterCourses || [], studyLog: inputLog || [], gradeComponents: gradeComponents || [] })
+  }, [c, completed, masterCourses, inputLog, gradeComponents])
+
+  // Progress target: the flexible model once it can predict, else the estimate.
+  const targetTotal = timeEstimate?.total != null ? timeEstimate.total : effectiveEstimated
+  const progress = targetTotal > 0 ? Math.min((loggedHours / targetTotal) * 100, 100) : null
 
   const [form, setForm] = useState({
     // Default to the derived abbreviation (never blank) so the field always
@@ -314,7 +327,7 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
                 </div>
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
                   <div className="text-[10px] text-slate-400">Est. required</div>
-                  <div className="text-slate-700 font-semibold">{effectiveEstimated.toFixed(0)}h</div>
+                  <div className="text-slate-700 font-semibold">{targetTotal.toFixed(0)}h</div>
                 </div>
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
                   <div className="text-[10px] text-slate-400">Avg {avgHoursPerEC.toFixed(1)}h/EC</div>
@@ -326,12 +339,40 @@ export default function CourseDetail({ course, loggedHours, avgHoursPerEC, onClo
                 <div className="bg-white rounded-lg border border-slate-200 p-2">
                   <div className="flex justify-between text-[10px] text-slate-400 mb-1">
                     <span>Progress</span>
-                    <span>{loggedHours.toFixed(0)} / {effectiveEstimated.toFixed(0)}h</span>
+                    <span>{loggedHours.toFixed(0)} / {targetTotal.toFixed(0)}h</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-2">
                     <div className={`h-2 rounded-full transition-all ${style.progress || 'bg-slate-700'}`}
                       style={{ width: `${Math.min(progress, 100)}%`, ...style.progressCss }} />
                   </div>
+                </div>
+              )}
+
+              {timeEstimate && timeEstimate.total != null && (
+                <div className="bg-white rounded-lg border border-slate-200 p-2">
+                  <div className="flex items-baseline justify-between gap-1">
+                    <span className="text-[10px] text-slate-400">Time estimate</span>
+                    <span className="text-[9px] text-slate-300">{timeEstimate.calibrated ? `fits ${timeEstimate.coursesUsed} finished courses` : 'default rates'}</span>
+                  </div>
+                  <div className="mt-1 flex items-baseline gap-1 flex-wrap">
+                    <span className="text-xl font-bold text-slate-800">{Math.round(timeEstimate.total)}h</span>
+                    <span className="text-[10px] text-slate-400">≈ {Math.round(timeEstimate.low)}–{Math.round(timeEstimate.high)}h</span>
+                    <span className="text-[10px] text-slate-400">· {timeEstimate.perEc}h/EC</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    Logged {Math.round(timeEstimate.logged)}h · ~{Math.round(timeEstimate.remaining)}h to go
+                  </div>
+                  <div className="mt-1.5 space-y-1">
+                    {Object.entries(timeEstimate.byType).filter(([, t]) => t.weight > 0).map(([key, t]) => (
+                      <div key={key} className="flex items-center gap-1.5 text-[11px]">
+                        <span className={`w-2 h-2 rounded-full ${key === 'exam' ? 'bg-red-500' : 'bg-indigo-500'}`} />
+                        <span className="capitalize text-slate-600 flex-1 truncate">{key === 'coursework' ? 'Projects / assignments' : 'Exams'}</span>
+                        <span className="text-[10px] text-slate-400">{(t.weight * 100).toFixed(0)}%</span>
+                        <span className="text-slate-600 tabular-nums">{Math.round(t.hours)}h</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-[9px] text-slate-300 mt-1">Scaled from similar finished courses by EC and component weights; improves as you log and finish courses.</div>
                 </div>
               )}
 
