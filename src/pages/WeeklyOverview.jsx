@@ -394,6 +394,13 @@ export default function WeeklyOverview() {
       const tag = menuTagOfNotes(r.notes)
       if (tag && tag.startsWith(`${MENU_TAG_PREFIX}evt|`)) placedEventKeys.add(tag.slice(MENU_TAG_PREFIX.length))
     }
+    // Work/Exercise etc. imported from a personal calendar that were ticked off
+    // and logged as additional time are represented by their additionalLog row
+    // — never count the raw calendar event as well (that's the double count).
+    const loggedAddlKeys = new Set()
+    for (const a of additionalLog || []) {
+      if (a.date && a.category && a.task) loggedAddlKeys.add(`${a.date}|${a.category}|${a.task}`)
+    }
     for (const e of calendarEvents || []) {
       const dow = dates.indexOf(e.date)
       if (dow < 0) continue
@@ -410,6 +417,7 @@ export default function WeeklyOverview() {
         else rowName = sourceLabel(e.source) || ''
       }
       if (!rowName) continue
+      if (loggedAddlKeys.has(`${e.date}|${rowName}|${e.summary}`)) continue
       const row = rowOf(rowName)
       row.hours[dow] += h
       row.tasks[dow].push(e.summary || rowName)
