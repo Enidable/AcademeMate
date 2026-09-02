@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { getCourseStyle } from '../utils/helpers'
+import { getCourseStyle, slotIndexOfContent } from '../utils/helpers'
 import { typeSymbol, inferEventType } from '../drive/driveClient'
 import { loadCourseKeywords, saveCourseKeywords } from '../utils/courseKeywords'
 import WeekGrid from '../components/WeekGrid'
@@ -168,6 +168,16 @@ export default function Calendar() {
     return m
   }, [content])
 
+  // The actual content rows behind the string maps above (id / lecture id),
+  // plus a day+time slot index — so a chip can find the class's syllabus row
+  // (and therefore its prep/note) even when its content_id / lecture id drifted.
+  const contentByLecture = useMemo(() => {
+    const m = new Map()
+    for (const i of content || []) if (i.course && i.contentId) m.set(`${i.course}|${i.contentId}`, i)
+    return m
+  }, [content])
+  const contentBySlot = useMemo(() => slotIndexOfContent(content), [content])
+
   const eventSymbol = e => e.isDeadline
     ? typeSymbol(e.type || 'deadline')
     : typeSymbol(inferEventType(e.summary, e.description))
@@ -260,13 +270,21 @@ export default function Calendar() {
       ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', border: 'border-red-200' }
       : eventColor(e.course)
     const time = e.allDay ? 'All day' : (e.startTime ? `${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '')
-    // Resolve the syllabus note/prep via the content row id FK first (reliable),
-    // falling back to the lectureId string match for legacy rows.
-    const linked = !e.isDeadline && e.contentId ? noteById.get(e.contentId) : null
-    const linkedPrep = !e.isDeadline && e.contentId ? prepById.get(e.contentId) : null
-    const note = linked ? (linked.description || linked.content || '') : (!e.isDeadline && e.lectureId ? noteByLecture.get(`${e.course}|${e.lectureId}`) : '')
-    const needsPrep = !e.isDeadline && (!!linkedPrep || (!linked && e.lectureId && prepByLecture.has(`${e.course}|${e.lectureId}`)))
-    const prepText = linkedPrep || (needsPrep && e.lectureId ? prepByLecture.get(`${e.course}|${e.lectureId}`) : null)
+    // Resolve the syllabus row behind this event (for its prep/note) via the
+    // content row id FK first, then the lectureId string, then the day+time
+    // slot — so a class's prep shows even when its ids drifted or never linked.
+    let linked = null
+    if (!e.isDeadline && e.course) {
+      if (e.contentId) linked = noteById.get(e.contentId) || null
+      if (!linked && e.lectureId) linked = contentByLecture.get(`${e.course}|${e.lectureId}`) || null
+      if (!linked) linked = contentBySlot.get(`${e.course}|${e.date}|${e.startTime || ''}`) || null
+    }
+    const prepText = !e.isDeadline && linked && String(linked.prep || '').trim()
+      && String(linked.done || '').trim().toLowerCase() !== 'done'
+      ? linked.prep
+      : null
+    const needsPrep = !!prepText
+    const note = linked ? (linked.description || linked.content || '') : ''
     const symbol = eventSymbol(e)
     return (
       <div key={e.id || `${e.date}|${e.summary}|${e.startTime}`}
@@ -481,7 +499,7 @@ export default function Calendar() {
       {mode === 'week' && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div className="min-w-[720px]">
-            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} noteById={noteById} prepById={prepById} />
+            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} noteById={noteById} prepById={prepById} contentBySlot={contentBySlot} />
           </div>
         </div>
       )}

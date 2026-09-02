@@ -60,7 +60,7 @@ function layoutTimed(items) {
 // axisOutside: omit the internal hour-axis gutter and hang the hour labels
 // outside the left edge instead. Used by the Daily Planner so the seven day
 // columns occupy exactly the same width as the planner table's day columns.
-export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, prepMap = null, noteById = null, prepById = null, hourHeight = 44, axisOutside = false }) {
+export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, prepMap = null, noteById = null, prepById = null, contentBySlot = null, hourHeight = 44, axisOutside = false }) {
   const today = useMemo(() => new Date(), [])
   const GRID_H = hourHeight * (DAY_LEN / 60)
 
@@ -163,12 +163,23 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
               const symbol = typeSymbol(ev.isDeadline ? (ev.type || 'deadline') : inferEventType(ev.summary, ev.description))
               // Resolve the syllabus note/prep via the content row id FK first
               // (reliable — re-imports re-key by it), falling back to the
-              // lectureId string match for legacy rows without the FK.
+              // lectureId string match, then the day+time slot index, for rows
+              // whose ids drifted or were never linked.
+              const slotItem = !ev.isDeadline && contentBySlot
+                ? (contentBySlot.get(`${ev.course}|${ev.date}|${ev.startTime || ''}`) || null)
+                : null
               const linked = !ev.isDeadline && ev.contentId && noteById ? noteById.get(ev.contentId) : null
+              const note = !ev.isDeadline
+                ? (linked ? (linked.description || linked.content || '') : '') ||
+                  (ev.lectureId && noteMap ? (noteMap.get(`${ev.course}|${ev.lectureId}`) || '') : '') ||
+                  (slotItem ? (slotItem.description || slotItem.content || '') : '')
+                : ''
+              const prepReady = i => !!i && String(i.prep || '').trim() && String(i.done || '').trim().toLowerCase() !== 'done'
               const linkedPrep = !ev.isDeadline && ev.contentId && prepById ? prepById.get(ev.contentId) : null
-              const note = !ev.isDeadline && ev.lectureId && noteMap && !linked ? (noteMap.get(`${ev.course}|${ev.lectureId}`) || '') : (linked ? linked.description || linked.content || '' : '')
-              const needsPrep = !ev.isDeadline && (!!linkedPrep || (!linked && ev.lectureId && prepMap && prepMap.has(`${ev.course}|${ev.lectureId}`)))
-              const prepText = linkedPrep || (needsPrep && ev.lectureId && prepMap ? prepMap.get(`${ev.course}|${ev.lectureId}`) : null)
+              const prepText = !ev.isDeadline
+                ? (linkedPrep || (ev.lectureId && prepMap ? (prepMap.get(`${ev.course}|${ev.lectureId}`) || null) : null) || (prepReady(slotItem) ? slotItem.prep : null))
+                : null
+              const needsPrep = !!prepText
               return (
                 <div key={ev.id || `${ev.date}|${ev.summary}|${ev.startTime}`}
                   className="absolute flex overflow-hidden rounded"

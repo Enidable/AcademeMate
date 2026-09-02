@@ -351,3 +351,18 @@ export function lectureIdFromNotes(notes) {
   if (parts[0] === 'prep' || parts[0] === 'dl') return parts[2] || ''
   return ''
 }
+
+// Index syllabus content rows by their calendar slot (course + day + start
+// time). A last-resort fallback for calendar chips/grids: when an event's
+// content_id or lecture id doesn't resolve to a content row (ids drifted or the
+// link never got written), the same day + time slot still finds the row whose
+// prep/note belong to that class. Keyed as `${course}|${date}|${start}`.
+export function slotIndexOfContent(content) {
+  const m = new Map()
+  for (const i of content || []) {
+    if (!i?.course || !i?.date) continue
+    const k = `${i.course}|${i.date}|${i.start || ''}`
+    if (!m.has(k)) m.set(k, i)
+  }
+  return m
+}

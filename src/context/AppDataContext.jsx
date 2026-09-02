@@ -154,21 +154,33 @@ function synthCourses(parsed) {
 
 // Remove exact-duplicate syllabus rows (same course + component ID + date/
 // deadline) — earlier bugs wrote the same deadline twice. The row with more
-// user content (description/hours/done) wins.
+// user content (description/hours/prep) wins, and when a duplicate is dropped,
+// any user text it carries that the survivor lacks (prep, notes, description,
+// location) is carried over — so editing the "other copy" never loses work.
 function dedupeContent(items) {
   const seen = new Map()
   const out = []
   // Deliberately NOT scoring the done flag: when two copies of the same row
   // disagree, the user's most recent action (checked OR unchecked) lives on
   // the row they edited — the stale copy must never win back.
-  const score = it => ((it.description && it.description.trim()) ? 2 : 0) + (it.hoursSpent ? 1 : 0)
+  const score = it => ((it.description && it.description.trim()) ? 2 : 0) + (it.hoursSpent ? 1 : 0) + (it.prep ? 1 : 0)
+  const absorb = (target, from) => {
+    if (!target || !from) return target
+    for (const f of ['prep', 'content', 'location', 'description', 'topic']) {
+      if ((target[f] == null || target[f] === '') && from[f] != null && from[f] !== '') target[f] = from[f]
+    }
+    return target
+  }
   for (const i of items || []) {
     const k = `${i.course || ''}|${i.contentId || ''}|${i.date || ''}|${i.deadline || ''}`
     const existing = seen.get(k)
     if (!existing) { seen.set(k, i); out.push(i); continue }
     if (score(i) > score(existing)) {
+      absorb(i, existing)
       out[out.indexOf(existing)] = i
       seen.set(k, i)
+    } else {
+      absorb(existing, i)
     }
   }
   return out
@@ -508,6 +520,28 @@ export function AppDataProvider({ children }) {
       performWrite(keys)
     }, 500)
   }
+
+  // If the page is closed/reloaded right after an edit, flush any pending
+  // debounced Drive writes instead of losing them — an edit that is then read
+  // back from Drive on the next load would otherwise look "reverted".
+  const performWriteRef = useRef(performWrite)
+  useEffect(() => { performWriteRef.current = performWrite })
+  useEffect(() => {
+    const flush = () => {
+      const timers = syncTimers.current
+      const sigs = Object.keys(timers)
+      if (sigs.length === 0) return
+      const keys = []
+      for (const sig of sigs) {
+        clearTimeout(timers[sig])
+        delete timers[sig]
+        keys.push(...sig.split('|'))
+      }
+      performWriteRef.current(keys)
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [])
 
   function setAll(d, p) {
     const wt = deriveWeeklyTotals(d.studyLog, d.weeklyOverrides, d.additionalLog)

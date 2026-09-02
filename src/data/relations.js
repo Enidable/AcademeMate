@@ -334,6 +334,27 @@ export function syncContentCalendarMirror(item, calendarEvents) {
   return events
 }
 
+// Exact-duplicate collapse for the Calendar tab (#46): repeated imports / older
+// bugs can leave the same event in the sheet several times (same uid or same
+// course+day+start+summary when the row has no uid). On every load they are
+// merged to one row so a class/deadline never shows several times over on the
+// Calendar tab or the push. Distinct events sharing a slot but with different
+// titles/ids are left alone.
+export function dedupeCalendarEvents(events) {
+  const out = []
+  const seen = new Set()
+  for (const e of events || []) {
+    if (!e || !e.date) { out.push(e); continue }
+    const key = e.uid
+      ? `${e.uid}|${e.date}|${e.startTime || ''}`
+      : `${e.course || ''}|${e.date}|${e.startTime || ''}|${e.summary || ''}|${e.allDay ? '1' : '0'}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(e)
+  }
+  return out
+}
+
 // Load-time reconciliation (#46): every scheduled content row (a class with a
 // concrete date) must end up linked to exactly one calendarEvents row so it
 // shows on the Calendar tab, Weekly Overview, Daily Planner and the Google
@@ -346,7 +367,9 @@ export function ensureScheduledContentCalendarLinks(data) {
   if (!data) return false
   const content = Array.isArray(data.content) ? data.content : []
   let events = Array.isArray(data.calendarEvents) ? [...data.calendarEvents] : []
-  let changed = false
+  const beforeDedupe = events.length
+  events = dedupeCalendarEvents(events)
+  let changed = events.length !== beforeDedupe
   for (const item of content) {
     if (!isScheduledContentRow(item)) continue
     const before = events.length

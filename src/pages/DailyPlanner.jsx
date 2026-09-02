@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
-import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag, lectureIdFromNotes, isWorkEvent } from '../utils/helpers'
+import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag, lectureIdFromNotes, isWorkEvent, slotIndexOfContent } from '../utils/helpers'
 import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
@@ -545,6 +545,10 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return m
   }, [content])
 
+  // Fallback index by day+time slot, for classes whose content_id/lecture id
+  // drifted — used by the week-grid Prep marker below.
+  const contentBySlot = useMemo(() => slotIndexOfContent(content), [content])
+
   // Calendar events of the viewed week as read-only plan entries. Course
   // events land in their course's row; "Gym Time" imports feed the Exercise
   // additional-time row. Other personal calendars stay out of the plan.
@@ -580,7 +584,10 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         : null
       const linkedPrep = !isAdditional && e.contentId ? prepById.get(e.contentId) : null
       const prepText = !isAdditional
-        ? (linkedPrep || (e.lectureId && !linkedContent ? prepByLecture.get(`${rowName}|${e.lectureId}`) : null) || null)
+        ? (linkedPrep ||
+          (e.lectureId && !linkedContent ? (prepByLecture.get(`${rowName}|${e.lectureId}`) || null) : null) ||
+          (!e.contentId ? (contentBySlot.get(`${rowName}|${e.date}|${e.startTime || ''}`)?.prep || null) : null) ||
+          null)
         : null
       const k = `${rowName}|${e.date}`
       if (!map[k]) map[k] = []
@@ -643,7 +650,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, deadlines, dates, noteById, contentById, prepById, prepByLecture, loggedEvents])
+  }, [calendarEvents, deadlines, dates, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedEvents])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the
@@ -1016,7 +1023,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         <div className="flex items-stretch">
           <div className="w-56 shrink-0" />
           <div className="flex-1 min-w-0">
-            <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} axisOutside prepMap={prepByLecture} prepById={prepById} />
+            <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} axisOutside prepMap={prepByLecture} prepById={prepById} contentBySlot={contentBySlot} />
           </div>
           <div className="w-16 shrink-0" />
           <div className="w-6 shrink-0" />
