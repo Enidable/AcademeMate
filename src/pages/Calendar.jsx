@@ -286,10 +286,13 @@ export default function Calendar() {
     const needsPrep = !!prepText
     const note = linked ? (linked.description || linked.content || '') : ''
     const symbol = eventSymbol(e)
+    // Attendance (issue #42): classes marked "Skip" in the course stay visible
+    // but are greyed out.
+    const skipped = !e.isDeadline && linked != null && linked.attend === false
     return (
       <div key={e.id || `${e.date}|${e.summary}|${e.startTime}`}
-        className={`rounded border ${style.border || 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[11px] leading-tight ${compact ? '' : 'mb-1'}`}
-        style={{ ...style.borderCss, ...style.bgCss, ...style.textCss }} title={needsPrep ? `${e.summary} — prep: ${prepText}` : e.summary}>
+        className={`rounded border ${style.border || 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[11px] leading-tight ${compact ? '' : 'mb-1'} ${skipped ? 'opacity-40' : ''}`}
+        style={{ ...style.borderCss, ...style.bgCss, ...style.textCss }} title={skipped ? `${e.summary} — not attending` : (needsPrep ? `${e.summary} — prep: ${prepText}` : e.summary)}>
         <div className="truncate">
           {!compact && time && <span className="opacity-70 mr-1">{time}</span>}
           {compact && e.startTime && <span className="opacity-70 mr-1">{e.startTime}</span>}

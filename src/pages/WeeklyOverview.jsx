@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { formatDateShort, formatDate, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR, menuTagOfNotes, isWorkEvent } from '../utils/helpers'
+import { formatDateShort, formatDate, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR, menuTagOfNotes, isWorkEvent, slotIndexOfContent } from '../utils/helpers'
 import { inferEventType, typeSymbol } from '../drive/driveClient'
 import HoverCard from '../components/HoverCard'
 
@@ -91,7 +91,7 @@ function ItemCard({ item, assignedDate, today, onAssign }) {
   const pickOptions = hasCustomAssigned ? [assignedDate, ...options] : options
   return (
     <HoverCard card={detail}>
-      <div className={`rounded-lg border px-2 py-1.5 ${isToday ? 'border-indigo-200 bg-indigo-50/50' : assignedDate ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+      <div className={`rounded-lg border px-2 py-1.5 ${item.skip ? 'opacity-40' : ''} ${isToday ? 'border-indigo-200 bg-indigo-50/50' : assignedDate ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] shrink-0">{item.symbol}</span>
           <span className={`text-[11px] font-medium truncate flex-1 ${item.kind === 'prep' ? 'text-slate-600' : 'text-slate-700'}`}>{item.title}</span>
@@ -202,10 +202,23 @@ export default function WeeklyOverview() {
       return from <= weekEnd && iso >= weekStart
     }
     const out = []
+    // Attendance (issue #42): resolve each class to its syllabus row so a class
+    // marked "Skip" in the course is greyed out here too.
+    const rowById = new Map()
+    const rowByLecture = new Map()
+    for (const c of content || []) {
+      if (c.id) rowById.set(c.id, c)
+      if (c.course && c.contentId) rowByLecture.set(`${c.course}|${c.contentId}`, c)
+    }
+    const rowBySlot = slotIndexOfContent(content)
+    const classRow = e => (e.contentId && rowById.get(e.contentId)) ||
+      (e.course && e.lectureId ? rowByLecture.get(`${e.course}|${e.lectureId}`) : null) ||
+      (e.course ? rowBySlot.get(`${e.course}|${e.date}|${e.startTime || ''}`) : null) || null
     for (const e of calendarEvents || []) {
       if (!e.date || e.date < weekStart || e.date > weekEnd) continue
       const isCourseItem = !!e.course
       const type = inferEventType(e.summary, e.description)
+      const row = classRow(e)
       out.push({
         menuId: `evt|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}`,
         kind: isCourseItem ? 'class' : 'other',
@@ -219,6 +232,7 @@ export default function WeeklyOverview() {
         dateISO: e.date,
         taskText: e.summary,
         hours: durHours(e),
+        skip: isCourseItem && row != null && row.attend === false,
       })
     }
     for (const i of deadlines || []) {

@@ -240,6 +240,9 @@ function parseContent(rows, rc) {
         calId: (r.cal_id || '').trim() || null,
         prep: (r.prep || '').trim() || null,
         calendarId: (r.calendar_id || '').trim() || null,
+        // attendance (issue #42): only rows explicitly marked 0 are skipped;
+        // empty/old rows default to "will attend".
+        attend: String(r.attend || '').trim() !== '0',
         done,
         urgency: urgencyFor(r.marker, done),
         time: hoursSpent ?? 0,

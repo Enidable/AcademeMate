@@ -105,8 +105,9 @@ function EditPanel({ editing, setEditing, isDeadline, onSaveEdit }) {
 // is an inline auto-saving input. On the right: future items show the duration
 // pulled from the calendar times, past items sum the session-logger hours that
 // were logged against this ID.
-function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSavePrep, onSaveLink, onToggleDone }) {
+function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isEditing, editing, setEditing, onStartEdit, onSaveEdit, onDelete, onSaveNote, onSavePrep, onSaveLink, onToggleDone, onToggleAttend }) {
   const id = item.contentId || '—'
+  const attend = item.attend !== false
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkVal, setLinkVal] = useState('')
   const future = item.date != null && item.date >= today
@@ -147,11 +148,16 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
     : (dateStr || 'No calendar element linked — double-click the ID to link one.')
 
   return (
-    <div className={`group px-1 py-1 rounded hover:bg-slate-50 ${item.done ? 'opacity-50' : ''}`}>
+    <div className={`group px-1 py-1 rounded hover:bg-slate-50 ${item.done ? 'opacity-50' : ''} ${!attend ? 'opacity-40' : ''}`}>
       <div className="flex items-center gap-2">
         <input type="checkbox" checked={!!item.done} onChange={(e) => onToggleDone(item, e.target.checked)}
           title={item.done ? 'Marked as done' : 'Mark as done'}
           className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer shrink-0" />
+        <button onClick={() => onToggleAttend(item)}
+          title={attend ? 'Will attend — click to mark this class as skipped' : 'Not attending — click to mark as attended'}
+          className={`text-[9px] px-1.5 py-0.5 rounded border font-medium shrink-0 cursor-pointer ${attend ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
+          {attend ? '✓ Attending' : 'Skip'}
+        </button>
         {linkOpen ? (
           <span className="flex items-center gap-1.5 shrink-0">
             <input
@@ -493,6 +499,7 @@ export default function Syllabus({ course, abbrev, code }) {
   const handleSaveLink = guard((item, calId) => updateContentItem(item.id, { calId }, { course: item.course, contentId: item.contentId }))
   const handleSaveId = guard((item, contentId) => updateContentItem(item.id, { contentId }, { course: item.course, contentId }))
   const handleToggleDone = guard((item, done) => updateContentItem(item.id, { done: done ? 'done' : '' }, { course: item.course, contentId: item.contentId }))
+  const handleToggleAttend = guard((item) => updateContentItem(item.id, { attend: item.attend === false }, { course: item.course, contentId: item.contentId }))
 
   return (
     <div className="border-t border-slate-100 pt-3 space-y-3">
@@ -507,7 +514,7 @@ export default function Syllabus({ course, abbrev, code }) {
       <div>
         <div className="flex items-baseline justify-between">
           <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Scheduled</p>
-          <span className="text-[9px] text-slate-300 mb-1">Each class gets a generated ID (e.g. ML1-L-01) · double-click an ID to view/change its calendar element</span>
+          <span className="text-[9px] text-slate-300 mb-1">Each class gets a generated ID (e.g. ML1-L-01) · ✓ Attending / Skip says whether you'll go — skipped classes stay in the calendar but greyed out</span>
         </div>
         {adding?.mode === 'lecture' && (
           <AddForm adding={adding} setAdding={setAdding} onSubmit={submitAdd}
@@ -527,7 +534,8 @@ export default function Syllabus({ course, abbrev, code }) {
                 loggedHours={log.hours} loggedSessions={log.sessions} linkedEvent={linkedEvent}
                 isEditing={editing?.id === item.id} editing={editing} setEditing={setEditing}
                 onStartEdit={startEdit} onSaveEdit={saveEdit} onDelete={handleDelete}
-                onSaveNote={handleSaveNote} onSavePrep={handleSavePrep} onSaveLink={handleSaveLink} onToggleDone={handleToggleDone} />
+                onSaveNote={handleSaveNote} onSavePrep={handleSavePrep} onSaveLink={handleSaveLink} onToggleDone={handleToggleDone}
+                onToggleAttend={handleToggleAttend} />
             )
           })}
         </div>

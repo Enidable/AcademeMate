@@ -366,3 +366,10 @@ export function slotIndexOfContent(content) {
   }
   return m
 }
+
+// Attendance (issue #42): a class is attended by default; only an explicit
+// `attend === false` (marked "Skip" in the course's syllabus) hides it behind
+// grey in the calendar views. Missing rows are treated as attended.
+export function isAttendedRow(row) {
+  return row == null || row.attend !== false
+}

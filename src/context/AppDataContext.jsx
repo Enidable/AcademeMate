@@ -1809,6 +1809,8 @@ function renameIdPrefix(contentId, oldBase, newBase) {
         updated.marker = (payload.urgency === 'High' || payload.urgency === 'Extremely High') ? 'important' : ''
       }
       if ('done' in payload) updated.done = payload.done
+      // attendance (issue #42): explicitly toggled off when the class is skipped
+      if (payload.attend !== undefined) updated.attend = !!payload.attend
       return updated
     }
     const recordMatch = (row) => {
@@ -1888,6 +1890,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       done: item.done || '',
       urgency: item.urgency || 'Medium',
       time: item.time ?? 0,
+      attend: item.attend !== false,
     }
     newItem.id = nextId('content_', (prev.content || []).map(i => i.id))
     // A scheduled calendar element (a class with a date) is mirrored into the

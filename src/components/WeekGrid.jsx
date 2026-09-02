@@ -180,9 +180,10 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
                 ? (linkedPrep || (ev.lectureId && prepMap ? (prepMap.get(`${ev.course}|${ev.lectureId}`) || null) : null) || (prepReady(slotItem) ? slotItem.prep : null))
                 : null
               const needsPrep = !!prepText
+              const skipped = !ev.isDeadline && (linked || slotItem) != null && (linked || slotItem).attend === false
               return (
                 <div key={ev.id || `${ev.date}|${ev.summary}|${ev.startTime}`}
-                  className="absolute flex overflow-hidden rounded"
+                  className={`absolute flex overflow-hidden rounded ${skipped ? 'opacity-40' : ''}`}
                   style={{ top: p.top + '%', height: p.height + '%', left: p.left + '%', width: p.width + '%' }}
                   title={`${ev.summary}${ev.endTime ? ` (${ev.startTime}–${ev.endTime})` : ''}${needsPrep ? ` — prep: ${prepText}` : ''}`}>
                   <span className={`w-1 shrink-0 rounded-l ${style.dot}`} style={style.dotCss} />

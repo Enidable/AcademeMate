@@ -112,7 +112,7 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
         ]} />
       </div>
     }>
-      <div className={`flex items-start gap-1 px-0.5 py-0.5 ${entry.logged ? 'opacity-60' : ''}`}>
+      <div className={`flex items-start gap-1 px-0.5 py-0.5 ${entry.logged ? 'opacity-60' : ''} ${entry.attend === false ? 'opacity-40' : ''}`}>
         {entry.loggable ? (
           entry.isAdditional ? (
             <input type="checkbox" checked={!!entry.logged} onChange={() => onLogAdditional(entry)}
@@ -594,6 +594,10 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       const logged = isAdditional
         ? loggedEvents.addl.has(`${e.date}|${rowName}|${e.summary}`)
         : !!(e.contentId && loggedEvents.study.has('content:' + e.contentId)) || loggedEvents.study.has(`course:${rowName}|${e.lectureId}`)
+      // Attendance (issue #42): classes marked "Skip" in the course show greyed
+      // out in the planner (still listed, still loggable if you do go).
+      const attendRow = !isAdditional ? (linkedContent || contentBySlot.get(`${rowName}|${e.date}|${e.startTime || ''}`) || null) : null
+      const attend = attendRow == null || attendRow.attend !== false
       map[k].push({
         id: `auto|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}|${e.summary}`,
         task: e.summary,
@@ -614,6 +618,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         loggable: true,
         // True once a session / additional entry has been logged for this event.
         logged,
+        attend,
       })
     }
     // Deadlines falling inside the viewed week are pinned into their course's
