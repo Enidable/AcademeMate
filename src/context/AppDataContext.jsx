@@ -16,7 +16,7 @@ import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, isContentMirrorEvent } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -1066,11 +1066,14 @@ export function AppDataProvider({ children }) {
 
     const contentFinal = content.filter(i => !consumed.has(i.id))
 
-    // Preserve previously imported personal Google Calendar events. They are NOT
-    // part of the .ics timetable and must survive an .ics re-import — otherwise
-    // the Calendar tab silently loses them every time the timetable is refreshed.
-    const personalImports = existing.filter(e => e.personalImport || (e.source && !String(e.source).endsWith('.ics')))
-    const calendarFinal = [...merged, ...personalImports]
+    // Preserve previously imported personal Google Calendar events and manual
+    // calendar elements (content:… mirrors). They are NOT part of the .ics
+    // timetable and must survive an .ics re-import — otherwise the Calendar tab
+    // silently loses them every time the timetable is refreshed.
+    const preserved = existing.filter(e =>
+      e.personalImport || isContentMirrorEvent(e) || (e.source && !String(e.source).endsWith('.ics')),
+    )
+    const calendarFinal = [...merged, ...preserved]
 
     const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: contentFinal }
     const planner = plannerRef.current || []
@@ -1715,6 +1718,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
 
   function updateContentItem(id, payload, fallback = null) {
     let matched = null
+    const matchedRows = []
     const prev = dataRef.current || {}
     const apply = (i) => {
       const updated = { ...i }
@@ -1755,18 +1759,21 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       if ('done' in payload) updated.done = payload.done
       return updated
     }
+    const recordMatch = (row) => {
+      matched = row
+      if (row) matchedRows.push(row)
+      return row
+    }
     let content = (prev.content || []).map(i => {
       if (i.id !== id) return i
-      matched = apply(i)
-      return matched
+      return recordMatch(apply(i))
     })
     // Fallback: match by (course + contentId) — robust against the compound id
     // drifting after an import. Applies to every matching row.
     if (!matched && fallback?.course) {
       content = (prev.content || []).map(i => {
         if (i.course !== fallback.course || i.contentId !== fallback.contentId) return i
-        matched = apply(i)
-        return matched
+        return recordMatch(apply(i))
       })
     }
 
@@ -1790,9 +1797,16 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       console.warn('updateContentItem: no content row matched', { id, fallback })
     }
 
-    const updated = { ...prev, content, gradeComponents }
+    // Edits to a scheduled class (date/times/location/description) must reach
+    // its calendar row too, and a class edited into a deadline (or back) gets
+    // its mirror row added / removed.
+    let calendarEvents = prev.calendarEvents || []
+    for (const row of matchedRows) {
+      calendarEvents = syncContentCalendarMirror(row, calendarEvents)
+    }
+    const updated = { ...prev, content, calendarEvents, gradeComponents }
     setAll(updated, plannerRef.current)
-    syncTabs(['content', 'gradeComponents'])
+    syncTabs(['content', 'calendarEvents', 'gradeComponents'])
   }
 
   // Generic Course Content item (lecture, project, deadline...). Used by the
@@ -1824,9 +1838,14 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       time: item.time ?? 0,
     }
     newItem.id = nextId('content_', (prev.content || []).map(i => i.id))
-    const updated = { ...prev, content: [...(prev.content || []), newItem] }
+    // A scheduled calendar element (a class with a date) is mirrored into the
+    // calendarEvents table so it appears in the Calendar tab, Weekly Overview,
+    // Daily Planner and the Google Calendar push, exactly like imported classes.
+    const content = [...(prev.content || []), newItem]
+    const calendarEvents = syncContentCalendarMirror(newItem, prev.calendarEvents || [])
+    const updated = { ...prev, content, calendarEvents }
     setAll(updated, plannerRef.current)
-    syncTabs(['content'])
+    syncTabs(['content', 'calendarEvents'])
   }
 
   function deleteSession(id) {

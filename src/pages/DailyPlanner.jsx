@@ -127,7 +127,7 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
           <span className="w-3 shrink-0" />
         )}
         <div className="flex-1 min-w-0">
-          <div className={`text-[10px] leading-tight truncate ${entry.logged ? 'line-through text-slate-400' : 'text-slate-600'}`}>
+          <div className={`text-[10px] leading-tight truncate ${entry.logged ? 'line-through text-slate-400' : entry.isDeadline ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
             {entry.task}
             {entry.prep && (
               <span className="ml-1 inline-block px-1 rounded bg-red-600 text-white text-[8px] font-semibold align-middle" title={`Prep required: ${entry.prep}`}>Prep</span>
@@ -135,7 +135,9 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
           </div>
           {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
         </div>
-        <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">{entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : ''}</span>
+        <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">
+          {entry.isDeadline ? (entry.startTime ? `due ${entry.startTime}` : '') : (entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : '')}
+        </span>
       </div>
     </HoverCard>
   )
@@ -607,9 +609,41 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         logged,
       })
     }
+    // Deadlines falling inside the viewed week are pinned into their course's
+    // day cell too (red, read-only) — a deadline is only ever visible in the
+    // timetable strip below, so it doesn't "show up on the daily planner" the
+    // way scheduled classes do. Done items are skipped.
+    for (const d of deadlines || []) {
+      const due = d.deadline || d.date
+      if (!due || !dates.includes(due)) continue
+      if (String(d.done || '').trim().toLowerCase() === 'done') continue
+      const rowName = d.course || ''
+      if (!rowName || ADDITIONAL_SET.has(rowName)) continue
+      courseRows.add(rowName)
+      const k = `${rowName}|${due}`
+      if (!map[k]) map[k] = []
+      map[k].push({
+        id: `deadline|${d.id || `${rowName}|${d.contentId || ''}|${due}`}`,
+        task: `Due: ${d.description || d.topic || d.contentId || 'Deadline'}`,
+        hours: 0,
+        note: '',
+        prep: '',
+        date: due,
+        startTime: d.end || d.start || '',
+        endTime: '',
+        lectureId: '',
+        contentId: d.contentId || '',
+        type: d.type || 'deadline',
+        course: rowName,
+        isAdditional: false,
+        loggable: false,
+        logged: false,
+        isDeadline: true,
+      })
+    }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, dates, noteById, contentById, prepById, prepByLecture, loggedEvents])
+  }, [calendarEvents, deadlines, dates, noteById, contentById, prepById, prepByLecture, loggedEvents])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the

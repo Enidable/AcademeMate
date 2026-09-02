@@ -222,6 +222,112 @@ export function relinkContentCalendar(data) {
   return changed
 }
 
+// --- Content ↔ Calendar mirror (issue #46) --------------------------------
+// A manually added "calendar element" (a scheduled class with a concrete date)
+// must behave exactly like an imported timetable event: it has to show up on
+// the Calendar tab, in the Weekly Overview menu, as a loggable entry in the
+// Daily Planner and on the push to the AcademeMate Google Calendar. Every one
+// of those surfaces reads the calendarEvents table, so scheduled content rows
+// get a linked row there — linked back by the stable ids
+// (content.calendarId ↔ calendarEvent.contentId), the same FK pair milestone 5
+// uses for imported rows.
+
+// uid prefix on the calendar rows this layer creates, so they can be recognised
+// again after a Drive round-trip (the uid column persists) — e.g. to remove a
+// manual class's calendar row when it is edited into a deadline, and to keep it
+// across an .ics re-import.
+export const CONTENT_MIRROR_UID = 'content:'
+
+export function isContentMirrorEvent(ev) {
+  return !!ev && typeof ev.uid === 'string' && ev.uid.startsWith(CONTENT_MIRROR_UID)
+}
+
+// A content row is a *scheduled* calendar element when it carries a class date
+// (no due date). Deadline rows (a due date, no class date) are handled by the
+// calendar views directly and never get a mirror row.
+export function isScheduledContentRow(item) {
+  return !!item && !!item.course && !!item.date && !item.deadline
+}
+
+// Ensure ONE scheduled content row has exactly one linked calendarEvents row
+// and keep that row's date/time in step with the content row. Rows that already
+// represent the item (row-id link, shared Google calId, or the course+lectureId
+// pair imported timetable rows carry) are reused — never duplicated. Mirrors
+// created here are tagged with the content: uid; a content row that stops being
+// a scheduled calendar element (edited into a deadline) has its mirror dropped.
+// Returns the (possibly new) calendarEvents array. Mutates the item to keep its
+// calendarId link.
+export function syncContentCalendarMirror(item, calendarEvents) {
+  const events = Array.isArray(calendarEvents) ? [...calendarEvents] : []
+  if (!item) return events
+
+  if (!isScheduledContentRow(item)) {
+    // A manual mirror must not survive a row that is no longer a scheduled
+    // class. Imported/calendar rows are left alone (they own their lifecycle).
+    const kept = events.filter(e => !(isContentMirrorEvent(e) && e.contentId === item.id))
+    if (kept.length !== events.length) item.calendarId = null
+    return kept
+  }
+
+  const ids = new Set(events.map(e => e && e.id).filter(Boolean))
+  const adopt = ev => {
+    if (item.id) ev.contentId = item.id
+    if (ev.id) item.calendarId = ev.id
+    return ev
+  }
+
+  let ev = null
+  if (item.calendarId) ev = events.find(e => e.id === item.calendarId) || null
+  if (!ev && item.calId) ev = events.find(e => e.calId === item.calId && (!e.contentId || e.contentId === item.id)) || null
+  if (!ev) ev = events.find(e => e.contentId === item.id) || null
+  if (!ev && item.contentId) {
+    // Imported timetable events carry the generated lecture id as the content
+    // row's contentId — link those instead of creating a duplicate row.
+    ev = events.find(e => e.course === item.course && e.lectureId === item.contentId && !e.contentId) || null
+  }
+
+  if (!ev) {
+    ev = {
+      id: nextId('cal_', [...ids]),
+      date: item.date,
+      startTime: item.start || '',
+      endTime: item.end || '',
+      allDay: !(item.start || item.end),
+      summary: item.description || item.topic || item.contentId || 'Class',
+      course: item.course,
+      courseId: item.courseId || null,
+      location: item.location || null,
+      description: item.description || item.topic || null,
+      source: null,
+      uid: `${CONTENT_MIRROR_UID}${item.id || ''}`,
+      status: null,
+      lectureId: item.contentId || null,
+      calId: null,
+      contentId: item.id || null,
+    }
+    events.push(ev)
+    adopt(ev)
+    return events
+  }
+
+  const allDay = !(item.start || item.end)
+  ev.date = item.date
+  ev.startTime = allDay ? '' : (item.start || '')
+  ev.endTime = allDay ? '' : (item.end || '')
+  ev.allDay = allDay
+  ev.course = item.course
+  if (item.location != null) ev.location = item.location
+  if (item.contentId) ev.lectureId = item.contentId
+  // Mirrors we created also track the summary/description the user typed;
+  // imported events keep their original timetable summary.
+  if (isContentMirrorEvent(ev)) {
+    ev.summary = item.description || item.topic || item.contentId || 'Class'
+    ev.description = item.description || item.topic || null
+  }
+  adopt(ev)
+  return events
+}
+
 // --- Referential integrity (milestone 7) ----------------------------------
 // Deleting an entity cleans up everything that references it, so no dangling
 // foreign keys survive. Policies:

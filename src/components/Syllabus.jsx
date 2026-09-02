@@ -142,7 +142,7 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
   }
 
   const dateStr = `${fmtDate(item.date)}${item.start ? ` ${item.start}${item.end ? `–${item.end}` : ''}` : ''}`
-  const calLine = item.calId
+  const calLine = (item.calId || item.calendarId)
     ? `${dateStr}${linkedEvent ? ` · ${linkedEvent.summary}` : ''}`
     : (dateStr || 'No calendar element linked — double-click the ID to link one.')
 
@@ -201,7 +201,7 @@ function LectureRow({ item, today, loggedHours, loggedSessions, linkedEvent, isE
         </div>
       </div>
       <div className="flex items-center gap-1 mt-0.5 pl-10 text-[10px] text-slate-400 min-w-0">
-        {item.calId && <span className="text-emerald-500 shrink-0">linked ·</span>}
+        {(item.calId || item.calendarId) && <span className="text-emerald-500 shrink-0">linked ·</span>}
         <span className="truncate">{calLine}</span>
         <span className="flex-1" />
         {!!item.prep && !item.done && (
@@ -519,7 +519,9 @@ export default function Syllabus({ course, abbrev, code }) {
             const log = loggedByLecture[item.contentId] || { hours: 0, sessions: 0 }
             const linkedEvent = item.calId
               ? (calendarEvents || []).find((e) => e.calId === item.calId)
-              : null
+              : item.calendarId
+                ? (calendarEvents || []).find((e) => e.id === item.calendarId)
+                : null
             return (
               <LectureRow key={item.id} item={item} today={today}
                 loggedHours={log.hours} loggedSessions={log.sessions} linkedEvent={linkedEvent}
