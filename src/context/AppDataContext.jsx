@@ -217,27 +217,27 @@ function ensurePreAugustDone(data) {
 // hours, so reconciliation never zeroes it and the reschedule popup never asks
 // about it. Sessions on days/courses that already have any planner row are
 // skipped — no fuzzy matching, no duplicates.
+
+// A class session — one logged by ticking off a scheduled class (event_id FK)
+// or one whose lecture/content id matches a calendar event on the same day —
+// is already represented in the planner by that class's auto entry, which now
+// carries its actual logged hours. Mirroring such a session a second time as
+// an "auto-logged" planner row double-counts it (#50), so class sessions are
+// never mirrored — on load AND on every runtime write.
+function isClassRepresentedSession(e, events) {
+  if (!e || !e.course) return false
+  if (e.eventId) return true
+  if (!e.lectureContentId && !e.lectureId) return false
+  return (events || []).some(ev =>
+    ev.course === e.course && ev.date === e.date &&
+    ((e.lectureContentId && ev.contentId === e.lectureContentId) ||
+     (e.lectureId && ev.lectureId === e.lectureId)))
+}
+
 function ensureLoggedPastSessions(data) {
   const now = new Date()
   const p = n => String(n).padStart(2, '0')
   const todayKey = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
-
-  // A class session — one logged by ticking off a scheduled class (event_id FK)
-  // or one whose lecture/content id matches a calendar event on the same day —
-  // is already represented in the planner by that class's auto entry, which now
-  // carries its actual logged hours. Mirroring such a session a second time as
-  // an "auto-logged" planner row double-counts it (#50), so class sessions are
-  // never mirrored.
-  const events = data.calendarEvents || []
-  const isClassRep = e => {
-    if (!e || !e.course) return false
-    if (e.eventId) return true
-    if (!e.lectureContentId && !e.lectureId) return false
-    return events.some(ev =>
-      ev.course === e.course && ev.date === e.date &&
-      ((e.lectureContentId && ev.contentId === e.lectureContentId) ||
-       (e.lectureId && ev.lectureId === e.lectureId)))
-  }
 
   const sessionsByKey = new Map()
   for (const e of data.studyLog || []) {
@@ -254,7 +254,7 @@ function ensureLoggedPastSessions(data) {
   data.dailyPlan = (data.dailyPlan || []).filter(r => {
     if (String(r.notes || '').trim() !== 'auto-logged' || !r.done) return true
     const mirrors = (sessionsByKey.get(`${r.date}|${r.course}`) || [])
-      .filter(s => !s.planId && !isClassRep(s))
+      .filter(s => !s.planId && !isClassRepresentedSession(s, data.calendarEvents))
     const hours = Math.round(mirrors.reduce((t, s) => t + (s.durationHours || 0), 0) * 100) / 100
     if (mirrors.length === 0) { changed = true; return false }
     if (Math.round(((r.actualHours ?? r.plannedHours ?? 0) - hours) * 100) !== 0) {
@@ -272,7 +272,7 @@ function ensureLoggedPastSessions(data) {
   for (const e of data.studyLog || []) {
     if (!e.date || e.date >= todayKey) continue
     if (!(e.durationHours > 0) || !e.course) continue
-    if (e.planId || isClassRep(e)) continue
+    if (e.planId || isClassRepresentedSession(e, data.calendarEvents)) continue
     const key = `${e.date}|${e.course}`
     if (plannedPairs.has(key)) continue
     if (!groups.has(key)) groups.set(key, { date: e.date, course: e.course, hours: 0, notes: null, project: null, lectureId: null, category: null })
@@ -598,6 +598,10 @@ export function AppDataProvider({ children }) {
     // on every write (add / edit / delete of a session) — never stale, never
     // double-counted.
     syncCommuteRows(d)
+    // Keep "auto-logged" planner mirrors correct on EVERY write, not just on
+    // load: a class session added/edited at runtime must never be mirrored a
+    // second time next to its calendar auto entry (#50).
+    ensureLoggedPastSessions(d)
     const wt = deriveWeeklyTotals(d.studyLog, d.weeklyOverrides, d.additionalLog)
     dataRef.current = d
     plannerRef.current = p
@@ -762,6 +766,9 @@ export function AppDataProvider({ children }) {
       // Commute mirrors kept in step with the study log even when offline (the
       // snapshot may predate the commute split-out feature).
       syncCommuteRows(saved.data)
+      // Same for auto-logged planner mirrors: a snapshot may carry duplicates a
+      // runtime write created before this fix — drop/recompute them here too.
+      ensureLoggedPastSessions(saved.data)
       dataRef.current = saved.data
       plannerRef.current = planner
       weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides, saved.data.additionalLog)
@@ -1683,7 +1690,10 @@ export function AppDataProvider({ children }) {
     let dailyPlan = prev.dailyPlan || []
     // A session logged by checking off a calendar event is already represented
     // in the planner (the event's auto entry) — never spawn a second row for it.
-    if (!planId && entry.date && entry.course && !entry.skipPlannerAuto) {
+    // The same applies to a session a user logs for a scheduled class from the
+    // time log: its calendar auto entry carries the hours, so it must not be
+    // linked to (or mirrored as) a plan row either (#50).
+    if (!planId && entry.date && entry.course && !entry.skipPlannerAuto && !isClassRepresentedSession(entry, prev.calendarEvents)) {
       // A session added without a planner link (Time Log / header button) is
       // reflected in the Daily Planner: attach to the course's open task for
       // that day if one exists, else create a checked-off entry for the session
