@@ -381,6 +381,58 @@ export function ensureScheduledContentCalendarLinks(data) {
   return changed
 }
 
+// --- Logs ↔ Calendar event FK (issue #49) ----------------------------------
+// A study session / additional-time entry created by ticking off a calendar
+// auto entry stores the event's calendarEvents row id in `eventId`. That is the
+// stable link the planner and weekly overview use to answer "has this event been
+// logged?" exactly, and to let a logged fact override the event's scheduled
+// times. Components must query these helpers — never hand-roll string matching.
+
+// Study-log sessions logged against a specific calendar event (by row id).
+export function sessionsForEvent(eventId, studyLog) {
+  if (!eventId) return []
+  return (studyLog || []).filter(s => s.eventId && s.eventId === eventId)
+}
+
+// Additional-time entries logged against a specific calendar event (by row id).
+export function additionalForEvent(eventId, additionalLog) {
+  if (!eventId) return []
+  return (additionalLog || []).filter(a => a.eventId && a.eventId === eventId)
+}
+
+// Total actual hours logged against one calendar event (sessions + additional).
+export function actualHoursForEvent(eventId, studyLog, additionalLog) {
+  const sum = arr => arr.reduce((t, r) => t + (r.durationHours || r.hours || 0), 0)
+  return sum(sessionsForEvent(eventId, studyLog)) + sum(additionalForEvent(eventId, additionalLog))
+}
+
+// Index logs by their calendar-event FK: eventId -> array of logs.
+export function logsByEventId(studyLog, additionalLog) {
+  const out = { sessions: new Map(), additional: new Map() }
+  for (const s of studyLog || []) {
+    if (!s.eventId) continue
+    if (!out.sessions.has(s.eventId)) out.sessions.set(s.eventId, [])
+    out.sessions.get(s.eventId).push(s)
+  }
+  for (const a of additionalLog || []) {
+    if (!a.eventId) continue
+    if (!out.additional.has(a.eventId)) out.additional.set(a.eventId, [])
+    out.additional.get(a.eventId).push(a)
+  }
+  return out
+}
+
+// The set of calendarEvents row ids that other rows still reference — by the
+// log event_id FK, by content.calendarId (content ↔ event) and by the content
+// mirror's contentId back-pointer. Import pruning must never delete these.
+export function referencedEventIds(data) {
+  const ids = new Set()
+  for (const s of data?.studyLog || []) if (s.eventId) ids.add(s.eventId)
+  for (const a of data?.additionalLog || []) if (a.eventId) ids.add(a.eventId)
+  for (const i of data?.content || []) if (i.calendarId) ids.add(i.calendarId)
+  return ids
+}
+
 // --- Referential integrity (milestone 7) ----------------------------------
 // Deleting an entity cleans up everything that references it, so no dangling
 // foreign keys survive. Policies:

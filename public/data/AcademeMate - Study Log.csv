@@ -1,4 +1,4 @@
-id,date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes,plan_id,lecture_content_id
+id,date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes,plan_id,lecture_content_id,event_id
 ,20/07/2026,08:45,10:45,2,120,System Identification with Parameter Estimation and Machine Learning,Exam,,University,,,,Bicycle,90,,,
 ,19/07/2026,12:24,17:15,4.85,291,System Identification with Parameter Estimation and Machine Learning,Studying,,Home,2,5,,,,,,
 ,18/07/2026,21:21,22:00,0.65,39,System Identification with Parameter Estimation and Machine Learning,Studying,,Home,,,,,,,,

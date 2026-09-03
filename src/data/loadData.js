@@ -57,6 +57,7 @@ function parseStudyLog(rows, rc) {
         notes: (r.notes || '').trim() || null,
         planId: (r.plan_id || '').trim() || null,
         lectureContentId: (r.lecture_content_id || '').trim() || null,
+        eventId: (r.event_id || '').trim() || null,
       }
     })
 }
@@ -322,6 +323,7 @@ function parseAdditionalLog(rows) {
         notes: (r.notes || '').trim() || null,
         done,
         isAdditional: true,
+        eventId: (r.event_id || '').trim() || null,
       }
     })
 }

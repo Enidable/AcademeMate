@@ -174,7 +174,7 @@ function ItemCard({ item, assignedDate, today, onAssign }) {
 
 export default function WeeklyOverview() {
   const {
-    calendarEvents, deadlines, content, dailyPlan, additionalLog,
+    calendarEvents, deadlines, content, dailyPlan, additionalLog, inputLog,
     addPlannerTask, deletePlannerTask,
   } = useAppData()
 
@@ -401,13 +401,41 @@ export default function WeeklyOverview() {
     for (const a of additionalLog || []) {
       if (a.date && a.category && a.task) loggedAddlKeys.add(`${a.date}|${a.category}|${a.task}`)
     }
+    // Logs indexed by their calendar-event FK (issue #49) so an event's actual
+    // logged hours replace its scheduled ones, and logged events never also
+    // contribute their schedule hours.
+    const sessionsByEvent = new Map()
+    for (const s of inputLog || []) {
+      if (!s.eventId) continue
+      if (!sessionsByEvent.has(s.eventId)) sessionsByEvent.set(s.eventId, [])
+      sessionsByEvent.get(s.eventId).push(s)
+    }
+    const addlByEvent = new Map()
+    for (const a of additionalLog || []) {
+      if (!a.eventId) continue
+      if (!addlByEvent.has(a.eventId)) addlByEvent.set(a.eventId, [])
+      addlByEvent.get(a.eventId).push(a)
+    }
+    const todayISOStr = todayISO()
+    const sessionsFor = e => {
+      if (e.id && sessionsByEvent.has(e.id)) return sessionsByEvent.get(e.id)
+      // Legacy sessions (logged before the FK existed): a study session that
+      // matches this class's lecture/content id on the same day is that class.
+      // Sessions that already have their own planner row (planId) are counted
+      // through that row above — never double-counted here.
+      if (!e.course) return []
+      const out = []
+      for (const s of inputLog || []) {
+        if (s.planId || s.date !== e.date || s.course !== e.course) continue
+        if ((e.contentId && s.lectureContentId === e.contentId) || (e.lectureId && s.lectureId === e.lectureId)) out.push(s)
+      }
+      return out
+    }
     for (const e of calendarEvents || []) {
       const dow = dates.indexOf(e.date)
       if (dow < 0) continue
       const menuId = `evt|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}`
       if (placedEventKeys.has(menuId)) continue
-      const h = durHours(e)
-      if (h <= 0) continue
       // Skipped classes (issue #42) stay on the menu but never count hours.
       if (e.course && skippedEvent(e, contentRows)) continue
       let rowName = e.course || ''
@@ -417,17 +445,39 @@ export default function WeeklyOverview() {
         else rowName = sourceLabel(e.source) || ''
       }
       if (!rowName) continue
-      if (loggedAddlKeys.has(`${e.date}|${rowName}|${e.summary}`)) continue
       const row = rowOf(rowName)
-      row.hours[dow] += h
-      row.tasks[dow].push(e.summary || rowName)
+      if (!e.course) {
+        // Work / gym / personal appointment. Once it has actually been logged
+        // as additional time its own row is counted above — never also the
+        // schedule hours.
+        const logged = (e.id ? (addlByEvent.get(e.id) || []) : []).length > 0 ||
+          loggedAddlKeys.has(`${e.date}|${rowName}|${e.summary}`)
+        if (logged) continue
+        const h = durHours(e)
+        if (h > 0) { row.hours[dow] += h; row.tasks[dow].push(e.summary || rowName) }
+        continue
+      }
+      // A class that was actually logged counts what was logged — the real time
+      // effort — not its scheduled duration.
+      const sessions = sessionsFor(e)
+      if (sessions.length > 0) {
+        const h = Math.round(sessions.reduce((t, s) => t + (s.durationHours || 0), 0) * 100) / 100
+        if (h > 0) { row.hours[dow] += h; row.tasks[dow].push(e.summary || rowName) }
+        continue
+      }
+      // Not logged: scheduled hours still count as planned, but only for today
+      // and the future — a past class that never happened shouldn't keep its
+      // hours in your capacity numbers (mirrors the Daily Planner).
+      if (e.date < todayISOStr) continue
+      const h = durHours(e)
+      if (h > 0) { row.hours[dow] += h; row.tasks[dow].push(e.summary || rowName) }
     }
     const rows = [...byCourse.entries()]
       .map(([course, data]) => ({ course, ...data, total: data.hours.reduce((s, h) => s + h, 0) }))
       .sort((a, b) => b.total - a.total)
     const dayTotals = Array.from({ length: 7 }, (_, d) => rows.reduce((s, r) => s + r.hours[d], 0))
     return { rows, dayTotals, weekTotal: dayTotals.reduce((s, h) => s + h, 0) }
-  }, [dailyPlan, additionalLog, calendarEvents, dates, contentRows])
+  }, [dailyPlan, additionalLog, inputLog, calendarEvents, dates, contentRows])
 
   return (
     <div className="space-y-4">

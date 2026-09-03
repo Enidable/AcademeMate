@@ -373,6 +373,9 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
       // (plan_id); the planner row is then updated through the relation.
       if (preset?.plannerId) payload.planId = preset.plannerId
       if (preset?.skipPlannerAuto) payload.skipPlannerAuto = true
+      // A session logged from a scheduled class links back to its calendar row
+      // (event_id), so the logged time overrides the schedule everywhere.
+      if (preset?.eventId) payload.eventId = preset.eventId
       addSession(payload)
     }
     setForm({ date: '', startTime: '', endTime: '', durationHours: '', course: '', category: '', project: '', location: '', efficiency: '', wellbeing: '', lectureId: '', transportMode: '', commuteTime: '', notes: '' })
@@ -816,6 +819,10 @@ export function AdditionalLogModal({ open, onClose, preset, existingId }) {
       notes: form.notes || null,
       done: 'done',
     }
+    // A log created by ticking a scheduled work/gym/obligation event keeps the
+    // link back to its calendar row (event_id), so the planner knows it is done
+    // and never counts the scheduled hours on top.
+    if (preset?.eventId) payload.eventId = preset.eventId
     if (existingId) updateAdditionalEntry(existingId, payload)
     else addAdditionalEntry(payload)
     onClose()

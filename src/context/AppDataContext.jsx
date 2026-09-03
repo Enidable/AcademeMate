@@ -16,7 +16,7 @@ import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, isContentMirrorEvent, ensureScheduledContentCalendarLinks } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, isContentMirrorEvent, ensureScheduledContentCalendarLinks, referencedEventIds } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -921,19 +921,36 @@ export function AppDataProvider({ children }) {
     }
 
     const existing = dataRef.current?.calendarEvents || []
+    // Issue #49: a timetable event's identity is its recurring series uid +
+    // day, NOT its start time — so when the university moves a class to a
+    // different hour on the same day, the re-import keeps the SAME calendar row
+    // (same cal_ id, cal_id, lecture id), and sessions/additional entries that
+    // reference it never lose their anchor.
     const calByKey = new Map()
     const lectureByKey = new Map()
+    const idByKey = new Map()
     for (const e of existing) {
-      const k = `${e.uid}|${e.date}|${e.startTime}`
+      const k = `${e.uid}|${e.date}`
       if (e.calId) calByKey.set(k, e.calId)
       if (e.lectureId) lectureByKey.set(k, e.lectureId)
+      if (e.id && !idByKey.has(k)) idByKey.set(k, e.id)
     }
     const merged = rows.map(r => {
-      const k = `${r.uid}|${r.date}|${r.startTime}`
-      return { ...r, calId: calByKey.get(k) || null, lectureId: lectureByKey.get(k) || null }
+      const k = `${r.uid}|${r.date}`
+      return { ...r, id: idByKey.get(k) || null, calId: calByKey.get(k) || null, lectureId: lectureByKey.get(k) || null }
     })
 
     assignLectureIds(merged, courses)
+
+    // New timetable rows get a stable cal_ row id right away, so a class can be
+    // ticked off (and its session FK-linked) immediately after the import,
+    // without waiting for the next Drive reload to assign one.
+    const usedIds = new Set(existing.map(e => e && e.id).filter(Boolean))
+    for (const r of merged) {
+      if (r.id) { usedIds.add(r.id); continue }
+      r.id = nextId('cal_', usedIds)
+      usedIds.add(r.id)
+    }
 
     // Log each scheduled lecture/tutorial/practical into the course's syllabus
     // (Course Content) so every class gets a numbered entry the user only has
@@ -1127,6 +1144,21 @@ export function AppDataProvider({ children }) {
     ensureScheduledContentCalendarLinks(linked)
     calendarFinal = linked.calendarEvents
 
+    // Issue #49: never drop a timetable event that a logged session / additional
+    // entry (event_id) or a content row (calendar_id) still references, even if
+    // the refreshed .ics no longer lists it (the university moved it, an exam
+    // was rescheduled…). The event is the anchor of a fact — it stays.
+    const referencedIds = new Set()
+    for (const s of dataRef.current?.studyLog || []) if (s.eventId) referencedIds.add(s.eventId)
+    for (const a of dataRef.current?.additionalLog || []) if (a.eventId) referencedIds.add(a.eventId)
+    for (const i of contentFinal || []) if (i.calendarId) referencedIds.add(i.calendarId)
+    const anchored = existing.filter(e =>
+      e && e.id && referencedIds.has(e.id) &&
+      (e.source || '').endsWith('.ics') &&
+      !calendarFinal.some(ev => ev && ev.id === e.id),
+    )
+    if (anchored.length > 0) calendarFinal = [...calendarFinal, ...anchored]
+
     const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: contentFinal }
     const planner = plannerRef.current || []
     setAll(d, planner)
@@ -1216,39 +1248,56 @@ export function AppDataProvider({ children }) {
     }).filter(Boolean)
 
     const existing = dataRef.current?.calendarEvents || []
-    const existingByKey = new Map(existing.map(e => [`${e.uid}|${e.date}|${e.startTime}`, e]))
-    const seen = new Set()
+    const source = calendarSummary || calendarId
+    const referenced = referencedEventIds(dataRef.current)
     let added = 0
     let updated = 0
     let removed = 0
-    const newRowsByKey = new Map()
-    for (const r of rows) {
-      const k = `${r.uid}|${r.date}|${r.startTime}`
-      if (!seen.has(k)) { newRowsByKey.set(k, r); seen.add(k) }
+    const newByUid = new Map()
+    for (const r of rows) if (r.uid && !newByUid.has(r.uid)) newByUid.set(r.uid, r)
+    const existingByUid = new Map()
+    for (const e of existing) {
+      if (!e.uid || (e.source || '') !== source) continue
+      if (!existingByUid.has(e.uid)) existingByUid.set(e.uid, e)
     }
-    // Preserve existing events in their original order, updating fields in place
-    // when the re-import carries fresher data. New events are appended at the end.
-    // Events that were DELETED on the source calendar no longer appear in this
-    // fetch, so they are pruned — but only rows of THIS calendar and inside the
-    // import window; .ics imports, other calendars and older history are untouched.
-    const source = calendarSummary || calendarId
-    const merged = existing
-      .map(e => {
-        const k = `${e.uid}|${e.date}|${e.startTime}`
-        const r = newRowsByKey.get(k)
-        if (!r) {
-          if ((e.source || '') === source && e.date && e.date >= timeMin && e.date <= timeMax) {
-            removed += 1
-            return null
-          }
-          return e
-        }
+    // Issue #49: re-imports update events IN PLACE. Identity is the source
+    // event id (uid) — the date and times are just attributes. A gym slot that
+    // was moved to another hour/day keeps the SAME row and id, so any log that
+    // references it stays linked and never shows up as a second, unchecked
+    // ghost. Rows whose source event no longer exists are pruned — but never a
+    // row a session / additional entry / content row still references (it is
+    // the historical anchor of a logged fact).
+    const merged = []
+    const consumed = new Set()
+    for (const e of existing) {
+      if ((e.source || '') !== source) { merged.push(e); continue }
+      const r = newByUid.get(e.uid || '')
+      if (r) {
+        consumed.add(r.uid)
         updated += 1
-        return { ...e, summary: r.summary, course: r.course, location: r.location, description: r.description, endTime: r.endTime, allDay: r.allDay, source: r.source }
-      })
-      .filter(Boolean)
-    for (const [k, r] of newRowsByKey) {
-      if (!existingByKey.has(k)) { merged.push(r); added += 1 }
+        merged.push({
+          ...e,
+          date: r.date,
+          startTime: r.startTime || '',
+          endTime: r.endTime || '',
+          allDay: r.allDay,
+          summary: r.summary,
+          course: r.course,
+          location: r.location,
+          description: r.description,
+          source: r.source,
+        })
+      } else if (e.date && e.date >= timeMin && e.date <= timeMax && !referenced.has(e.id)) {
+        removed += 1
+      } else {
+        merged.push(e)
+      }
+    }
+    for (const r of rows) {
+      if (!r.uid || consumed.has(r.uid)) continue
+      if (existingByUid.has(r.uid)) continue
+      merged.push({ ...r, id: r.uid })
+      added += 1
     }
 
     const d = { ...(dataRef.current || {}), calendarEvents: merged }
@@ -2214,6 +2263,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       notes: entry.notes || null,
       done: entry.done || '',
       isAdditional: true,
+      eventId: entry.eventId || null,
     }
     const updated = { ...prev, additionalLog: [...(prev.additionalLog || []), row] }
     setAll(updated, plannerRef.current)

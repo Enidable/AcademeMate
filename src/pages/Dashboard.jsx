@@ -43,6 +43,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
     for (const e of inputLog || []) {
       if (e.lectureContentId) s.add('content:' + e.lectureContentId)
       if (e.course && e.lectureId) s.add(`course:${e.course}|${e.lectureId}`)
+      if (e.eventId) s.add('event:' + e.eventId)
     }
     return s
   }, [inputLog])
@@ -52,7 +53,8 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
     .sort((a, b) => (a.startTime || '99').localeCompare(b.startTime || '99'))
     .map(e => ({
       ...e,
-      logged: (!!e.contentId && loggedStudyKeys.has('content:' + e.contentId)) ||
+      logged: loggedStudyKeys.has('event:' + e.id) ||
+        (!!e.contentId && loggedStudyKeys.has('content:' + e.contentId)) ||
         (e.course && e.lectureId && loggedStudyKeys.has(`course:${e.course}|${e.lectureId}`)),
     })), [calendarEvents, today, loggedStudyKeys])
 
@@ -105,6 +107,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
       location: 'University',
       lectureId: e.lectureId || '',
       lectureContentId: e.contentId || '',
+      eventId: e.id || '',
       skipPlannerAuto: true,
     })
   }

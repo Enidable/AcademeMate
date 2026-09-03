@@ -469,6 +469,30 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return { study, addl }
   }, [inputLog, additionalLog])
 
+  // Logs indexed by their calendar-event FK (issue #49): a session / additional
+  // entry created by ticking an auto entry carries the event's row id, so "has
+  // this event actually happened?" resolves exactly — and the logged times can
+  // override the event's scheduled times.
+  const sessionsByEvent = useMemo(() => {
+    const m = new Map()
+    for (const s of inputLog || []) {
+      if (!s.eventId) continue
+      if (!m.has(s.eventId)) m.set(s.eventId, [])
+      m.get(s.eventId).push(s)
+    }
+    return m
+  }, [inputLog])
+
+  const addlByEvent = useMemo(() => {
+    const m = new Map()
+    for (const a of additionalLog || []) {
+      if (!a.eventId) continue
+      if (!m.has(a.eventId)) m.set(a.eventId, [])
+      m.get(a.eventId).push(a)
+    }
+    return m
+  }, [additionalLog])
+
   const avgWeeklyHours = useMemo(() => getAverageWeeklyHours(weeklyHours), [weeklyHours])
 
   // Timetable events + deadlines for the week grid shown below the plan.
@@ -591,25 +615,64 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         : null
       const k = `${rowName}|${e.date}`
       if (!map[k]) map[k] = []
-      const logged = isAdditional
+      // Issue #49: logs created by ticking an event off carry its calendar row
+      // id (eventId) — the precise "has this actually happened?" answer. The
+      // old key-string sets are the fallback for logs created before the FK.
+      const fkSessions = e.id ? (sessionsByEvent.get(e.id) || []) : []
+      const fkAddl = e.id ? (addlByEvent.get(e.id) || []) : []
+      const fkLogged = isAdditional ? fkAddl.length > 0 : fkSessions.length > 0
+      const legacyLogged = isAdditional
         ? loggedEvents.addl.has(`${e.date}|${rowName}|${e.summary}`)
-        : !!(e.contentId && loggedEvents.study.has('content:' + e.contentId)) || loggedEvents.study.has(`course:${rowName}|${e.lectureId}`)
+        : !!((e.contentId && loggedEvents.study.has('content:' + e.contentId)) || loggedEvents.study.has(`course:${rowName}|${e.lectureId}`))
+      const logged = fkLogged || legacyLogged
+      // Sessions logged before the event_id FK existed still count as actual
+      // hours for the class when they match its lecture/content id on its day.
+      const legacySessions = fkSessions.length === 0 && !isAdditional && legacyLogged && e.course
+        ? (inputLog || []).filter(s =>
+            !s.planId && s.date === e.date && s.course === e.course &&
+            ((e.contentId && s.lectureContentId === e.contentId) || (e.lectureId && s.lectureId === e.lectureId)))
+        : []
       // Attendance (issue #42): classes marked "Skip" in the course show greyed
       // out in the planner (still listed, still loggable if you do go).
       const attendRow = !isAdditional ? (linkedContent || contentBySlot.get(`${rowName}|${e.date}|${e.startTime || ''}`) || null) : null
       const attend = attendRow == null || attendRow.attend !== false
+      // Effective hours + shown times (issue #49): once something has actually
+      // been logged, the LOG wins over the schedule everywhere. Additional auto
+      // rows that are logged disappear entirely (their real row carries them),
+      // so their schedule hours never linger. A class that was never logged has
+      // no business keeping planned hours after its day has passed — the planner
+      // corrects to reality, exactly like reconcilePastDays does for plan rows.
+      let hours
+      if (isAdditional) {
+        // Logged additional auto rows are hidden and carried by their own row —
+        // their schedule hours must never count here.
+        hours = fkAddl.length > 0 ? 0 : durHours(e)
+      } else if (fkLogged) {
+        hours = Math.round(fkSessions.reduce((t, s) => t + (s.durationHours || 0), 0) * 100) / 100
+      } else if (legacySessions.length > 0) {
+        hours = Math.round(legacySessions.reduce((t, s) => t + (s.durationHours || 0), 0) * 100) / 100
+      } else if (!attend) {
+        hours = 0
+      } else if (e.date < today) {
+        hours = 0
+      } else {
+        hours = durHours(e)
+      }
+      let startTime = e.startTime || ''
+      let endTime = e.endTime || ''
+      if (fkSessions.length === 1) {
+        if (fkSessions[0].startTime) startTime = fkSessions[0].startTime
+        if (fkSessions[0].endTime) endTime = fkSessions[0].endTime
+      }
       map[k].push({
         id: `auto|${e.calId || e.uid || ''}|${e.date}|${e.startTime || ''}|${e.summary}`,
         task: e.summary,
-        // Skipped classes (issue #42) stay visible but their hours never count
-        // toward the planner's totals.
-        hours: !attend ? 0 : (e.allDay ? 0 : durHours(e)),
         note: noteItem?.content || noteItem?.description || '',
         prep: prepText || '',
         // Everything needed to pre-fill the session logger when ticked off.
         date: e.date,
-        startTime: e.startTime || '',
-        endTime: e.endTime || '',
+        startTime,
+        endTime,
         lectureId: !isAdditional ? (e.lectureId || '') : '',
         contentId: e.contentId || '',
         type: inferEventType(e.summary, e.description),
@@ -620,7 +683,13 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         loggable: true,
         // True once a session / additional entry has been logged for this event.
         logged,
+        // The calendar row this entry derives from, so ticking it off can link
+        // the created session / additional entry back (event_id FK).
+        eventId: e.id || '',
         attend,
+        // The actual hours to count once this event has been logged — the entry
+        // still shows (a done class stays visible) but never with schedule hours.
+        hours,
       })
     }
     // Deadlines falling inside the viewed week are pinned into their course's
@@ -657,7 +726,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, deadlines, dates, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedEvents])
+  }, [calendarEvents, deadlines, dates, today, inputLog, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedEvents, sessionsByEvent, addlByEvent])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the
@@ -807,6 +876,9 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       location: 'University',
       lectureId: entry.lectureId || '',
       lectureContentId: entry.contentId || '',
+      // Link the session to the calendar row it was ticked from (issue #49) so
+      // the logged time overrides the scheduled one in the planner/totals.
+      eventId: entry.eventId || '',
       skipPlannerAuto: true,
     })
   }
