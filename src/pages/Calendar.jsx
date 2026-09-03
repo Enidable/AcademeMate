@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { getCourseStyle, slotIndexOfContent, normalizeCategory } from '../utils/helpers'
+import { getCourseStyle, slotIndexOfContent } from '../utils/helpers'
 import { typeSymbol, inferEventType } from '../drive/driveClient'
 import { loadCourseKeywords, saveCourseKeywords } from '../utils/courseKeywords'
 import { categoryForEvent, loadEventCategoryOverrides, saveEventCategoryOverrides } from '../utils/additionalRouting'
-import { ADDITIONAL_CATEGORIES } from '../config'
 import WeekGrid from '../components/WeekGrid'
+import SortEventModal from '../components/SortEventModal'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December']
@@ -508,47 +508,8 @@ export default function Calendar() {
         </div>
       )}
 
-      {sortTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setSortTarget(null)}>
-          <div className="bg-white rounded-xl shadow-lg w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
-              <h2 className="font-semibold text-slate-800">Sort into additional time</h2>
-              <button onClick={() => setSortTarget(null)} className="text-slate-400 hover:text-slate-600 text-xl leading-none cursor-pointer">&times;</button>
-            </div>
-            <div className="p-5">
-              <p className="text-xs text-slate-500 mb-1">
-                <span className="font-medium text-slate-700">{sortTarget.summary}</span>
-                {sortTarget.startTime ? ` · ${sortTarget.startTime}${sortTarget.endTime ? `–${sortTarget.endTime}` : ''}` : ''}
-              </p>
-              <p className="text-[11px] text-slate-400 mb-4">
-                Personal events only show in the planner once they're sorted — pick the category this event belongs to. It will appear as a checkable item under that row in the Daily Planner and count toward that bucket everywhere.
-              </p>
-              <div className="space-y-1.5">
-                {ADDITIONAL_CATEGORIES.map(cat => {
-                  const st = getCourseStyle(cat)
-                  const active = catOverrides[sortTarget.id] === cat
-                  return (
-                    <button key={cat} onClick={() => pickSortCategory(cat)}
-                      className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg border cursor-pointer ${
-                        active ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:bg-slate-50'
-                      }`}>
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} style={st.dotCss} />
-                      <span className="text-sm text-slate-700">{normalizeCategory(cat)}</span>
-                      {active && <span className="ml-auto text-[10px] text-indigo-600 font-medium">sorted</span>}
-                    </button>
-                  )
-                })}
-              </div>
-              {catOverrides[sortTarget.id] && (
-                <button onClick={() => pickSortCategory(null)}
-                  className="mt-4 text-xs text-slate-400 hover:text-red-500 cursor-pointer">
-                  Remove — make this event informational again
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <SortEventModal event={sortTarget} overrides={catOverrides}
+        onPick={pickSortCategory} onClose={() => setSortTarget(null)} />
 
       {!hasDrive && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-400 text-sm">

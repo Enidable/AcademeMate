@@ -3,11 +3,12 @@ import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
 import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag, lectureIdFromNotes, slotIndexOfContent } from '../utils/helpers'
-import { categoryForEvent, loadEventCategoryOverrides } from '../utils/additionalRouting'
+import { categoryForEvent, loadEventCategoryOverrides, saveEventCategoryOverrides } from '../utils/additionalRouting'
 import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
 import HoverCard from '../components/HoverCard'
+import SortEventModal from '../components/SortEventModal'
 import { ADDITIONAL_CATEGORIES } from '../config'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -336,10 +337,21 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({ task: '', hours: '', notes: '' })
   const [addCell, setAddCell] = useState(null)
-  // Per-event additional-time categories chosen in the Calendar tab (Work /
-  // Other Obligations / Commute / Exercise / Social Obligation). Read once on
-  // mount — saving in the Calendar is picked up when this page (re)loads.
-  const [catOverrides] = useState(() => loadEventCategoryOverrides())
+  // Per-event additional-time categories chosen by clicking an event in the
+  // Calendar or the timetable strip below (Work / Other Obligations / Commute /
+  // Exercise / Social Obligation). Shared with the Calendar tab via localStorage.
+  const [catOverrides, setCatOverrides] = useState(() => loadEventCategoryOverrides())
+  const [sortTarget, setSortTarget] = useState(null)
+
+  function saveSortCategory(event, category) {
+    if (!event || !event.id) return
+    const next = { ...catOverrides }
+    if (category) next[event.id] = category
+    else delete next[event.id]
+    setCatOverrides(next)
+    saveEventCategoryOverrides(next)
+    setSortTarget(null)
+  }
   const [cellForm, setCellForm] = useState({ task: '', hours: '', notes: '' })
   const [extraRows, setExtraRows] = useState([])
   const [rowCourse, setRowCourse] = useState('')
@@ -1108,7 +1120,8 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         <div className="flex items-stretch">
           <div className="w-56 shrink-0" />
           <div className="flex-1 min-w-0">
-            <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} axisOutside prepMap={prepByLecture} prepById={prepById} contentBySlot={contentBySlot} />
+            <WeekGrid week={weekDatesObj} byDay={calByDay} masterCourses={masterCourses} axisOutside prepMap={prepByLecture} prepById={prepById} contentBySlot={contentBySlot}
+              onSortPersonal={e => setSortTarget(e)} personalCategory={e => categoryForEvent(e, catOverrides)} />
           </div>
           <div className="w-16 shrink-0" />
           <div className="w-6 shrink-0" />
@@ -1145,8 +1158,11 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
         </div>
       )}
 
+      <SortEventModal event={sortTarget} overrides={catOverrides}
+        onPick={cat => saveSortCategory(sortTarget, cat)} onClose={() => setSortTarget(null)} />
+
       <div className="text-xs text-slate-400 italic">
-        Type straight into a course row to plan a task (Enter confirms, optional “h” field sets the estimate). “+” opens a form with a note field for an extra entry. Hours sit on the right of each to-do. Scheduled classes and imported calendar events (lectures, Gym Time, work-titled entries, …) appear automatically as read-only entries with their duration; lectures also show their syllabus note (hover for the full text). Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Additional-time rows are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity.
+        Type straight into a course row to plan a task (Enter confirms, optional “h” field sets the estimate). “+” opens a form with a note field for an extra entry. Hours sit on the right of each to-do. Scheduled classes and imported calendar events (lectures, Gym Time, work-titled entries, …) appear automatically as read-only entries with their duration; lectures also show their syllabus note (hover for the full text). Ticking a to-do opens the session logger with that course pre-filled; ticking again un-checks it. Additional-time rows are logged in the “Additional Time Log” sheet, never counted as study, but do count toward your weekly capacity. Personal events without a course (work, gym, …) can be clicked in the Week timetable strip to sort them into an additional-time category.
       </div>
     </div>
   )
