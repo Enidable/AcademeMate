@@ -87,7 +87,7 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue, planSessio
           {row.task || '—'}
         </span>
         <span title={isPlanned ? 'Planned hours — log a session to turn them into actual hours' : 'Actual hours from the time log'}
-          className={`text-[10px] shrink-0 tabular-nums ${isPlanned ? 'italic text-slate-300 underline decoration-dotted underline-offset-2' : overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
+          className={`text-[10px] shrink-0 tabular-nums ${isPlanned ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
           <button onClick={() => onEdit(row)} className="text-[9px] px-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Edit">✎</button>
           <button onClick={onDelete} className="text-[10px] text-red-400 hover:text-red-600 cursor-pointer" title="Delete">×</button>
@@ -140,7 +140,7 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
           {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
         </div>
         <span title={entry.autoEntry && !entry.logged ? 'Planned (scheduled) hours — tick it off to log the real time' : 'Actual hours from the time log'}
-          className={`text-[10px] shrink-0 tabular-nums ${entry.autoEntry && !entry.logged ? 'italic text-slate-300 underline decoration-dotted underline-offset-2' : 'text-slate-500'}`}>
+          className={`text-[10px] shrink-0 tabular-nums ${entry.autoEntry && !entry.logged ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : 'text-slate-500'}`}>
           {entry.isDeadline ? (entry.startTime ? `due ${entry.startTime}` : '') : (entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : '')}
         </span>
       </div>
@@ -1042,19 +1042,19 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-indigo-500" /> Study {studyTotal.toFixed(2)}h
               </span>
-              <span className="text-[9px] font-normal text-slate-400">A {fmtH(studySplit[0])} · P {fmtH(studySplit[1])}</span>
+              <span className="text-[10px] font-normal text-slate-500">A {fmtH(studySplit[0])} · P {fmtH(studySplit[1])}</span>
             </span>
             <span className="flex flex-col items-end leading-tight text-amber-600">
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-500" /> Additional {additionalTotal.toFixed(2)}h
               </span>
-              <span className="text-[9px] font-normal text-slate-400">A {fmtH(addlSplit[0])} · P {fmtH(addlSplit[1])}</span>
+              <span className="text-[10px] font-normal text-slate-500">A {fmtH(addlSplit[0])} · P {fmtH(addlSplit[1])}</span>
             </span>
             <span className={`flex flex-col items-end leading-tight font-semibold ${overCapacity ? 'text-red-600' : 'text-emerald-700'}`}>
               <span className="flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full ${overCapacity ? 'bg-red-500' : 'bg-emerald-500'}`} /> Total {totalHours.toFixed(2)}h
               </span>
-              <span className="text-[9px] font-normal text-slate-500">A {fmtH(actualTotal)} · P {fmtH(plannedTotal)}</span>
+              <span className="text-[10px] font-normal text-slate-600">A {fmtH(actualTotal)} · P {fmtH(plannedTotal)}</span>
             </span>
           </div>
           {avgWeeklyHours > 0 && (
@@ -1136,7 +1136,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
               <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
                 <td className="px-3 py-2">
                   Day total
-                  <div className="text-[9px] font-normal text-slate-400">actual / planned</div>
+                  <div className="text-[10px] font-normal text-slate-500">actual / planned</div>
                 </td>
                 {dates.map(date => {
                   const [a, p] = daySplit(date)
@@ -1146,7 +1146,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
                       {any ? (
                         <>
                           <div className={a > 0 ? '' : 'text-slate-300'} title="Actual (logged) hours">{a.toFixed(2)}</div>
-                          <div className={`text-[9px] ${p > 0 ? 'text-slate-400 italic underline decoration-dotted underline-offset-2' : 'text-transparent'}`} title="Planned hours">{p.toFixed(2)}</div>
+                          <div className={`text-[10px] ${p > 0 ? 'italic text-slate-500 underline decoration-dotted underline-offset-2' : 'text-transparent'}`} title="Planned hours">{p.toFixed(2)}</div>
                         </>
                       ) : ''}
                     </td>
@@ -1154,7 +1154,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
                 })}
                 <td className="px-3 py-2 text-right tabular-nums w-16">
                   {actualTotal.toFixed(2)}
-                  {plannedTotal > 0 && <span className="text-[9px] text-slate-400 italic"> +{plannedTotal.toFixed(2)}p</span>}
+                  {plannedTotal > 0 && <span className="text-[10px] italic text-slate-500"> +{plannedTotal.toFixed(2)}p</span>}
                   <span className="text-slate-400">h</span>
                 </td>
                 <td className="w-6" />

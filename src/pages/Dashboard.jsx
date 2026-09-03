@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { formatDate, formatTime, getCourseStyle, truncate, sessionCategoryForType, durationBetween, nowTime, displayNotes, lectureIdFromNotes } from '../utils/helpers'
 import { computeXp, weeklyXpSeries, courseWeightFor, XP_CONSTANTS } from '../data/xp'
 import { useAppData } from '../context/AppDataContext'
+import { isoWeekOf, mondayOfWeek } from '../data/normalize'
 import { inferEventType } from '../drive/driveClient'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -134,7 +135,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
       {sub && <span className="text-[10px] text-slate-400 shrink-0">{sub}</span>}
       {hours > 0 && (
         <span title={isPlanned ? 'Planned hours — not logged yet' : 'Actual hours from the time log'}
-          className={`text-[10px] tabular-nums shrink-0 ${isPlanned ? 'italic text-slate-300 underline decoration-dotted underline-offset-2' : 'text-slate-500'}`}>
+          className={`text-[10px] tabular-nums shrink-0 ${isPlanned ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : 'text-slate-500'}`}>
           {hours.toFixed(2)}h
         </span>
       )}
@@ -157,9 +158,9 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
         <h2 className="font-semibold text-slate-800">Today</h2>
         <span className="text-[10px] uppercase tracking-wider text-slate-400">Mirror of today's Daily Planner</span>
       </div>
-      <div className="flex items-center gap-2 text-[10px] text-slate-400 mb-2">
-        <span><span className="font-semibold text-slate-700 tabular-nums">{todayActual.toFixed(2)}h</span> actual (logged)</span>
-        <span className="italic">{plannedToday.toFixed(2)}h planned</span>
+      <div className="flex items-center gap-2 text-[11px] text-slate-500 mb-2">
+        <span><span className="font-semibold text-slate-800 tabular-nums">{todayActual.toFixed(2)}h</span> actual (logged)</span>
+        <span className="italic text-slate-400">{plannedToday.toFixed(2)}h planned</span>
       </div>
       {empty ? (
         <p className="text-sm text-slate-400 py-4 text-center">Nothing planned for today yet.</p>
@@ -190,7 +191,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
                     <span className="text-[10px] text-slate-400 shrink-0">{e.allDay ? '' : `${e.startTime || ''}${e.endTime ? `–${e.endTime}` : ''}`}</span>
                     {!e.allDay && !e.logged && durHours(e) > 0 && (
                       <span title="Scheduled (planned) hours — tick it off to log the real time"
-                        className="text-[10px] italic text-slate-300 underline decoration-dotted underline-offset-2 tabular-nums shrink-0">
+                        className="text-[10px] italic text-slate-400 underline decoration-dotted underline-offset-2 tabular-nums shrink-0">
                         {durHours(e).toFixed(2)}h
                       </span>
                     )}
@@ -230,11 +231,6 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
       )}
     </div>
   )
-}
-
-function getLatestWeekTotal(weeklyHours) {
-  if (!weeklyHours || weeklyHours.length === 0) return null
-  return weeklyHours[weeklyHours.length - 1]?.total ?? null
 }
 
 // Split courses into curriculum vs extra ("extra" is excluded from the degree
@@ -277,11 +273,16 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
     for (const g of gradeComponents || []) gradeMap[g.course] = g
     const cur = gradeStats(curriculum, gradeMap)
     const ext = gradeStats(extra, gradeMap)
-    const weekTotal = getLatestWeekTotal(weeklyHours)
+
+    // Issue #50: the headline card shows STUDY hours actually logged THIS ISO
+    // week (Monday onward) — the time log is truth, additional time excluded.
+    const today = new Date().toISOString().slice(0, 10)
+    const wk = isoWeekOf(today)
+    const weekEntry = (weeklyHours || []).find(w => w.year === wk?.year && w.week === wk?.week)
+    const weekStudy = weekEntry?.study ?? 0
+    const weekStart = wk ? mondayOfWeek(wk.year, wk.week) : null
 
     const recent = [...inputLog].sort((a, b) => b.date.localeCompare(a.date) || b.startTime.localeCompare(a.startTime)).slice(0, 5)
-
-    const today = new Date().toISOString().slice(0, 10)
     const upcoming = (deadlines || [])
       .filter(d => !d.done)
       .map(d => ({ ...d, when: d.deadline || d.date || '' }))
@@ -316,7 +317,7 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
       curriculum: cur,
       extra: ext,
       both: gradeStats(courses, gradeMap),
-      weekTotal, recent, upcoming, totalHours, avgEfficiency, avgWellbeing, totalEntries: inputLog.length,
+      weekStudy, weekStart, recent, upcoming, totalHours, avgEfficiency, avgWellbeing, totalEntries: inputLog.length,
       totalXp, xpSeries, courseWeights,
     }
   }, [inputLog, courses, deadlines, weeklyHours, gradeComponents])
@@ -339,9 +340,11 @@ export default function Dashboard({ inputLog, courses, deadlines, weeklyHours, g
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-xs text-slate-500 uppercase tracking-wider">Latest Week</p>
-          <p className="text-3xl font-bold text-slate-800 mt-1">{stats.weekTotal != null ? stats.weekTotal.toFixed(1) : '—'}</p>
-          <p className="text-xs text-slate-400 mt-1">Hours in most recent tracked week</p>
+          <p className="text-xs text-slate-500 uppercase tracking-wider">This Week — Study</p>
+          <p className="text-3xl font-bold text-slate-800 mt-1">{stats.weekStudy.toFixed(1)}<span className="text-lg text-slate-400 font-medium ml-1">h</span></p>
+          <p className="text-xs text-slate-400 mt-1">
+            Study hours actually logged this week{stats.weekStart ? ` since ${formatDate(stats.weekStart)}` : ''} — from the time log
+          </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-xs text-slate-500 uppercase tracking-wider">Courses</p>
