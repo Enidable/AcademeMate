@@ -122,7 +122,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
     if (onLogAdditional) onLogAdditional(r, r.id)
   }
 
-  const TaskLine = ({ checked, label, sub, hours, muted, onToggle }) => (
+  const TaskLine = ({ checked, label, sub, hours, muted, onToggle, isPlanned }) => (
     <div className="flex items-center gap-2 py-0.5">
       {onToggle ? (
         <input type="checkbox" checked={!!checked} onChange={onToggle}
@@ -132,17 +132,34 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
       )}
       <span className={`text-xs flex-1 min-w-0 truncate ${checked ? 'line-through text-slate-400' : muted ? 'text-slate-500' : 'text-slate-700'}`} title={label}>{label}</span>
       {sub && <span className="text-[10px] text-slate-400 shrink-0">{sub}</span>}
-      {hours > 0 && <span className="text-[10px] text-slate-500 tabular-nums shrink-0">{hours.toFixed(2)}h</span>}
+      {hours > 0 && (
+        <span title={isPlanned ? 'Planned hours — not logged yet' : 'Actual hours from the time log'}
+          className={`text-[10px] tabular-nums shrink-0 ${isPlanned ? 'italic text-slate-300 underline decoration-dotted underline-offset-2' : 'text-slate-500'}`}>
+          {hours.toFixed(2)}h
+        </span>
+      )}
     </div>
   )
 
   const empty = tasks.length === 0 && extra.length === 0 && classes.length === 0
 
+  // Issue #50: today's split. Actual = the time log (sessions + additional
+  // entries) — treated as truth. Planned = open to-do estimates + scheduled
+  // classes that haven't been ticked off yet.
+  const todayActual = (inputLog || []).filter(s => s.date === today).reduce((s, e) => s + (e.durationHours || 0), 0)
+    + extra.reduce((s, a) => s + (a.hours || 0), 0)
+  const plannedToday = tasks.filter(r => !r.done).reduce((s, r) => s + (r.plannedHours || 0), 0)
+    + classes.filter(e => !e.logged).reduce((s, e) => s + (e.allDay ? 0 : durHours(e)), 0)
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-1">
         <h2 className="font-semibold text-slate-800">Today</h2>
         <span className="text-[10px] uppercase tracking-wider text-slate-400">Mirror of today's Daily Planner</span>
+      </div>
+      <div className="flex items-center gap-2 text-[10px] text-slate-400 mb-2">
+        <span><span className="font-semibold text-slate-700 tabular-nums">{todayActual.toFixed(2)}h</span> actual (logged)</span>
+        <span className="italic">{plannedToday.toFixed(2)}h planned</span>
       </div>
       {empty ? (
         <p className="text-sm text-slate-400 py-4 text-center">Nothing planned for today yet.</p>
@@ -171,7 +188,12 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
                       {e.isDeadline ? `Due: ${e.summary}` : e.summary}
                     </span>
                     <span className="text-[10px] text-slate-400 shrink-0">{e.allDay ? '' : `${e.startTime || ''}${e.endTime ? `–${e.endTime}` : ''}`}</span>
-                    {!e.allDay && durHours(e) > 0 && <span className="text-[10px] text-slate-500 tabular-nums shrink-0">{durHours(e).toFixed(2)}h</span>}
+                    {!e.allDay && !e.logged && durHours(e) > 0 && (
+                      <span title="Scheduled (planned) hours — tick it off to log the real time"
+                        className="text-[10px] italic text-slate-300 underline decoration-dotted underline-offset-2 tabular-nums shrink-0">
+                        {durHours(e).toFixed(2)}h
+                      </span>
+                    )}
                   </div>
                 )
               })}
@@ -188,6 +210,7 @@ function TodayOverview({ onLogTask, onLogAdditional }) {
                 {list.map(r => (
                   <TaskLine key={r.id} checked={r.done} label={r.task || '—'}
                     hours={r.plannedHours || r.actualHours || 0}
+                    isPlanned={!r.done}
                     onToggle={() => toggleTask(r)} />
                 ))}
               </div>

@@ -36,6 +36,15 @@ function addDaysISO(iso, n) {
   return toISO(d)
 }
 
+// Trimmed hour formatting ("3.5", "12") and a flat array sum, used by the
+// actual-vs-planned hour table.
+function fmtH(h) {
+  return h > 0 ? (+h).toFixed(2).replace(/\.?0+$/, '') : ''
+}
+function sumArr(arr) {
+  return (arr || []).reduce((s, h) => s + (h || 0), 0)
+}
+
 // How many days before its anchor date (class date / due date) an item's work
 // can be planned — the "start prepping early" window.
 const PLAN_LEAD_DAYS = 5
@@ -360,24 +369,34 @@ export default function WeeklyOverview() {
     const rowOf = course => {
       if (!byCourse.has(course)) {
         byCourse.set(course, {
-          hours: Array.from({ length: 7 }, () => 0),
+          // Issue #50: actual (logged) and planned hours are tracked apart so
+          // the matrix can show what's real vs what's still on the books.
+          hoursA: Array.from({ length: 7 }, () => 0),
+          hoursP: Array.from({ length: 7 }, () => 0),
           tasks: Array.from({ length: 7 }, () => []),
         })
       }
       return byCourse.get(course)
     }
+    // h>0 keeps the cell "empty" for 0 hours; kind is 'actual' or 'planned'.
+    const addH = (row, dow, kind, h) => {
+      if (!(h > 0)) return
+      if (kind === 'actual') row.hoursA[dow] += h
+      else row.hoursP[dow] += h
+    }
     for (const r of dailyPlan || []) {
       const dow = dates.indexOf(r.date)
       if (dow < 0) continue
       const row = rowOf(r.course || 'Other University Stuff')
-      row.hours[dow] += r.actualHours ?? r.plannedHours ?? 0
+      const actual = r.done || (r.actualHours != null && r.actualHours > 0)
+      addH(row, dow, actual ? 'actual' : 'planned', r.actualHours ?? r.plannedHours ?? 0)
       if (r.task) row.tasks[dow].push(r.task)
     }
     for (const a of additionalLog || []) {
       const dow = dates.indexOf(a.date)
       if (dow < 0) continue
       const row = rowOf(a.category || 'Other Obligations')
-      row.hours[dow] += a.hours || 0
+      addH(row, dow, 'actual', a.hours || 0)
       if (a.task) row.tasks[dow].push(a.task)
     }
     // Timetable / imported calendar events carry their own duration. Course
@@ -453,8 +472,8 @@ export default function WeeklyOverview() {
         const logged = (e.id ? (addlByEvent.get(e.id) || []) : []).length > 0 ||
           loggedAddlKeys.has(`${e.date}|${rowName}|${e.summary}`)
         if (logged) continue
-        const h = durHours(e)
-        if (h > 0) { row.hours[dow] += h; row.tasks[dow].push(e.summary || rowName) }
+        addH(row, dow, 'planned', durHours(e))
+        row.tasks[dow].push(e.summary || rowName)
         continue
       }
       // A class that was actually logged counts what was logged — the real time
@@ -462,21 +481,32 @@ export default function WeeklyOverview() {
       const sessions = sessionsFor(e)
       if (sessions.length > 0) {
         const h = Math.round(sessions.reduce((t, s) => t + (s.durationHours || 0), 0) * 100) / 100
-        if (h > 0) { row.hours[dow] += h; row.tasks[dow].push(e.summary || rowName) }
+        addH(row, dow, 'actual', h)
+        row.tasks[dow].push(e.summary || rowName)
         continue
       }
       // Not logged: scheduled hours still count as planned, but only for today
       // and the future — a past class that never happened shouldn't keep its
       // hours in your capacity numbers (mirrors the Daily Planner).
       if (e.date < todayISOStr) continue
-      const h = durHours(e)
-      if (h > 0) { row.hours[dow] += h; row.tasks[dow].push(e.summary || rowName) }
+      addH(row, dow, 'planned', durHours(e))
+      row.tasks[dow].push(e.summary || rowName)
     }
+    const sumRow = a => (a || []).reduce((s, h) => s + (h || 0), 0)
     const rows = [...byCourse.entries()]
-      .map(([course, data]) => ({ course, ...data, total: data.hours.reduce((s, h) => s + h, 0) }))
+      .map(([course, data]) => ({
+        course,
+        hoursA: data.hoursA,
+        hoursP: data.hoursP,
+        tasks: data.tasks,
+        total: sumRow(data.hoursA) + sumRow(data.hoursP),
+      }))
       .sort((a, b) => b.total - a.total)
-    const dayTotals = Array.from({ length: 7 }, (_, d) => rows.reduce((s, r) => s + r.hours[d], 0))
-    return { rows, dayTotals, weekTotal: dayTotals.reduce((s, h) => s + h, 0) }
+    const at = d => arr => arr.reduce((s, r) => s + (r[d] || 0), 0)
+    const dayTotalsA = Array.from({ length: 7 }, (_, d) => at(d)(rows.map(r => r.hoursA)))
+    const dayTotalsP = Array.from({ length: 7 }, (_, d) => at(d)(rows.map(r => r.hoursP)))
+    const dayTotals = dayTotalsA.map((a, d) => a + dayTotalsP[d])
+    return { rows, dayTotals, dayTotalsA, dayTotalsP, weekTotal: dayTotals.reduce((s, h) => s + h, 0) }
   }, [dailyPlan, additionalLog, inputLog, calendarEvents, dates, contentRows, catOverrides])
 
   return (
@@ -539,11 +569,13 @@ export default function WeeklyOverview() {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-slate-700">Planned hours this week</h3>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="text-sm font-semibold text-slate-700">
+            Hours this week
+            <span className="ml-2 text-[10px] font-normal text-slate-400">actual (logged) shown solid, <span className="italic">planned</span> shown faint</span>
+          </h3>
           <span className="text-xs text-slate-400">
-            Mirror of the Daily Planner — study + additional combined · week total{' '}
-            <span className="font-semibold text-slate-600 tabular-nums">{plannerMatrix.weekTotal.toFixed(2)}h</span>
+            Mirror of the Daily Planner · A {fmtH(sumArr(plannerMatrix.rows.map(r => r.hoursA)))}h · P {fmtH(sumArr(plannerMatrix.rows.map(r => r.hoursP)))}h
           </span>
         </div>
         {plannerMatrix.rows.length === 0 ? (
@@ -556,12 +588,14 @@ export default function WeeklyOverview() {
                 {DAYS.map((day, i) => (
                   <th key={day} className={`px-1 py-1.5 font-medium text-center ${dates[i] === todayISO() ? 'text-indigo-700' : 'text-slate-500'}`}>{day}</th>
                 ))}
-                <th className="text-right px-2 py-1.5 font-medium text-slate-500 w-16">Total</th>
+                <th className="text-right px-2 py-1.5 font-medium text-slate-500 w-20">Total</th>
               </tr>
             </thead>
             <tbody>
               {plannerMatrix.rows.map(r => {
                 const style = getCourseStyle(r.course)
+                const rowA = sumArr(r.hoursA)
+                const rowP = sumArr(r.hoursP)
                 return (
                   <tr key={r.course} className="border-b border-slate-50 hover:bg-slate-50/60">
                     <td className="px-2 py-1">
@@ -570,24 +604,52 @@ export default function WeeklyOverview() {
                         <span className="truncate text-slate-600" title={r.course}>{r.course}</span>
                       </div>
                     </td>
-                    {r.hours.map((h, d) => (
-                      <td key={d} className={`px-1 py-1 text-center tabular-nums text-slate-600 ${dates[d] === todayISO() ? 'bg-indigo-50/60' : ''}`}
-                        title={r.tasks[d].length ? r.tasks[d].join('\n') : undefined}>
-                        {h > 0 ? h.toFixed(2).replace(/\.?0+$/, '') : ''}
-                      </td>
-                    ))}
-                    <td className="px-2 py-1 text-right tabular-nums font-medium text-slate-700">{r.total > 0 ? `${r.total.toFixed(2)}h` : ''}</td>
+                    {r.hoursA.map((a, d) => {
+                      const p = r.hoursP[d] || 0
+                      const any = a > 0 || p > 0
+                      return (
+                        <td key={d} className={`px-1 py-1 text-center tabular-nums ${dates[d] === todayISO() ? 'bg-indigo-50/60' : ''}`}
+                          title={r.tasks[d].length ? r.tasks[d].join('\n') : undefined}>
+                          {any ? (
+                            <span title="Actual (logged) hours">
+                              <span className={a > 0 ? 'font-medium text-slate-700' : 'text-slate-300'}>{fmtH(a)}</span>
+                              {p > 0 && <span className="italic text-slate-400" title="Planned hours"> +{fmtH(p)}p</span>}
+                            </span>
+                          ) : ''}
+                        </td>
+                      )
+                    })}
+                    <td className="px-2 py-1 text-right tabular-nums w-20">
+                      {rowA > 0 && <span className="font-semibold text-slate-700">{fmtH(rowA)}</span>}
+                      {rowP > 0 && <span className="italic text-slate-400"> +{fmtH(rowP)}p</span>}
+                      {rowA === 0 && rowP === 0 ? '' : 'h'}
+                    </td>
                   </tr>
                 )
               })}
-              <tr className="border-t border-slate-200 bg-slate-50 font-medium text-slate-700">
+              <tr className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-700">
                 <td className="px-2 py-1.5">Day total</td>
-                {plannerMatrix.dayTotals.map((h, d) => (
-                  <td key={d} className={`px-1 py-1.5 text-center tabular-nums ${dates[d] === todayISO() ? 'bg-indigo-100/60' : ''}`}>
-                    {h > 0 ? h.toFixed(2) : ''}
-                  </td>
-                ))}
-                <td className="px-2 py-1.5 text-right tabular-nums">{plannerMatrix.weekTotal.toFixed(2)}h</td>
+                {plannerMatrix.dayTotalsA.map((a, d) => {
+                  const p = plannerMatrix.dayTotalsP[d] || 0
+                  const any = a > 0 || p > 0
+                  return (
+                    <td key={d} className={`px-1 py-1.5 text-center tabular-nums ${dates[d] === todayISO() ? 'bg-indigo-100/60' : ''}`}>
+                      {any ? (
+                        <span>
+                          <span className={a > 0 ? 'text-slate-800' : 'text-slate-300'}>{fmtH(a)}</span>
+                          {p > 0 && <span className="italic text-slate-400"> +{fmtH(p)}p</span>}
+                        </span>
+                      ) : ''}
+                    </td>
+                  )
+                })}
+                <td className="px-2 py-1.5 text-right tabular-nums">
+                  <span className="text-slate-800">{fmtH(sumArr(plannerMatrix.dayTotalsA))}</span>
+                  {sumArr(plannerMatrix.dayTotalsP) > 0 && (
+                    <span className="italic text-slate-400"> +{fmtH(sumArr(plannerMatrix.dayTotalsP))}p</span>
+                  )}
+                  h
+                </td>
               </tr>
             </tbody>
           </table>
