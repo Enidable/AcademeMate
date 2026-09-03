@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { getCourseStyle, slotIndexOfContent } from '../utils/helpers'
+import { getCourseStyle, slotIndexOfContent, shortCourseName } from '../utils/helpers'
 import { typeSymbol, inferEventType } from '../drive/driveClient'
 import { loadCourseKeywords, saveCourseKeywords } from '../utils/courseKeywords'
 import { categoryForEvent, loadEventCategoryOverrides, saveEventCategoryOverrides } from '../utils/additionalRouting'
@@ -198,6 +198,32 @@ export default function Calendar() {
     return m
   }, [content])
   const contentBySlot = useMemo(() => slotIndexOfContent(content), [content])
+
+  // Short per-course label for chip titles: the stored abbreviation if the
+  // course has one, else a compact name.
+  const courseLabelOf = useMemo(() => {
+    const m = {}
+    for (const c of masterCourses || []) if (c?.course) m[c.course] = c.abbrev || shortCourseName(c.course) || c.course
+    return course => m[course] || shortCourseName(course) || course || ''
+  }, [masterCourses])
+
+  // Calendar chips for a course class read "<Course label> · <syllabus>", so
+  // the course/lecture name comes first and the syllabus note the user typed
+  // for that class is included. Deadlines and personal events are untouched
+  // (return null → WeekGrid falls back to its default rendering).
+  const classTitle = e => {
+    if (e.isDeadline || !e.course) return null
+    let linked = null
+    if (e.contentId) linked = noteById.get(e.contentId) || null
+    if (!linked && e.lectureId) linked = contentByLecture.get(`${e.course}|${e.lectureId}`) || null
+    if (!linked) linked = contentBySlot.get(`${e.course}|${e.date}|${e.startTime || ''}`) || null
+    const sub = linked ? (linked.description || linked.content || '') : ''
+    const base = courseLabelOf(e.course)
+    if (!base) return sub || e.summary || null
+    if (sub) return `${base} · ${sub}`
+    const hasBase = String(e.summary || '').toLowerCase().includes(String(base).toLowerCase())
+    return e.summary && !hasBase ? `${base} · ${e.summary}` : (e.summary || base)
+  }
 
   const eventSymbol = e => e.isDeadline
     ? typeSymbol(e.type || 'deadline')
@@ -526,7 +552,7 @@ export default function Calendar() {
       {mode === 'week' && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div className="min-w-[720px]">
-            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} noteById={noteById} prepById={prepById} contentBySlot={contentBySlot} onSortPersonal={e => setSortTarget(e)} personalCategory={personalCategory} />
+            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} noteById={noteById} prepById={prepById} contentBySlot={contentBySlot} onSortPersonal={e => setSortTarget(e)} personalCategory={personalCategory} textFor={classTitle} />
           </div>
         </div>
       )}

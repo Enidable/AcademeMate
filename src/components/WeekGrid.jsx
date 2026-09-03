@@ -60,7 +60,7 @@ function layoutTimed(items) {
 // axisOutside: omit the internal hour-axis gutter and hang the hour labels
 // outside the left edge instead. Used by the Daily Planner so the seven day
 // columns occupy exactly the same width as the planner table's day columns.
-export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, prepMap = null, noteById = null, prepById = null, contentBySlot = null, hourHeight = 44, axisOutside = false, onSortPersonal = null, personalCategory = null }) {
+export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, prepMap = null, noteById = null, prepById = null, contentBySlot = null, hourHeight = 44, axisOutside = false, onSortPersonal = null, personalCategory = null, textFor = null }) {
   const today = useMemo(() => new Date(), [])
   const GRID_H = hourHeight * (DAY_LEN / 60)
 
@@ -126,14 +126,15 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
                   ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' }
                   : eventColor(eventName(e))
                 const symbol = typeSymbol(e.isDeadline ? (e.type || 'deadline') : inferEventType(e.summary, e.description))
+                const composed = textFor ? textFor(e) : null
                 return (
                   <div key={e.id || `${e.date}|${e.summary}`}
                     onClick={pers ? () => onSortPersonal(e) : undefined}
-                    title={sortTitle(e)}
+                    title={composed || sortTitle(e)}
                     className={`group flex items-center gap-1 rounded border ${pers ? 'cursor-pointer border-dashed hover:border-slate-300' : 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[10px] leading-tight`}
                     style={{ ...style.bgCss, ...style.textCss }}>
                     <span className="mr-0.5 shrink-0">{symbol}</span>
-                    <span className="truncate">{e.isDeadline ? `Due: ${e.description || e.summary}` : e.summary}</span>
+                    <span className="truncate">{composed || (e.isDeadline ? `Due: ${e.description || e.summary}` : e.summary)}</span>
                     {pers && <span className="shrink-0 text-[9px] opacity-40 group-hover:opacity-90">⋯</span>}
                   </div>
                 )
@@ -177,6 +178,7 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
             {d.timed.map((p) => {
               const ev = p.ev
               const pers = isPersonalEvent(ev)
+              const composed = textFor ? textFor(ev) : null
               const style = ev.isDeadline
                 ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' }
                 : eventColor(eventName(ev))
@@ -206,7 +208,7 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
                   onClick={pers ? () => onSortPersonal(ev) : undefined}
                   className={`group absolute flex overflow-hidden rounded ${pers ? 'cursor-pointer' : ''} ${skipped ? 'opacity-40' : ''}`}
                   style={{ top: p.top + '%', height: p.height + '%', left: p.left + '%', width: p.width + '%' }}
-                  title={sortTitle(ev)}>
+                  title={composed || sortTitle(ev)}>
                   <span className={`w-1 shrink-0 rounded-l ${style.dot}`} style={style.dotCss} />
                   <div className={`flex-1 min-w-0 ${style.bg} ${style.text} px-1 py-0.5`} style={{ ...style.bgCss, ...style.textCss }}>
                     {pers && (
@@ -214,12 +216,12 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
                     )}
                     <div className="text-[10px] font-medium leading-tight truncate">
                       <span className="mr-0.5">{symbol}</span>
-                      {ev.isDeadline ? `Due: ${ev.description || ev.summary}` : ev.summary}
+                      {composed || (ev.isDeadline ? `Due: ${ev.description || ev.summary}` : ev.summary)}
                       {needsPrep && (
                         <span className="ml-1 inline-block px-1 rounded bg-red-600 text-white text-[8px] font-semibold align-middle" title={`Prep required: ${prepText}`}>Prep</span>
                       )}
                     </div>
-                    {note && <div className="text-[9px] opacity-70 leading-tight truncate">{note}</div>}
+                    {!composed && note && <div className="text-[9px] opacity-70 leading-tight truncate">{note}</div>}
                     {p.height > 14 && !note && (
                       <div className="text-[9px] opacity-70 leading-tight truncate">
                         {ev.startTime}{ev.endTime ? `–${ev.endTime}` : ''}
