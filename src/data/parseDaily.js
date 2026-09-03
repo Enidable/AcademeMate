@@ -23,10 +23,9 @@ export function deriveWeeklyTotals(studyLog, overrides, additionalLog = []) {
     const isWork = (e.category || '').toLowerCase() === 'work'
     addHours(key, 'total', duration)
     addHours(key, isWork ? 'work' : 'study', duration)
-    if (e.transportMode && e.commuteTime) {
-      addHours(key, 'travel', e.commuteTime / 60)
-      addHours(key, 'total', e.commuteTime / 60)
-    }
+    // Commute minutes attached to a study session are mirrored as a "Commute"
+    // additional-time entry (syncCommuteRows) and counted there — never twice
+    // inside the session's own math.
   }
 
   // Additional Time Log hours count toward total weekly capacity (burnout

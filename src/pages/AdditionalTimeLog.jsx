@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { formatDate, getCategoryStyle, getEfficiencyBar, getWellbeingBar, normalizeCategory } from '../utils/helpers'
+import { formatDate, getCategoryStyle, getEfficiencyBar, getWellbeingBar, normalizeCategory, displayNotes } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { isoWeekOf } from '../data/normalize'
 
@@ -172,8 +172,8 @@ export default function AdditionalTimeLog({ onLogAdditional }) {
                   </td>
                   <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{entry.location || '—'}</td>
                   <td className="px-3 py-2.5 text-slate-500 max-w-[140px]">
-                    <span className="truncate inline-block max-w-[140px] align-bottom" title={entry.notes || ''}>
-                      {entry.notes || '—'}
+                    <span className="truncate inline-block max-w-[140px] align-bottom" title={displayNotes(entry.notes) || ''}>
+                      {displayNotes(entry.notes) || '—'}
                     </span>
                   </td>
                   <td className="px-3 py-2.5 text-center whitespace-nowrap">

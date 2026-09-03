@@ -433,6 +433,85 @@ export function referencedEventIds(data) {
   return ids
 }
 
+// --- Commute split-out (issue #50) -----------------------------------------
+// When a study session records transport + commute minutes, that commute is
+// real additional time. The app mirrors it as a "Commute" additional-time entry
+// so it shows in the Daily Planner / Weekly Overview / capacity numbers under
+// its own category — and it is no longer counted a second time inside the
+// session's weekly totals. Auto rows are tagged `auto:commute|<sessionId>` in
+// their notes so they can be kept in step with the session (recomputed on every
+// edit/delete) and hidden from display. Manually logged Commute rows are never
+// touched.
+
+const COMMUTE_TAG = 'auto:commute'
+
+export function commuteTagFor(sessionId) {
+  return `${COMMUTE_TAG}|${sessionId || ''}`
+}
+
+export function isCommuteAutoRow(row) {
+  return !!row && typeof row.notes === 'string' && row.notes.startsWith(COMMUTE_TAG)
+}
+
+// Keep data.additionalLog in step with the study log's commute minutes:
+// every session with transport + commute minutes has exactly one Commute entry
+// mirroring it; sessions that lose their commute drop their mirror. Returns
+// whether anything changed. Mutates data.additionalLog.
+export function syncCommuteRows(data) {
+  if (!data) return false
+  let changed = false
+  let additional = Array.isArray(data.additionalLog) ? [...data.additionalLog] : []
+  const byTag = new Map()
+  for (const a of additional) {
+    if (!isCommuteAutoRow(a)) continue
+    byTag.set(a.notes.split('||')[0], a)
+  }
+  const wanted = new Map() // tag -> session
+  for (const s of data.studyLog || []) {
+    if (!s.id) continue
+    const commuting = !!(s.transportMode && Number(s.commuteTime) > 0)
+    if (!commuting) continue
+    wanted.set(commuteTagFor(s.id), s)
+  }
+  for (const [tag, s] of wanted) {
+    const existing = byTag.get(tag)
+    const hours = Math.round((Number(s.commuteTime) / 60) * 100) / 100
+    const task = s.location ? `Commute to ${s.location}` : 'Commute'
+    if (existing) {
+      if (existing.date !== s.date || existing.hours !== hours || existing.task !== task) {
+        changed = true
+        existing.date = s.date
+        existing.hours = hours
+        existing.task = task
+      }
+      continue
+    }
+    additional.push({
+      id: nextId('addtl_', additional.map(a => a && a.id).filter(Boolean)),
+      date: s.date,
+      course: 'Commute',
+      category: 'Commute',
+      task,
+      hours,
+      startTime: '',
+      endTime: '',
+      efficiency: null,
+      wellbeing: null,
+      location: s.location || null,
+      notes: tag,
+      done: 'done',
+      isAdditional: true,
+      eventId: null,
+    })
+    changed = true
+  }
+  const keep = new Set(wanted.keys())
+  const filtered = additional.filter(a => !isCommuteAutoRow(a) || keep.has(a.notes.split('||')[0]))
+  if (filtered.length !== additional.length) changed = true
+  data.additionalLog = filtered
+  return changed
+}
+
 // --- Referential integrity (milestone 7) ----------------------------------
 // Deleting an entity cleans up everything that references it, so no dangling
 // foreign keys survive. Policies:

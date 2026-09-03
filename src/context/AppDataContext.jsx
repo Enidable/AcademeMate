@@ -16,7 +16,7 @@ import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, isContentMirrorEvent, ensureScheduledContentCalendarLinks, referencedEventIds } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, isContentMirrorEvent, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -282,6 +282,10 @@ function normalizeContentCourses(data) {
 
 function buildState(rowsByTab) {
   const data = parseAll(rowsByTab)
+  // Sessions that carry transport + commute minutes get their "Commute"
+  // additional-time mirror before weekly totals are derived, so the commute is
+  // counted once, under its own category.
+  const commuteChanged = syncCommuteRows(data)
   const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides, data.additionalLog)
   // Drop garbage rows created by earlier bugs: a "course" whose name is purely
   // the numeric course code (e.g. "191211110" next to the real "Modelling and
@@ -305,7 +309,7 @@ function buildState(rowsByTab) {
   // Overview, Daily Planner and Google push, and prep/notes resolve via the FK.
   const contentCalChanged = ensureScheduledContentCalendarLinks(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
-  return { data, weeklyHours, plannerWeeks, contentCalChanged }
+  return { data, weeklyHours, plannerWeeks, contentCalChanged, commuteChanged }
 }
 
 // Link existing grade components to their syllabus items so old data gets the
@@ -544,6 +548,10 @@ export function AppDataProvider({ children }) {
   }, [])
 
   function setAll(d, p) {
+    // Keep auto "Commute" entries in step with the study log's commute minutes
+    // on every write (add / edit / delete of a session) — never stale, never
+    // double-counted.
+    syncCommuteRows(d)
     const wt = deriveWeeklyTotals(d.studyLog, d.weeklyOverrides, d.additionalLog)
     dataRef.current = d
     plannerRef.current = p
@@ -653,7 +661,7 @@ export function AppDataProvider({ children }) {
     setDrive(info)
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
-    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged } = buildState(rowsByTab)
+    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged } = buildState(rowsByTab)
     // A brand-new spreadsheet is a clean slate: never heal the stale
     // localStorage snapshot (which may still hold the bundled example data
     // from a previous connection) back into it.
@@ -664,6 +672,7 @@ export function AppDataProvider({ children }) {
     const contentCalChanged2 = ensureScheduledContentCalendarLinks(d) || contentCalChanged
     if ((ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) && driveRef.current) syncTabs(['dailyPlan'])
     if (contentCalChanged2 && driveRef.current) syncTabs(['content', 'calendarEvents'])
+    if (commuteChanged && driveRef.current) syncTabs(['additionalLog'])
 
     dataRef.current = d
     plannerRef.current = p
@@ -704,6 +713,9 @@ export function AppDataProvider({ children }) {
       relinkContentCalendar(saved.data)
       backfillLectureLinks(saved.data)
       ensureScheduledContentCalendarLinks(saved.data)
+      // Commute mirrors kept in step with the study log even when offline (the
+      // snapshot may predate the commute split-out feature).
+      syncCommuteRows(saved.data)
       dataRef.current = saved.data
       plannerRef.current = planner
       weeklyRef.current = deriveWeeklyTotals(saved.data.studyLog, saved.data.weeklyOverrides, saved.data.additionalLog)
@@ -802,12 +814,13 @@ export function AppDataProvider({ children }) {
     setSyncing(true)
     try {
       const rowsByTab = await readAllTabs(info.fileId)
-      const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged } = buildState(rowsByTab)
+      const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged } = buildState(rowsByTab)
       await healCourses(d, loadJSON())
       cleanContent(d)
       const contentCalChanged2 = ensureScheduledContentCalendarLinks(d) || contentCalChanged
       if (ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) syncTabs(['dailyPlan'])
       if (contentCalChanged2) syncTabs(['content', 'calendarEvents'])
+      if (commuteChanged) syncTabs(['additionalLog'])
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt
@@ -1652,7 +1665,7 @@ export function AppDataProvider({ children }) {
     const studyLog = [row, ...(prev.studyLog || [])]
     dailyPlan = syncPlannerFromSessions(planId, studyLog, dailyPlan)
     setAll({ ...prev, studyLog, dailyPlan }, plannerRef.current)
-    syncTabs(['studyLog', 'dailyPlan'])
+    syncTabs(['studyLog', 'dailyPlan', 'additionalLog'])
   }
 
   function addCourse(course) {
@@ -1724,7 +1737,7 @@ export function AppDataProvider({ children }) {
     const planId = { ...before, ...entry, id }.planId
     const dailyPlan = syncPlannerFromSessions(planId, studyLog, prev.dailyPlan)
     setAll({ ...prev, studyLog, dailyPlan }, plannerRef.current)
-    syncTabs(['studyLog', 'dailyPlan'])
+    syncTabs(['studyLog', 'dailyPlan', 'additionalLog'])
   }
 
 // Renames the prefix of an ID (e.g. "202400250-01" -> "ASDfR-L01") when the
@@ -1960,7 +1973,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     // hours cleared); with siblings left, actual hours shrink to their sum.
     const dailyPlan = syncPlannerFromSessions(removed?.planId, studyLog, prev.dailyPlan)
     setAll({ ...prev, studyLog, dailyPlan }, plannerRef.current)
-    syncTabs(['studyLog', 'dailyPlan'])
+    syncTabs(['studyLog', 'dailyPlan', 'additionalLog'])
   }
 
   // Delete a course by id or name. Everything referencing it is scrubbed —

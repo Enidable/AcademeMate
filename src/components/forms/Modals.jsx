@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAppData } from '../../context/AppDataContext'
 import CourseSelect from '../CourseSelect'
-import { getCourseStyle } from '../../utils/helpers'
+import { getCourseStyle, displayNotes, leadingTagOfNotes, MENU_TAG_SEPARATOR } from '../../utils/helpers'
 import { DEFAULT_CATEGORIES, DEFAULT_LOCATIONS, DEFAULT_TRANSPORT, META_OPTIONS_KEY, DEADLINE_TYPES, ADDITIONAL_CATEGORIES } from '../../config'
 
 function Modal({ open, onClose, title, children }) {
@@ -758,7 +758,7 @@ function seedAdditional(p) {
     efficiency: p.efficiency != null ? String(p.efficiency) : '',
     wellbeing: p.wellbeing != null ? String(p.wellbeing) : '',
     location: p.location || '',
-    notes: p.notes || '',
+    notes: displayNotes(p.notes) || '',
   }
 }
 
@@ -816,13 +816,20 @@ export function AdditionalLogModal({ open, onClose, preset, existingId }) {
       efficiency: form.efficiency !== '' ? parseInt(form.efficiency, 10) : null,
       wellbeing: form.wellbeing !== '' ? parseInt(form.wellbeing, 10) : null,
       location: form.location || null,
-      notes: form.notes || null,
       done: 'done',
     }
     // A log created by ticking a scheduled work/gym/obligation event keeps the
     // link back to its calendar row (event_id), so the planner knows it is done
     // and never counts the scheduled hours on top.
     if (preset?.eventId) payload.eventId = preset.eventId
+    // Auto entries (e.g. Commute mirrors) carry an internal tag in their notes;
+    // re-attach it so an edit stays linked to its session.
+    let notes = form.notes || null
+    if (existingId && preset) {
+      const tag = leadingTagOfNotes(preset.notes)
+      if (tag) notes = notes ? `${tag}${MENU_TAG_SEPARATOR}${notes}` : tag
+    }
+    payload.notes = notes
     if (existingId) updateAdditionalEntry(existingId, payload)
     else addAdditionalEntry(payload)
     onClose()

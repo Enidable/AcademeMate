@@ -303,10 +303,22 @@ export function nowTime() {
 export const MENU_TAG_PREFIX = 'menu:'
 export const MENU_TAG_SEPARATOR = '||'
 
-// The user-facing note of a planner row, with any menu tag stripped off.
+// A leading internal tag on a row's notes — a "menu:…" tag (Weekly Overview
+// bookkeeping) or an "auto:…" tag (e.g. auto-generated commute entries). Tags
+// are hidden from display and editing; any user note lives after the "||"
+// separator, and the whole tag is re-attached on save.
+export function leadingTagOfNotes(notes) {
+  const n = notes || ''
+  if (!n.startsWith(MENU_TAG_PREFIX) && !n.startsWith('auto:')) return null
+  const idx = n.indexOf(MENU_TAG_SEPARATOR)
+  return idx > -1 ? n.slice(0, idx) : n
+}
+
+// The user-facing note of a row, with any leading tag stripped off.
 export function displayNotes(notes) {
   const n = notes || ''
-  if (n.startsWith(MENU_TAG_PREFIX)) {
+  const tag = leadingTagOfNotes(n)
+  if (tag) {
     const idx = n.indexOf(MENU_TAG_SEPARATOR)
     return idx > -1 ? n.slice(idx + MENU_TAG_SEPARATOR.length) : ''
   }
@@ -317,17 +329,16 @@ export function displayNotes(notes) {
 
 // The pure "menu:…" tag of a planner row's notes, or null when there is none.
 export function menuTagOfNotes(notes) {
-  const n = notes || ''
-  if (!n.startsWith(MENU_TAG_PREFIX)) return null
-  const idx = n.indexOf(MENU_TAG_SEPARATOR)
-  return idx > -1 ? n.slice(0, idx) : n
+  const tag = leadingTagOfNotes(notes)
+  return tag && tag.startsWith(MENU_TAG_PREFIX) ? tag : null
 }
 
-// Re-attaches the menu tag (if the row had one) to user-edited notes, so
-// editing a tagged row keeps it linked to the Weekly Overview menu.
+// Re-attaches a row's leading tag (menu:… / auto:…) to user-edited notes, so
+// editing a tagged row keeps it linked (Weekly Overview menu item, auto
+// commute entry) and the tag never leaks into display.
 export function mergeNotesWithTag(edited, original) {
   const editedVal = (edited || '').trim()
-  const tag = menuTagOfNotes(original)
+  const tag = leadingTagOfNotes(original)
   if (!tag) return editedVal || null
   return editedVal ? `${tag}${MENU_TAG_SEPARATOR}${editedVal}` : tag
 }
