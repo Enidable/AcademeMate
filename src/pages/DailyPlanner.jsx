@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { getAverageWeeklyHours } from '../data/parseDaily'
 import { isoWeekOf } from '../data/normalize'
-import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag, lectureIdFromNotes, isWorkEvent, slotIndexOfContent } from '../utils/helpers'
+import { getCourseStyle, formatDateShort, isCourseActive, sessionCategoryForType, durationBetween, nowTime, displayNotes, mergeNotesWithTag, lectureIdFromNotes, slotIndexOfContent } from '../utils/helpers'
+import { categoryForEvent, loadEventCategoryOverrides } from '../utils/additionalRouting'
 import { inferEventType } from '../drive/driveClient'
 import WeekGrid from '../components/WeekGrid'
 import CourseSelect from '../components/CourseSelect'
@@ -335,6 +336,10 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({ task: '', hours: '', notes: '' })
   const [addCell, setAddCell] = useState(null)
+  // Per-event additional-time categories chosen in the Calendar tab (Work /
+  // Other Obligations / Commute / Exercise / Social Obligation). Read once on
+  // mount — saving in the Calendar is picked up when this page (re)loads.
+  const [catOverrides] = useState(() => loadEventCategoryOverrides())
   const [cellForm, setCellForm] = useState({ task: '', hours: '', notes: '' })
   const [extraRows, setExtraRows] = useState([])
   const [rowCourse, setRowCourse] = useState('')
@@ -589,17 +594,18 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       if (!e.date || !dates.includes(e.date)) continue
       let rowName = e.course || ''
       if (!rowName) {
-        // Imported personal calendars (no course): route by title/source —
-        // work-titled events into the Work additional-time row, "Gym Time"
-        // imports into the Exercise row, everything else stays out of the plan.
-        if (isWorkEvent(e)) rowName = 'Work'
-        else if ((e.source || '').trim() !== 'Gym Time') continue
-        else rowName = 'Exercise'
+        // Imported personal calendars (no course): route by a per-event sort
+        // chosen in the Calendar tab, or the built-in Work / Gym Time
+        // heuristics, into the matching additional-time row. Events that are
+        // still informational stay out of the plan until they're sorted.
+        const cat = categoryForEvent(e, catOverrides)
+        if (!cat) continue
+        rowName = cat
       } else {
         // Additional-category courses (Work / Exercise / …) are not study rows.
         if (!ADDITIONAL_SET.has(rowName)) courseRows.add(rowName)
       }
-      const isAdditional = rowName === 'Work' || rowName === 'Exercise'
+      const isAdditional = ADDITIONAL_SET.has(rowName)
       // Resolve the syllabus note/prep via the content_id FK first, falling
       // back to the lectureId string match for legacy rows.
       const linkedContent = e.contentId ? contentById.get(e.contentId) : null
@@ -726,7 +732,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, deadlines, dates, today, inputLog, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedEvents, sessionsByEvent, addlByEvent])
+  }, [calendarEvents, deadlines, dates, today, inputLog, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedEvents, sessionsByEvent, addlByEvent, catOverrides])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the

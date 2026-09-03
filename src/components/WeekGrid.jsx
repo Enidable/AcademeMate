@@ -60,7 +60,7 @@ function layoutTimed(items) {
 // axisOutside: omit the internal hour-axis gutter and hang the hour labels
 // outside the left edge instead. Used by the Daily Planner so the seven day
 // columns occupy exactly the same width as the planner table's day columns.
-export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, prepMap = null, noteById = null, prepById = null, contentBySlot = null, hourHeight = 44, axisOutside = false }) {
+export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, prepMap = null, noteById = null, prepById = null, contentBySlot = null, hourHeight = 44, axisOutside = false, onSortPersonal = null, personalCategory = null }) {
   const today = useMemo(() => new Date(), [])
   const GRID_H = hourHeight * (DAY_LEN / 60)
 
@@ -75,6 +75,19 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
       return cache[name]
     }
   }, [masterCourses])
+
+  // A personal-calendar event (no course) can be clicked in the Calendar tab
+  // to be sorted into an additional-time category (Work / Other Obligations /
+  // Commute / Exercise / Social Obligation). It is tinted by its category when
+  // one is chosen, and stays default-indigo while it is informational.
+  const isPersonalEvent = e => !!(onSortPersonal && e && !e.course && !e.isDeadline)
+  const eventName = e => isPersonalEvent(e) ? (personalCategory ? (personalCategory(e) || '') : '') : (e.course || '')
+  const sortTitle = e => {
+    const base = `${e.summary}${e.endTime ? ` (${e.startTime}–${e.endTime})` : ''}`
+    if (!isPersonalEvent(e)) return base
+    const cat = personalCategory ? personalCategory(e) : null
+    return cat ? `${base} — ${cat} (click to change)` : `${base} — click to sort this event into an additional-time category`
+  }
 
   const days = useMemo(() => week.map((d) => {
     const key = dateKey(d)
@@ -108,14 +121,20 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
           {days.map(d => (
             <div key={d.key} className="flex-1 min-w-0 pr-1 space-y-0.5">
               {d.top.map(e => {
+                const pers = isPersonalEvent(e)
                 const style = e.isDeadline
                   ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' }
-                  : eventColor(e.course)
+                  : eventColor(eventName(e))
                 const symbol = typeSymbol(e.isDeadline ? (e.type || 'deadline') : inferEventType(e.summary, e.description))
                 return (
-                  <div key={e.id || `${e.date}|${e.summary}`} className={`rounded border border-transparent ${style.bg} ${style.text} px-1.5 py-0.5 text-[10px] leading-tight truncate`} style={{ ...style.bgCss, ...style.textCss }} title={e.summary}>
-                    <span className="mr-0.5">{symbol}</span>
-                    {e.isDeadline ? `Due: ${e.description || e.summary}` : e.summary}
+                  <div key={e.id || `${e.date}|${e.summary}`}
+                    onClick={pers ? () => onSortPersonal(e) : undefined}
+                    title={sortTitle(e)}
+                    className={`group flex items-center gap-1 rounded border ${pers ? 'cursor-pointer border-dashed hover:border-slate-300' : 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[10px] leading-tight`}
+                    style={{ ...style.bgCss, ...style.textCss }}>
+                    <span className="mr-0.5 shrink-0">{symbol}</span>
+                    <span className="truncate">{e.isDeadline ? `Due: ${e.description || e.summary}` : e.summary}</span>
+                    {pers && <span className="shrink-0 text-[9px] opacity-40 group-hover:opacity-90">⋯</span>}
                   </div>
                 )
               })}
@@ -157,9 +176,10 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
 
             {d.timed.map((p) => {
               const ev = p.ev
+              const pers = isPersonalEvent(ev)
               const style = ev.isDeadline
                 ? { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' }
-                : eventColor(ev.course)
+                : eventColor(eventName(ev))
               const symbol = typeSymbol(ev.isDeadline ? (ev.type || 'deadline') : inferEventType(ev.summary, ev.description))
               // Resolve the syllabus note/prep via the content row id FK first
               // (reliable — re-imports re-key by it), falling back to the
@@ -183,11 +203,15 @@ export default function WeekGrid({ week, byDay, masterCourses, noteMap = null, p
               const skipped = !ev.isDeadline && (linked || slotItem) != null && (linked || slotItem).attend === false
               return (
                 <div key={ev.id || `${ev.date}|${ev.summary}|${ev.startTime}`}
-                  className={`absolute flex overflow-hidden rounded ${skipped ? 'opacity-40' : ''}`}
+                  onClick={pers ? () => onSortPersonal(ev) : undefined}
+                  className={`group absolute flex overflow-hidden rounded ${pers ? 'cursor-pointer' : ''} ${skipped ? 'opacity-40' : ''}`}
                   style={{ top: p.top + '%', height: p.height + '%', left: p.left + '%', width: p.width + '%' }}
-                  title={`${ev.summary}${ev.endTime ? ` (${ev.startTime}–${ev.endTime})` : ''}${needsPrep ? ` — prep: ${prepText}` : ''}`}>
+                  title={sortTitle(ev)}>
                   <span className={`w-1 shrink-0 rounded-l ${style.dot}`} style={style.dotCss} />
                   <div className={`flex-1 min-w-0 ${style.bg} ${style.text} px-1 py-0.5`} style={{ ...style.bgCss, ...style.textCss }}>
+                    {pers && (
+                      <span className="absolute right-0.5 top-0.5 text-[8px] opacity-0 group-hover:opacity-80 pointer-events-none">⋯</span>
+                    )}
                     <div className="text-[10px] font-medium leading-tight truncate">
                       <span className="mr-0.5">{symbol}</span>
                       {ev.isDeadline ? `Due: ${ev.description || ev.summary}` : ev.summary}

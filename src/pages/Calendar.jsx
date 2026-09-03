@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { getCourseStyle, slotIndexOfContent } from '../utils/helpers'
+import { getCourseStyle, slotIndexOfContent, normalizeCategory } from '../utils/helpers'
 import { typeSymbol, inferEventType } from '../drive/driveClient'
 import { loadCourseKeywords, saveCourseKeywords } from '../utils/courseKeywords'
+import { categoryForEvent, loadEventCategoryOverrides, saveEventCategoryOverrides } from '../utils/additionalRouting'
+import { ADDITIONAL_CATEGORIES } from '../config'
 import WeekGrid from '../components/WeekGrid'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -83,7 +85,26 @@ export default function Calendar() {
   const [kwKeyword, setKwKeyword] = useState('')
   const [kwCourse, setKwCourse] = useState('')
 
+  // Per-event "additional time" category overrides for personal-calendar events
+  // (click a chip → sort it into Work / Other Obligations / Commute / Exercise
+  // / Social Obligation). Keyed by the event's stable row id.
+  const [catOverrides, setCatOverrides] = useState(() => loadEventCategoryOverrides())
+  const [sortTarget, setSortTarget] = useState(null)
+
   const autoColor = i => String((i % 10) + 1)
+
+  const personalCategory = e => categoryForEvent(e, catOverrides)
+
+  function pickSortCategory(category) {
+    const e = sortTarget
+    if (!e || !e.id) return
+    const next = { ...catOverrides }
+    if (category) next[e.id] = category
+    else delete next[e.id]
+    setCatOverrides(next)
+    saveEventCategoryOverrides(next)
+    setSortTarget(null)
+  }
 
   function addKeywordRule() {
     const keyword = kwKeyword.trim()
@@ -487,6 +508,48 @@ export default function Calendar() {
         </div>
       )}
 
+      {sortTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setSortTarget(null)}>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+              <h2 className="font-semibold text-slate-800">Sort into additional time</h2>
+              <button onClick={() => setSortTarget(null)} className="text-slate-400 hover:text-slate-600 text-xl leading-none cursor-pointer">&times;</button>
+            </div>
+            <div className="p-5">
+              <p className="text-xs text-slate-500 mb-1">
+                <span className="font-medium text-slate-700">{sortTarget.summary}</span>
+                {sortTarget.startTime ? ` · ${sortTarget.startTime}${sortTarget.endTime ? `–${sortTarget.endTime}` : ''}` : ''}
+              </p>
+              <p className="text-[11px] text-slate-400 mb-4">
+                Personal events only show in the planner once they're sorted — pick the category this event belongs to. It will appear as a checkable item under that row in the Daily Planner and count toward that bucket everywhere.
+              </p>
+              <div className="space-y-1.5">
+                {ADDITIONAL_CATEGORIES.map(cat => {
+                  const st = getCourseStyle(cat)
+                  const active = catOverrides[sortTarget.id] === cat
+                  return (
+                    <button key={cat} onClick={() => pickSortCategory(cat)}
+                      className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg border cursor-pointer ${
+                        active ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:bg-slate-50'
+                      }`}>
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} style={st.dotCss} />
+                      <span className="text-sm text-slate-700">{normalizeCategory(cat)}</span>
+                      {active && <span className="ml-auto text-[10px] text-indigo-600 font-medium">sorted</span>}
+                    </button>
+                  )
+                })}
+              </div>
+              {catOverrides[sortTarget.id] && (
+                <button onClick={() => pickSortCategory(null)}
+                  className="mt-4 text-xs text-slate-400 hover:text-red-500 cursor-pointer">
+                  Remove — make this event informational again
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {!hasDrive && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-400 text-sm">
           Connect to Google Drive to import your timetable (Settings → Google Drive).
@@ -502,7 +565,7 @@ export default function Calendar() {
       {mode === 'week' && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div className="min-w-[720px]">
-            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} noteById={noteById} prepById={prepById} contentBySlot={contentBySlot} />
+            <WeekGrid week={week} byDay={byDay} masterCourses={masterCourses} noteMap={noteByLecture} prepMap={prepByLecture} noteById={noteById} prepById={prepById} contentBySlot={contentBySlot} onSortPersonal={e => setSortTarget(e)} personalCategory={personalCategory} />
           </div>
         </div>
       )}

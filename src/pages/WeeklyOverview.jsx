@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { formatDateShort, formatDate, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR, menuTagOfNotes, isWorkEvent, slotIndexOfContent } from '../utils/helpers'
+import { formatDateShort, formatDate, getCourseStyle, MENU_TAG_PREFIX, MENU_TAG_SEPARATOR, menuTagOfNotes, slotIndexOfContent } from '../utils/helpers'
+import { categoryForEvent, loadEventCategoryOverrides } from '../utils/additionalRouting'
 import { inferEventType, typeSymbol } from '../drive/driveClient'
 import HoverCard from '../components/HoverCard'
 
@@ -179,6 +180,9 @@ export default function WeeklyOverview() {
   } = useAppData()
 
   const [weekKey, setWeekKey] = useState(() => mondayOf(todayISO()))
+  // Per-event additional-time categories chosen in the Calendar tab. Read once
+  // on mount; they're picked up whenever this page (re)loads.
+  const [catOverrides] = useState(() => loadEventCategoryOverrides())
 
   const dates = useMemo(() => weekDates(weekKey), [weekKey])
   const currentIsoWeek = useMemo(() => {
@@ -377,18 +381,15 @@ export default function WeeklyOverview() {
       if (a.task) row.tasks[dow].push(a.task)
     }
     // Timetable / imported calendar events carry their own duration. Course
-    // classes land on their course row, work-titled import events feed the
-    // "Work" additional row and "Gym Time" feeds "Exercise". Every other
-    // personal-calendar import keeps its source label (Social Obligation,
-    // Other Obligations, Commute, …) and stays visible in the totals, rather
-    // than being dropped.
+    // classes land on their course row. Personal-calendar events are only
+    // counted once they've been sorted into an additional-time category (Work /
+    // Other Obligations / Commute / Exercise / Social Obligation) — chosen by
+    // clicking the event in the Calendar tab, or by the built-in Work / Gym
+    // Time heuristics — exactly mirroring the Daily Planner. Informational
+    // personal events stay off the totals.
     //
     // A calendar appointment that was sorted into the plan (via the menu
     // above) is counted by its planner row — never twice from the raw event.
-    const sourceLabel = s => {
-      const t = String(s || '').trim()
-      return /@/.test(t) ? 'Personal calendar' : t
-    }
     const placedEventKeys = new Set()
     for (const r of dailyPlan || []) {
       const tag = menuTagOfNotes(r.notes)
@@ -439,12 +440,11 @@ export default function WeeklyOverview() {
       // Skipped classes (issue #42) stay on the menu but never count hours.
       if (e.course && skippedEvent(e, contentRows)) continue
       let rowName = e.course || ''
-      if (!rowName) {
-        if (isWorkEvent(e)) rowName = 'Work'
-        else if ((e.source || '').trim() === 'Gym Time') rowName = 'Exercise'
-        else rowName = sourceLabel(e.source) || ''
+      if (!e.course) {
+        const cat = categoryForEvent(e, catOverrides)
+        if (!cat) continue
+        rowName = cat
       }
-      if (!rowName) continue
       const row = rowOf(rowName)
       if (!e.course) {
         // Work / gym / personal appointment. Once it has actually been logged
@@ -477,7 +477,7 @@ export default function WeeklyOverview() {
       .sort((a, b) => b.total - a.total)
     const dayTotals = Array.from({ length: 7 }, (_, d) => rows.reduce((s, r) => s + r.hours[d], 0))
     return { rows, dayTotals, weekTotal: dayTotals.reduce((s, h) => s + h, 0) }
-  }, [dailyPlan, additionalLog, inputLog, calendarEvents, dates, contentRows])
+  }, [dailyPlan, additionalLog, inputLog, calendarEvents, dates, contentRows, catOverrides])
 
   return (
     <div className="space-y-4">
