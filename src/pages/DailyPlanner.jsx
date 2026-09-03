@@ -59,12 +59,11 @@ function todayISO() {
   return toISO(new Date())
 }
 
-function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue, planSessions, state }) {
+function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue, planSessions }) {
   const planned = row.plannedHours != null ? row.plannedHours : row.hours
   const actual = row.actualHours != null && row.actualHours > 0 ? row.actualHours : null
   const status = row.done ? 'Done' : overdue ? 'Overdue' : 'Open'
   const linked = planSessions ? planSessions[row.id] : null
-  const isPlanned = state === 'planned'
   return (
     <HoverCard card={
       <div className="space-y-1.5">
@@ -86,8 +85,7 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue, planSessio
         <span className={`text-[10px] leading-tight flex-1 min-w-0 truncate ${row.done ? 'line-through text-slate-400' : overdue ? 'text-orange-700 font-medium' : 'text-slate-700'}`}>
           {row.task || '—'}
         </span>
-        <span title={isPlanned ? 'Planned hours — log a session to turn them into actual hours' : 'Actual hours from the time log'}
-          className={`text-[10px] shrink-0 whitespace-nowrap tabular-nums ${isPlanned ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
+        <span className={`text-[10px] shrink-0 whitespace-nowrap tabular-nums ${overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
           <button onClick={() => onEdit(row)} className="text-[9px] px-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Edit">✎</button>
           <button onClick={onDelete} className="text-[10px] text-red-400 hover:text-red-600 cursor-pointer" title="Delete">×</button>
@@ -139,8 +137,7 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
           </div>
           {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
         </div>
-        <span title={entry.autoEntry && !entry.logged ? 'Planned (scheduled) hours — tick it off to log the real time' : 'Actual hours from the time log'}
-          className={`text-[10px] shrink-0 whitespace-nowrap tabular-nums ${entry.autoEntry && !entry.logged ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : 'text-slate-500'}`}>
+        <span className="text-[10px] shrink-0 whitespace-nowrap tabular-nums text-slate-500">
           {entry.isDeadline ? (entry.startTime ? `due ${entry.startTime}` : '') : (entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : '')}
         </span>
       </div>
@@ -1162,7 +1159,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
                       {any ? (
                         <>
                           <div className={a > 0 ? '' : 'text-slate-300'} title="Actual (logged) hours">{a.toFixed(2)}</div>
-                          <div className={`text-[10px] ${p > 0 ? 'italic text-slate-500 underline decoration-dotted underline-offset-2' : 'text-transparent'}`} title="Planned hours">{p.toFixed(2)}</div>
+                          <div className={`text-[10px] ${p > 0 ? 'text-slate-400' : 'text-transparent'}`} title="Planned hours">{p.toFixed(2)}</div>
                         </>
                       ) : ''}
                     </td>
@@ -1170,7 +1167,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
                 })}
                 <td className="px-3 py-2 text-right tabular-nums w-16">
                   {actualTotal.toFixed(2)}
-                  {plannedTotal > 0 && <span className="text-[10px] italic text-slate-500"> +{plannedTotal.toFixed(2)}p</span>}
+                  {plannedTotal > 0 && <span className="text-[10px] text-slate-500"> +{plannedTotal.toFixed(2)}p</span>}
                   <span className="text-slate-400">h</span>
                 </td>
                 <td className="w-6" />

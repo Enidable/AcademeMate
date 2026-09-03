@@ -997,18 +997,44 @@ export function AppDataProvider({ children }) {
     // different hour on the same day, the re-import keeps the SAME calendar row
     // (same cal_ id, cal_id, lecture id), and sessions/additional entries that
     // reference it never lose their anchor.
+    //
+    // Some institutions regenerate the .ics UIDs on every download, which would
+    // break even the uid+day key. The same recurring slot (course + date + start
+    // time) is then used as a fallback so rows stay linked across a full
+    // re-import: row ids, cal_ids, lecture ids AND content links all carry over.
+    const slotOf = e => (e && e.course && e.date) ? `${e.course}|${e.date}|${e.startTime || ''}` : null
     const calByKey = new Map()
     const lectureByKey = new Map()
     const idByKey = new Map()
+    const contentByKey = new Map()
+    const calBySlot = new Map()
+    const lectureBySlot = new Map()
+    const idBySlot = new Map()
+    const contentBySlotMap = new Map()
     for (const e of existing) {
       const k = `${e.uid}|${e.date}`
-      if (e.calId) calByKey.set(k, e.calId)
-      if (e.lectureId) lectureByKey.set(k, e.lectureId)
+      if (e.calId && !calByKey.has(k)) calByKey.set(k, e.calId)
+      if (e.lectureId && !lectureByKey.has(k)) lectureByKey.set(k, e.lectureId)
+      if (e.contentId && !contentByKey.has(k)) contentByKey.set(k, e.contentId)
       if (e.id && !idByKey.has(k)) idByKey.set(k, e.id)
+      const s = slotOf(e)
+      if (s) {
+        if (e.id && !idBySlot.has(s)) idBySlot.set(s, e.id)
+        if (e.calId && !calBySlot.has(s)) calBySlot.set(s, e.calId)
+        if (e.lectureId && !lectureBySlot.has(s)) lectureBySlot.set(s, e.lectureId)
+        if (e.contentId && !contentBySlotMap.has(s)) contentBySlotMap.set(s, e.contentId)
+      }
     }
     const merged = rows.map(r => {
       const k = `${r.uid}|${r.date}`
-      return { ...r, id: idByKey.get(k) || null, calId: calByKey.get(k) || null, lectureId: lectureByKey.get(k) || null }
+      const s = slotOf(r)
+      return {
+        ...r,
+        id: idByKey.get(k) || (s ? idBySlot.get(s) : null) || null,
+        calId: calByKey.get(k) || (s ? calBySlot.get(s) : null) || null,
+        lectureId: lectureByKey.get(k) || (s ? lectureBySlot.get(s) : null) || null,
+        contentId: contentByKey.get(k) || (s ? contentBySlotMap.get(s) : null) || null,
+      }
     })
 
     assignLectureIds(merged, courses)
