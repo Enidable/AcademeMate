@@ -228,10 +228,15 @@ function isClassRepresentedSession(e, events) {
   if (!e || !e.course) return false
   if (e.eventId) return true
   if (!e.lectureContentId && !e.lectureId) return false
-  return (events || []).some(ev =>
-    ev.course === e.course && ev.date === e.date &&
+  const sameDay = (events || []).filter(ev => ev.course === e.course && ev.date === e.date)
+  const linked = sameDay.some(ev =>
     ((e.lectureContentId && ev.contentId === e.lectureContentId) ||
      (e.lectureId && ev.lectureId === e.lectureId)))
+  // A session for a course on a day that has exactly ONE scheduled class is
+  // almost certainly that class, even when its lecture/content ids drifted
+  // after a re-import. Treat it as class-represented so it is never mirrored a
+  // second time — the class auto entry carries the actual hours instead.
+  return linked || (sameDay.length === 1 && !e.planId)
 }
 
 function ensureLoggedPastSessions(data) {

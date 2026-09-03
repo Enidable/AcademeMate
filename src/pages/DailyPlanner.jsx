@@ -87,7 +87,7 @@ function TaskRow({ row, hoursOf, onToggle, onEdit, onDelete, overdue, planSessio
           {row.task || '—'}
         </span>
         <span title={isPlanned ? 'Planned hours — log a session to turn them into actual hours' : 'Actual hours from the time log'}
-          className={`text-[10px] shrink-0 tabular-nums ${isPlanned ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
+          className={`text-[10px] shrink-0 whitespace-nowrap tabular-nums ${isPlanned ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : overdue ? 'text-orange-500' : 'text-slate-500'}`}>{hoursOf(row).toFixed(2)}h</span>
         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
           <button onClick={() => onEdit(row)} className="text-[9px] px-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Edit">✎</button>
           <button onClick={onDelete} className="text-[10px] text-red-400 hover:text-red-600 cursor-pointer" title="Delete">×</button>
@@ -140,7 +140,7 @@ function AutoTask({ entry, onLog, onLogAdditional }) {
           {entry.note && <div className="text-[9px] leading-tight text-slate-400 truncate">{entry.note}</div>}
         </div>
         <span title={entry.autoEntry && !entry.logged ? 'Planned (scheduled) hours — tick it off to log the real time' : 'Actual hours from the time log'}
-          className={`text-[10px] shrink-0 tabular-nums ${entry.autoEntry && !entry.logged ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : 'text-slate-500'}`}>
+          className={`text-[10px] shrink-0 whitespace-nowrap tabular-nums ${entry.autoEntry && !entry.logged ? 'italic text-slate-400 underline decoration-dotted underline-offset-2' : 'text-slate-500'}`}>
           {entry.isDeadline ? (entry.startTime ? `due ${entry.startTime}` : '') : (entry.hours > 0 ? `${entry.hours.toFixed(2)}h` : '')}
         </span>
       </div>
@@ -639,11 +639,27 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       // Issue #49: logs created by ticking an event off carry its calendar row
       // id (eventId) — the precise "has this actually happened?" answer. The
       // old key-string sets are the fallback for logs created before the FK.
-      const fkSessions = e.id ? (sessionsByEvent.get(e.id) || []) : []
+      let fkSessions = e.id ? (sessionsByEvent.get(e.id) || []) : []
       const fkAddl = e.id ? (addlByEvent.get(e.id) || []) : []
-      const fkLogged = isAdditional ? fkAddl.length > 0 : fkSessions.length > 0
+      // Fallback attribution (#51): if a course has exactly ONE scheduled class
+      // on a day and any session was logged for it (without its own plan row),
+      // that session was that class — even when the lecture/content ids drifted
+      // after a re-import. The class auto entry then carries the actual hours
+      // instead of the hours vanishing (or being mirrored separately).
+      if (!isAdditional && fkSessions.length === 0 && e.course) {
+        const sameDayEvents = calendarEvents.filter(o => o.course === e.course && o.date === e.date)
+        if (sameDayEvents.length === 1) {
+          fkSessions = (inputLog || []).filter(s =>
+            !s.planId && s.course === e.course && s.date === e.date)
+        }
+      }
+      // Additional categories: once ANY entry was logged under this category on
+      // this day (even directly in the Additional Time Log, with no event link),
+      // the scheduled hours of its calendar events must not count on top.
+      const addlLoggedThatDay = isAdditional && (additionalLog || []).some(a => a.date === e.date && a.category === rowName)
+      const fkLogged = isAdditional ? (fkAddl.length > 0 || addlLoggedThatDay) : fkSessions.length > 0
       const legacyLogged = isAdditional
-        ? loggedEvents.addl.has(`${e.date}|${rowName}|${e.summary}`)
+        ? loggedEvents.addl.has(`${e.date}|${rowName}|${e.summary}`) || addlLoggedThatDay
         : !!((e.contentId && loggedEvents.study.has('content:' + e.contentId)) || loggedEvents.study.has(`course:${rowName}|${e.lectureId}`))
       const logged = fkLogged || legacyLogged
       // Sessions logged before the event_id FK existed still count as actual
@@ -667,7 +683,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       if (isAdditional) {
         // Logged additional auto rows are hidden and carried by their own row —
         // their schedule hours must never count here.
-        hours = fkAddl.length > 0 ? 0 : durHours(e)
+        hours = logged ? 0 : durHours(e)
       } else if (fkLogged) {
         hours = Math.round(fkSessions.reduce((t, s) => t + (s.durationHours || 0), 0) * 100) / 100
       } else if (legacySessions.length > 0) {
@@ -751,7 +767,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, deadlines, dates, today, inputLog, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedEvents, sessionsByEvent, addlByEvent, catOverrides])
+  }, [calendarEvents, deadlines, dates, today, inputLog, additionalLog, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedEvents, sessionsByEvent, addlByEvent, catOverrides])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the
