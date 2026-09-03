@@ -222,11 +222,57 @@ function ensureLoggedPastSessions(data) {
   const p = n => String(n).padStart(2, '0')
   const todayKey = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
 
+  // A class session — one logged by ticking off a scheduled class (event_id FK)
+  // or one whose lecture/content id matches a calendar event on the same day —
+  // is already represented in the planner by that class's auto entry, which now
+  // carries its actual logged hours. Mirroring such a session a second time as
+  // an "auto-logged" planner row double-counts it (#50), so class sessions are
+  // never mirrored.
+  const events = data.calendarEvents || []
+  const isClassRep = e => {
+    if (!e || !e.course) return false
+    if (e.eventId) return true
+    if (!e.lectureContentId && !e.lectureId) return false
+    return events.some(ev =>
+      ev.course === e.course && ev.date === e.date &&
+      ((e.lectureContentId && ev.contentId === e.lectureContentId) ||
+       (e.lectureId && ev.lectureId === e.lectureId)))
+  }
+
+  const sessionsByKey = new Map()
+  for (const e of data.studyLog || []) {
+    if (!e.date || !e.course) continue
+    const key = `${e.date}|${e.course}`
+    if (!sessionsByKey.has(key)) sessionsByKey.set(key, [])
+    sessionsByKey.get(key).push(e)
+  }
+  let changed = false
+  // Auto-logged rows are pure mirrors of sessions that otherwise had no plan
+  // row. Any session that now has its own real representation (a class auto
+  // entry, or a plan row via planId) must not be counted a second time here:
+  // recompute each existing mirror and drop it when nothing is left for it.
+  data.dailyPlan = (data.dailyPlan || []).filter(r => {
+    if (String(r.notes || '').trim() !== 'auto-logged' || !r.done) return true
+    const mirrors = (sessionsByKey.get(`${r.date}|${r.course}`) || [])
+      .filter(s => !s.planId && !isClassRep(s))
+    const hours = Math.round(mirrors.reduce((t, s) => t + (s.durationHours || 0), 0) * 100) / 100
+    if (mirrors.length === 0) { changed = true; return false }
+    if (Math.round(((r.actualHours ?? r.plannedHours ?? 0) - hours) * 100) !== 0) {
+      r.actualHours = hours
+      r.plannedHours = 0
+      changed = true
+    }
+    return true
+  })
+
+  // Mirror sessions that still have nowhere else to live: past days, sessions
+  // not linked to a plan row and not a scheduled class.
   const plannedPairs = new Set((data.dailyPlan || []).map(r => `${r.date}|${r.course}`))
   const groups = new Map() // "date|course" -> aggregated session info
   for (const e of data.studyLog || []) {
     if (!e.date || e.date >= todayKey) continue
     if (!(e.durationHours > 0) || !e.course) continue
+    if (e.planId || isClassRep(e)) continue
     const key = `${e.date}|${e.course}`
     if (plannedPairs.has(key)) continue
     if (!groups.has(key)) groups.set(key, { date: e.date, course: e.course, hours: 0, notes: null, project: null, lectureId: null, category: null })
@@ -237,7 +283,6 @@ function ensureLoggedPastSessions(data) {
     if (!g.lectureId && e.lectureId) g.lectureId = e.lectureId
     if (!g.category && e.category) g.category = e.category
   }
-  if (groups.size === 0) return false
 
   for (const g of groups.values()) {
     // Label priority: what the user wrote > which project > which lecture >
@@ -253,8 +298,9 @@ function ensureLoggedPastSessions(data) {
       done: 'done',
       notes: 'auto-logged',
     })
+    changed = true
   }
-  return true
+  return changed
 }
 
 // Content rows created through some paths carry the raw course CODE (or
