@@ -223,7 +223,7 @@ function QuickAddCell({ onSave }) {
 }
 
 function CourseRow({
-  course, style, isActive, total, isEmptyExtra, dates, today,
+  course, style, isActive, total, rowActual, rowPlanned, isEmptyExtra, dates, today,
   cellTasks, autoTasks, hoursOf, stateOf, editId, editForm, setEditForm, addCell, cellForm, setCellForm,
   onEdit, onSaveEdit, onCancelEdit, onToggle, onDelete, onOpenAdd, onSaveAdd, onCancelAdd, onRemoveExtraRow,
   onQuickAdd, onLogAuto, onLogAdditional, readOnly, draggable, dragging, onRowDragStart, onRowDragOver, onRowDrop,
@@ -286,7 +286,15 @@ function CourseRow({
           </div>
         </td>
       ))}
-      <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-700">{total > 0 ? `${total.toFixed(2)}h` : ''}</td>
+      <td className="px-3 py-1 text-right tabular-nums text-slate-700">
+        {(rowActual + (rowPlanned || 0)) > 0 ? (
+          <span title="Actual hours / planned hours — actual + planned = this course's week total">
+            {rowActual > 0 && <span className="font-medium">{rowActual.toFixed(2)}</span>}
+            {rowPlanned > 0 && <span className="italic text-slate-400"> +{rowPlanned.toFixed(2)}p</span>}
+            h
+          </span>
+        ) : ''}
+      </td>
       <td className="w-6">
         {draggable && (
           <span
@@ -813,8 +821,6 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return { study, additional, cellTasks, autoTasks, hoursOf, stateOf, hasTasks }
   }, [dates, byDate, addByDate, extraRows, activeSet, autoByCell])
 
-  const autoHours = course => dates.reduce((s, date) => s + week.autoTasks(course, date).reduce((t, r) => t + ((r.isAdditional && r.logged) ? 0 : (r.hours || 0)), 0), 0)
-
   // Study rows in the user's dragged order; unarranged courses stay alphabetical.
   const orderedStudy = useMemo(() => {
     const rank = c => {
@@ -843,15 +849,13 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
   function handleCourseDrop() {
     setDragCourse(null)
   }
-  const rowHours = course => dates.reduce((s, date) => s + week.cellTasks(course, date).reduce((t, r) => t + week.hoursOf(r), 0), 0) + autoHours(course)
-  const studyTotal = week.study.reduce((s, c) => s + rowHours(c), 0)
-  const additionalTotal = week.additional.reduce((s, c) => s + rowHours(c), 0)
-  const totalHours = studyTotal + additionalTotal
-  const overCapacity = avgWeeklyHours > 0 && totalHours > avgWeeklyHours * 1.1
-
-  // Issue #50: split every aggregate into ACTUAL (logged) vs PLANNED hours, so
-  // what's real (time log = truth) is never muddled with what's still on the
-  // books. actual + planned always equals the combined number shown elsewhere.
+  // ---- Totals: one single source of truth ---------------------------------
+  // Every number in the planner (each course row's Total, the Day-total row and
+  // the Study/Additional/Total pills) is derived from ONE tally, so they always
+  // agree. Each shown item contributes its hours to exactly one bucket via
+  // week.stateOf: ACTUAL (logged / checked off) or PLANNED (open estimate or a
+  // scheduled class that hasn't been logged yet). A planned class counts only
+  // on today/future dates; past unlogged classes contribute nothing.
   const tallyRows = rows => rows.reduce((acc, r) => {
     const s = week.stateOf(r)
     if (s === 'actual') acc[0] += week.hoursOf(r)
@@ -859,6 +863,17 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return acc
   }, [0, 0])
   const entriesOf = (course, date) => [...week.cellTasks(course, date), ...week.autoTasks(course, date)]
+
+  // Actual + planned hours for one course row across the whole viewed week.
+  const splitCourse = course => {
+    const acc = [0, 0]
+    for (const date of dates) {
+      const t = tallyRows(entriesOf(course, date))
+      acc[0] += t[0]
+      acc[1] += t[1]
+    }
+    return acc
+  }
   const daySplit = date => {
     const acc = [0, 0]
     for (const c of [...week.study, ...week.additional]) {
@@ -868,18 +883,20 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     return acc
   }
-  const bandSplit = bands => bands.reduce((acc, c) => {
-    for (const date of dates) {
-      const t = tallyRows(entriesOf(c, date))
-      acc[0] += t[0]
-      acc[1] += t[1]
-    }
+  const sumCourses = bands => bands.reduce((acc, c) => {
+    const t = splitCourse(c)
+    acc[0] += t[0]
+    acc[1] += t[1]
     return acc
   }, [0, 0])
-  const studySplit = bandSplit(week.study)
-  const addlSplit = bandSplit(week.additional)
+  const studySplit = sumCourses(week.study)
+  const addlSplit = sumCourses(week.additional)
   const actualTotal = studySplit[0] + addlSplit[0]
   const plannedTotal = studySplit[1] + addlSplit[1]
+  const studyTotal = studySplit[0] + studySplit[1]
+  const additionalTotal = addlSplit[0] + addlSplit[1]
+  const totalHours = actualTotal + plannedTotal
+  const overCapacity = avgWeeklyHours > 0 && totalHours > avgWeeklyHours * 1.1
   const fmtH = h => (Math.round(h * 100) / 100).toFixed(2)
 
   function moveWeek(delta) {
@@ -1057,6 +1074,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
               <span className="text-[10px] font-normal text-slate-600">A {fmtH(actualTotal)} · P {fmtH(plannedTotal)}</span>
             </span>
           </div>
+          <span className="text-[9px] px-2 text-slate-400">A = actually logged (time log) · P = planned (to-do estimates &amp; scheduled classes not ticked off yet)</span>
           {avgWeeklyHours > 0 && (
             <span className={`text-[10px] px-2 ${overCapacity ? 'text-red-500' : 'text-slate-400'}`}>
               {Math.round((totalHours / avgWeeklyHours) * 100)}% of your {avgWeeklyHours.toFixed(2)}h average week
@@ -1081,29 +1099,32 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
             </tr>
           </thead>
             <tbody>
-              {orderedStudy.map(course => (
-                <CourseRow key={course} course={course}
-                  style={getCourseStyle(course, colorByCourse[course])}
-                  isActive={activeSet.has(course)}
-                  total={rowHours(course)}
-                  isEmptyExtra={extraRows.includes(course) && !week.hasTasks(course)}
-                  dates={dates} today={today}
-                  cellTasks={week.cellTasks} autoTasks={week.autoTasks} hoursOf={week.hoursOf} stateOf={week.stateOf}
-                  editId={editId} editForm={editForm} setEditForm={setEditForm}
-                  addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
-                  onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
-                  onToggle={toggleDone} onDelete={deleteTask}
-                  onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
-                  onQuickAdd={quickAddTask}
-                  onLogAuto={logClassEntry}
-                  onLogAdditional={onLogAdditional}
-                  onRemoveExtraRow={removeExtraRow}
-                  draggable
-                  dragging={dragCourse === course}
-                  onRowDragStart={handleCourseDragStart(course)}
-                  onRowDragOver={handleCourseDragOver(course)}
-                  onRowDrop={handleCourseDrop} planSessions={planSessions} />
-              ))}
+              {orderedStudy.map(course => {
+                const [cA, cP] = splitCourse(course)
+                return (
+                  <CourseRow key={course} course={course}
+                    style={getCourseStyle(course, colorByCourse[course])}
+                    isActive={activeSet.has(course)}
+                    total={cA + cP} rowActual={cA} rowPlanned={cP}
+                    isEmptyExtra={extraRows.includes(course) && !week.hasTasks(course)}
+                    dates={dates} today={today}
+                    cellTasks={week.cellTasks} autoTasks={week.autoTasks} hoursOf={week.hoursOf} stateOf={week.stateOf}
+                    editId={editId} editForm={editForm} setEditForm={setEditForm}
+                    addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
+                    onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
+                    onToggle={toggleDone} onDelete={deleteTask}
+                    onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
+                    onQuickAdd={quickAddTask}
+                    onLogAuto={logClassEntry}
+                    onLogAdditional={onLogAdditional}
+                    onRemoveExtraRow={removeExtraRow}
+                    draggable
+                    dragging={dragCourse === course}
+                    onRowDragStart={handleCourseDragStart(course)}
+                    onRowDragOver={handleCourseDragOver(course)}
+                    onRowDrop={handleCourseDrop} planSessions={planSessions} />
+                )
+              })}
               {orderedStudy.length === 0 && (
                 <tr>
                   <td colSpan={10} className="px-3 py-4 text-center text-slate-300 text-sm">No study tasks planned this week — type into a course row below, or use “+” in a day column.</td>
@@ -1115,47 +1136,51 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
                   Additional time — Work, Other Obligations, Commute &amp; Exercise (logged, never counted as study)
                 </td>
               </tr>
-              {week.additional.map(course => (
-                <CourseRow key={course} course={course}
-                  style={getCourseStyle(course, colorByCourse[course])}
-                  isActive={false}
-                  total={rowHours(course)}
-                  isEmptyExtra={false}
-                  dates={dates} today={today}
-                  cellTasks={week.cellTasks} autoTasks={week.autoTasks} hoursOf={week.hoursOf} stateOf={week.stateOf}
-                  editId={editId} editForm={editForm} setEditForm={setEditForm}
-                  addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
-                  onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
-                  onToggle={toggleDone} onDelete={deleteTask}
-                  onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
-                  onQuickAdd={quickAddTask}
-                  onLogAuto={logClassEntry}
-                  onLogAdditional={onLogAdditional}
-                  onRemoveExtraRow={removeExtraRow} planSessions={planSessions} />
-              ))}
+              {week.additional.map(course => {
+                const [cA, cP] = splitCourse(course)
+                return (
+                  <CourseRow key={course} course={course}
+                    style={getCourseStyle(course, colorByCourse[course])}
+                    isActive={false}
+                    total={cA + cP} rowActual={cA} rowPlanned={cP}
+                    isEmptyExtra={false}
+                    dates={dates} today={today}
+                    cellTasks={week.cellTasks} autoTasks={week.autoTasks} hoursOf={week.hoursOf} stateOf={week.stateOf}
+                    editId={editId} editForm={editForm} setEditForm={setEditForm}
+                    addCell={addCell} cellForm={cellForm} setCellForm={setCellForm}
+                    onEdit={startEdit} onSaveEdit={saveEdit} onCancelEdit={cancelEdit}
+                    onToggle={toggleDone} onDelete={deleteTask}
+                    onOpenAdd={openCellAdd} onSaveAdd={saveCellAdd} onCancelAdd={cancelCellAdd}
+                    onQuickAdd={quickAddTask}
+                    onLogAuto={logClassEntry}
+                    onLogAdditional={onLogAdditional}
+                    onRemoveExtraRow={removeExtraRow} planSessions={planSessions} />
+                )
+              })}
               <tr className="bg-slate-50 border-t border-slate-200 font-medium text-slate-700">
-                <td className="px-3 py-2">
+                <td className="px-3 py-2 text-[11px]">
                   Day total
-                  <div className="text-[10px] font-normal text-slate-500">actual / planned</div>
+                  <span className="block text-[9px] font-normal text-slate-400">actual · planned(p)</span>
                 </td>
                 {dates.map(date => {
                   const [a, p] = daySplit(date)
                   const any = a > 0 || p > 0
                   return (
-                    <td key={date} className={`px-2 py-1 text-center tabular-nums ${date === today ? 'text-indigo-700' : ''}`}>
+                    <td key={date} className={`px-1 py-1 text-center tabular-nums ${date === today ? 'text-indigo-700' : ''}`}>
                       {any ? (
-                        <>
-                          <div className={a > 0 ? '' : 'text-slate-300'} title="Actual (logged) hours">{a.toFixed(2)}</div>
-                          <div className={`text-[10px] ${p > 0 ? 'italic text-slate-500 underline decoration-dotted underline-offset-2' : 'text-transparent'}`} title="Planned hours">{p.toFixed(2)}</div>
-                        </>
+                        <span title="Actual (logged) + planned hours">
+                          {a > 0 && <span className="font-medium">{a.toFixed(2)}</span>}
+                          {p > 0 && <span className="italic text-slate-400"> +{p.toFixed(2)}p</span>}
+                          <span className="text-slate-400">h</span>
+                        </span>
                       ) : ''}
                     </td>
                   )
                 })}
                 <td className="px-3 py-2 text-right tabular-nums w-16">
-                  {actualTotal.toFixed(2)}
-                  {plannedTotal > 0 && <span className="text-[10px] italic text-slate-500"> +{plannedTotal.toFixed(2)}p</span>}
-                  <span className="text-slate-400">h</span>
+                  {actualTotal > 0 && <span className="font-medium">{actualTotal.toFixed(2)}</span>}
+                  {plannedTotal > 0 && <span className="italic text-slate-400"> +{plannedTotal.toFixed(2)}p</span>}
+                  {(actualTotal + plannedTotal) > 0 && <span className="text-slate-400">h</span>}
                 </td>
                 <td className="w-6" />
               </tr>
