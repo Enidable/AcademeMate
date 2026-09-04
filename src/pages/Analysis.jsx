@@ -2,9 +2,13 @@ import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { computeXp, courseWeightFor, XP_CONSTANTS } from '../data/xp'
 import { formatDateShort, getCourseStyle } from '../utils/helpers'
-import { isoWeekOf, weekdayIndex } from '../data/normalize'
+import { isoWeekOf, weekdayIndex, mondayOfWeek } from '../data/normalize'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+// Exam family for exam-day marking (issue #48): scheduled or deadline-shaped
+// rows of these types flag their date red in the weekly grid.
+const EXAM_FAMILY = new Set(['exam', 'exam review', 'resit'])
 
 // Subtle heat-map background for an hour value scaled against the range's max.
 // Low values lean warm (orange), high values cool (blue) — kept light so the
@@ -36,7 +40,7 @@ function heatStyleDay(v, max) {
 }
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  ScatterChart, Scatter,
+  ScatterChart, Scatter, ReferenceArea,
 } from 'recharts'
 
 function pad(n) {
@@ -114,7 +118,7 @@ function rolling(buckets, pick) {
   return buckets.map((b, i) => {
     const slice = buckets.slice(Math.max(0, i - window + 1), i + 1)
     const vals = slice.map(pick).filter(v => v != null && isFinite(v))
-    return { label: b.label, value: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null }
+    return { key: b.key, label: b.label, value: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null }
   })
 }
 
@@ -124,29 +128,49 @@ const GRANULARITIES = [
   { value: 'month', label: 'Monthly' },
 ]
 
-const METRICS = [
-  { key: 'wellbeing', title: 'Wellbeing', color: '#10b981', domain: [0, 10] },
-  { key: 'efficiency', title: 'Efficiency', color: '#f59e0b', domain: [0, 10] },
-  { key: 'hours', title: 'Study hours', color: '#6366f1' },
-  { key: 'xp', title: 'XP earned', color: '#8b5cf6' },
-]
+const METRICS = {
+  wellbeing: { name: 'Wellbeing', color: '#10b981', domain: [0, 10] },
+  efficiency: { name: 'Efficiency', color: '#f59e0b', domain: [0, 10] },
+  hours: { name: 'Study hours', color: '#6366f1' },
+  xp: { name: 'XP earned', color: '#8b5cf6' },
+}
 
-function TrendCard({ title, data, color, domain }) {
-  const clean = data.filter(d => d.value != null)
+function tickLabel(key) {
+  if (/^\d{4}-\d{2}$/.test(key)) return key
+  return formatDateShort(key)
+}
+
+// Two rolling series in one plot (issue #48: wellbeing+efficiency share their
+// 0-10 axis; XP+hours use a dual axis). Quartile bands shade the background
+// from the Academic Year ranges so trends read per-period.
+function DualTrendCard({ title, left, right, bands, note }) {
+  const rows = left.data.map((d, i) => ({
+    key: d.key,
+    label: d.label,
+    l: d.value,
+    r: right.data[i]?.value ?? null,
+  })).filter(d => d.l != null || d.r != null)
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-700 mb-2">{title}</h3>
-      {clean.length === 0 ? (
+      <h3 className="text-sm font-semibold text-slate-700 mb-1">{title}</h3>
+      {note && <p className="text-[10px] text-slate-400 mb-2">{note}</p>}
+      {rows.length === 0 ? (
         <p className="text-xs text-slate-400 py-8 text-center">No data in range.</p>
       ) : (
         <div className="h-44">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={clean} margin={{ top: 4, right: 8, bottom: 0, left: -22 }}>
+            <LineChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: -22 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="label" tick={{ fontSize: 9 }} minTickGap={28} />
-              <YAxis tick={{ fontSize: 9 }} domain={domain || ['auto', 'auto']} />
-              <Tooltip formatter={v => Number(v).toFixed(2)} labelStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="value" name={title} stroke={color} strokeWidth={2} dot={false} connectNulls />
+              <XAxis dataKey="key" tick={{ fontSize: 9 }} minTickGap={28} tickFormatter={tickLabel} />
+              <YAxis yAxisId="left" tick={{ fontSize: 9 }} domain={left.domain || ['auto', 'auto']} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9 }} domain={right.domain || ['auto', 'auto']} />
+              <Tooltip formatter={v => Number(v).toFixed(2)} labelFormatter={k => tickLabel(k)} labelStyle={{ fontSize: 11 }} />
+              {(bands || []).map(b => (
+                <ReferenceArea key={b.label} yAxisId="left" x1={b.x1} x2={b.x2} fill="#f1f5f9" fillOpacity={0.7}
+                  label={{ value: b.label.replace(/^\d{4} · /, ''), fontSize: 9, fill: '#94a3b8', position: 'insideTopLeft' }} />
+              ))}
+              <Line yAxisId="left" type="monotone" dataKey="l" name={left.name} stroke={left.color} strokeWidth={2} dot={false} connectNulls />
+              <Line yAxisId="right" type="monotone" dataKey="r" name={right.name} stroke={right.color} strokeWidth={2} dot={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -191,7 +215,7 @@ function CorrelationCard({ title, points, xLabel, yLabel }) {
 
 export default function Analysis() {
   const {
-    inputLog, additionalLog, dailyPlan, masterCourses, gradeComponents, academicYears,
+    inputLog, additionalLog, dailyPlan, masterCourses, gradeComponents, academicYears, content,
   } = useAppData()
 
   const [gran, setGran] = useState('week')
@@ -243,10 +267,42 @@ export default function Analysis() {
     (!filterKey || catKey(e.category) === filterKey)
   ), [inputLog, rangeFrom, rangeTo, courseFilter, filterKey])
 
+  // --- Day flags + quartile ranges (issue #48) ---------------------------
+  // Uni day = any in-filter session with location "University" (user-defined).
+  // Exam day = any exam-family content row (scheduled date or deadline).
+  const dayFlags = useMemo(() => {
+    const uni = new Set()
+    for (const e of entries) {
+      if (!(e.durationHours > 0)) continue
+      if (String(e.location || '').trim().toLowerCase() === 'university') uni.add(e.date)
+    }
+    const exam = new Set()
+    for (const c of content || []) {
+      if (!EXAM_FAMILY.has(String(c.type || '').trim().toLowerCase())) continue
+      if (c.date) exam.add(c.date)
+      if (c.deadline) exam.add(c.deadline)
+    }
+    return { uni, exam }
+  }, [entries, content])
+
+  // Academic Year quartile ranges, sorted: { key: "2026 · Q1", start, finish }.
+  const quartileRanges = useMemo(() => {
+    const out = []
+    for (const ay of academicYears || []) {
+      for (const [period, q] of Object.entries(ay.quarters || {})) {
+        if (q?.start && q?.finish) out.push({ key: `${ay.year} · ${period}`, start: q.start, finish: q.finish })
+      }
+    }
+    return out.sort((a, b) => a.start.localeCompare(b.start))
+  }, [academicYears])
+
   // --- Weekly breakdown (Work Week x weekday) ------------------------------
   // Hours per ISO week, split by weekday. Aims for the "Work Week | Mon–Sun"
   // grid the user keeps in their Master Tracker: one table per year, columns
   // = work weeks, rows = Year total + each weekday.
+  // Averages come in two flavours (issue #48): over all weeks in the span
+  // (calendar average) and over active weeks/days only (anything over 0h —
+  // the original methodology).
   const weeklyBreakdown = useMemo(() => {
     const byYear = new Map() // year -> Map<week, { total, day[7] }>
     for (const e of entries) {
@@ -263,24 +319,38 @@ export default function Analysis() {
     return [...byYear.keys()].sort().map(year => {
       const weeks = [...byYear.get(year).values()].sort((a, b) => a.week - b.week)
       const maxWeek = weeks.length ? weeks[weeks.length - 1].week : 0
+      const quartileOf = iso => quartileRanges.find(r => iso >= r.start && iso <= r.finish)?.key || null
       const cols = Array.from({ length: maxWeek }, (_, i) => {
         const w = weeks.find(x => x.week === i + 1)
-        return w || { week: i + 1, total: 0, day: Array.from({ length: 7 }, () => 0) }
+        const monday = mondayOfWeek(year, i + 1)
+        return {
+          ...(w || { week: i + 1, total: 0, day: Array.from({ length: 7 }, () => 0) }),
+          monday,
+          quartile: quartileOf(monday),
+        }
       })
       const dayTotals = cols.reduce((acc, c) => {
         for (let d = 0; d < 7; d++) acc[d] += c.day[d]
         return acc
       }, Array.from({ length: 7 }, () => 0))
+      const grandTotal = cols.reduce((s, c) => s + c.total, 0)
+      const activeWeeks = cols.filter(c => c.total > 0)
+      const activeDayAvg = Array.from({ length: 7 }, (_, d) => {
+        const hits = cols.filter(c => c.day[d] > 0)
+        return hits.length ? hits.reduce((s, c) => s + c.day[d], 0) / hits.length : 0
+      })
       return {
         year,
         cols,
         dayAvg: dayTotals.map(h => (maxWeek ? h / maxWeek : 0)),
-        yearAvg: cols.reduce((s, c) => s + c.total, 0) / (maxWeek || 1),
+        activeDayAvg,
+        yearAvg: grandTotal / (maxWeek || 1),
+        yearAvgActive: activeWeeks.length ? grandTotal / activeWeeks.length : 0,
         maxTotal: cols.reduce((m, c) => Math.max(m, c.total), 0),
         maxDay: cols.reduce((m, c) => c.day.reduce((mm, v) => Math.max(mm, v), m), 0),
       }
     })
-  }, [entries])
+  }, [entries, quartileRanges])
 
   // --- Trend buckets ------------------------------------------------------
   const trends = useMemo(() => {
@@ -304,6 +374,20 @@ export default function Analysis() {
       xp: rolling(list, b => b.xp),
     }
   }, [entries, gran, xpInputs])
+
+  // --- Quartile bands for the trend plots ---------------------------------
+  // Each Academic Year range clipped to the plotted bucket keys, so the trends
+  // read per-period without extra charts.
+  const trendBands = useMemo(() => {
+    const keys = trends.wellbeing.map(d => d.key)
+    if (!keys.length || !quartileRanges.length) return []
+    return quartileRanges.map(r => {
+      const x1 = keys.find(k => k >= r.start)
+      const x2 = [...keys].reverse().find(k => k <= r.finish)
+      if (!x1 || !x2 || x1 > x2) return null
+      return { x1, x2, label: r.key }
+    }).filter(Boolean)
+  }, [trends, quartileRanges])
 
   // --- Correlation datasets ----------------------------------------------
   const scatters = useMemo(() => {
@@ -570,6 +654,10 @@ export default function Analysis() {
           The <span className="font-medium text-slate-500">Year [h]</span> row is that week's total. Cells are tinted by
           intensity: warm (orange) for low hours, cool (blue) for high. The daily averages use yellow → purple so
           the busiest weekday stands out.
+          {' '}<span className="inline-block w-2 h-2 rounded-[2px] align-middle" style={{ boxShadow: 'inset 0 0 0 2px #9333ea' }} />{' '}
+          = day at uni (University-location session),
+          {' '}<span className="inline-block w-2 h-2 rounded-[2px] align-middle" style={{ boxShadow: 'inset 0 0 0 2px #dc2626' }} />{' '}
+          = exam day, thick left rule = quartile boundary (Academic Year ranges).
         </p>
         {weeklyBreakdown.length === 0 ? (
           <p className="text-xs text-slate-400 py-4 text-center">No session data in this range.</p>
@@ -581,6 +669,7 @@ export default function Analysis() {
                   <h3 className="text-xs font-semibold text-slate-600">Work Week — {y.year}</h3>
                   <div className="text-[10px] text-slate-400">
                     avg <span className="font-semibold text-slate-600 tabular-nums">{y.yearAvg.toFixed(1)}</span> h/week
+                    {' '}· active <span className="font-semibold text-slate-600 tabular-nums">{y.yearAvgActive.toFixed(1)}</span> h/week
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-6">
@@ -589,26 +678,42 @@ export default function Analysis() {
                       <thead>
                         <tr className="border-b border-slate-200 text-slate-500">
                           <th className="text-left px-2 py-1.5 font-medium">Work Week</th>
-                          {y.cols.map(c => (
-                            <th key={c.week} className="text-center px-1 py-1.5 font-medium tabular-nums">{c.week}</th>
+                          {y.cols.map((c, ci) => (
+                            <th key={c.week} className="text-center px-1 py-1.5 font-medium tabular-nums"
+                              style={ci > 0 && c.quartile && c.quartile !== y.cols[ci - 1].quartile ? { boxShadow: 'inset 2px 0 0 0 #64748b' } : null}
+                              title={c.quartile || ''}>{c.week}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         <tr className="border-b border-slate-100 bg-slate-50/60">
                           <td className="px-2 py-1.5 font-semibold text-slate-700">{y.year} [h]</td>
-                          {y.cols.map(c => (
-                            <td key={c.week} style={heatStyle(c.total, y.maxTotal)} className="px-1 py-1.5 text-center tabular-nums font-semibold text-slate-800">{c.total > 0 ? c.total.toFixed(1) : ''}</td>
+                          {y.cols.map((c, ci) => (
+                            <td key={c.week} style={{
+                              ...heatStyle(c.total, y.maxTotal),
+                              ...(ci > 0 && c.quartile && c.quartile !== y.cols[ci - 1].quartile ? { boxShadow: 'inset 2px 0 0 0 #64748b' } : null),
+                            }} className="px-1 py-1.5 text-center tabular-nums font-semibold text-slate-800">{c.total > 0 ? c.total.toFixed(1) : ''}</td>
                           ))}
                         </tr>
                         {DOW.map((d, di) => (
                           <tr key={d} className="border-b border-slate-50">
                             <td className="px-2 py-1 text-slate-500">{d}</td>
-                            {y.cols.map(c => (
-                              <td key={c.week} style={heatStyle(c.day[di], y.maxDay)} className={`px-1 py-1 text-center tabular-nums ${c.day[di] > 0 ? 'text-slate-600' : 'text-slate-300'}`}>
-                                {c.day[di] > 0 ? c.day[di].toFixed(1) : ''}
-                              </td>
-                            ))}
+                            {y.cols.map((c, ci) => {
+                              const dateStr = addDaysISO(c.monday, di)
+                              const isExam = dayFlags.exam.has(dateStr)
+                              const isUni = !isExam && dayFlags.uni.has(dateStr)
+                              const shadows = []
+                              if (ci > 0 && c.quartile && c.quartile !== y.cols[ci - 1].quartile) shadows.push('inset 2px 0 0 0 #64748b')
+                              if (isExam) shadows.push('inset 0 0 0 2px #dc2626')
+                              else if (isUni) shadows.push('inset 0 0 0 2px #9333ea')
+                              return (
+                                <td key={c.week} style={{ ...heatStyle(c.day[di], y.maxDay), ...(shadows.length ? { boxShadow: shadows.join(', ') } : null) }}
+                                  title={[dateStr, c.quartile, isExam ? 'exam day' : isUni ? 'at uni' : ''].filter(Boolean).join(' · ')}
+                                  className={`px-1 py-1 text-center tabular-nums ${c.day[di] > 0 ? 'text-slate-600' : 'text-slate-300'}`}>
+                                  {c.day[di] > 0 ? c.day[di].toFixed(1) : ''}
+                                </td>
+                              )
+                            })}
                           </tr>
                         ))}
                       </tbody>
@@ -617,17 +722,38 @@ export default function Analysis() {
                   <div className="shrink-0">
                     <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Average per weekday (h/week)</div>
                     <table className="text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-slate-400">
+                          <th className="pr-4 py-1 text-left font-medium">Day</th>
+                          <th className="px-2 py-1 text-right font-medium" title="All weeks in span">All</th>
+                          <th className="px-2 py-1 text-right font-medium" title="Active days/weeks only (>0h)">Active</th>
+                          {quartileStats.map(q => (
+                            <th key={q.key} className="px-2 py-1 text-right font-medium" title={`${q.key}: ${q.total.toFixed(0)}h over ${q.weeks} weeks`}>{q.key.replace(/^\d{4} · /, '')}</th>
+                          ))}
+                        </tr>
+                      </thead>
                       <tbody>
                         {DOW.map((d, i) => (
                           <tr key={d} className="border-b border-slate-50">
                             <td className="pr-4 py-1 text-slate-500">{d}</td>
-                            <td className="text-right tabular-nums font-medium text-slate-700" style={heatStyleDay(y.dayAvg[i], Math.max(...y.dayAvg))}>
+                            <td className="px-2 text-right tabular-nums font-medium text-slate-700" style={heatStyleDay(y.dayAvg[i], Math.max(...y.dayAvg))}>
                               {y.dayAvg[i].toFixed(2)}
                             </td>
+                            <td className="px-2 text-right tabular-nums font-medium text-slate-700" style={heatStyleDay(y.activeDayAvg[i], Math.max(...y.activeDayAvg, 0.001))}>
+                              {y.activeDayAvg[i].toFixed(2)}
+                            </td>
+                            {quartileStats.map(q => (
+                              <td key={q.key} className="px-2 text-right tabular-nums text-slate-600">
+                                {q.dayAvg[i] > 0 ? q.dayAvg[i].toFixed(2) : '—'}
+                              </td>
+                            ))}
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    {quartileStats.length > 0 && (
+                      <p className="text-[10px] text-slate-400 mt-1">Quartile columns cover all logged data (course scope), not just the filters above.</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -695,13 +821,18 @@ export default function Analysis() {
       <div>
         <h2 className="text-sm font-semibold text-slate-700 mb-2">Trends ({GRANULARITIES.find(g => g.value === gran)?.label})</h2>
         <p className="text-[10px] text-slate-400 mb-2">
-          Full selected range is plotted; the line is a rolling average whose window adapts to the amount of data.
-          Leave the date fields empty to see your entire history.
+          Full selected range is plotted; each line is a rolling average whose window adapts to the amount of data.
+          Shaded bands mark quartiles (Academic Year ranges). Leave the date fields empty to see your entire history.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {METRICS.map(m => (
-            <TrendCard key={m.key} title={m.title} data={trends[m.key]} color={m.color} domain={m.domain} />
-          ))}
+          <DualTrendCard title="Wellbeing & efficiency"
+            left={{ ...METRICS.wellbeing, data: trends.wellbeing }}
+            right={{ ...METRICS.efficiency, data: trends.efficiency }}
+            bands={trendBands} note="Shared 0–10 scale." />
+          <DualTrendCard title="Study hours & XP"
+            left={{ ...METRICS.hours, data: trends.hours }}
+            right={{ ...METRICS.xp, data: trends.xp }}
+            bands={trendBands} note="Hours on the left axis, XP on the right." />
         </div>
       </div>
 
