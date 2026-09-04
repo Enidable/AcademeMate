@@ -16,7 +16,7 @@ import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, isContentMirrorEvent, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -453,10 +453,6 @@ function makeWorkRow() {
   }
 }
 
-function escapeRe(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 // Give every calendar event (lectures, tutorials, practicals, exams, …) a
 // stable incremental id in the form {abbrev}-{LETTER}-{NN} (e.g. ML1-L-01).
 // One sequence per course across ALL scheduled types, so the number just keeps
@@ -464,6 +460,12 @@ function escapeRe(s) {
 // Exam-family events (exam / exam review / resit) are deliberately skipped:
 // they belong to the exam GRADE component (e.g. NLPE1), never to a scheduled
 // lecture ID, so lectures always start at 01.
+//
+// Issue #53: lecture IDs are assigned ONCE and never renumbered. Re-imports
+// only fill in rows that have no lecture ID yet (fresh timetable rows); every
+// existing ID is kept verbatim — even one that no longer matches the current
+// abbreviation pattern — because sessions, planner notes and content rows cite
+// these strings, and renumbering orphans that history.
 const EXAM_FAMILY = new Set(['exam', 'exam review', 'resit'])
 
 function assignLectureIds(rows, courses) {
@@ -480,43 +482,77 @@ function assignLectureIds(rows, courses) {
     const c = courseById[courseName] || {}
     // Readable abbreviation (stored or derived) over the numeric code.
     const abbrev = (c.abbrev || deriveAbbrev(courseName) || c.code).replace(/\s+/g, '-')
-    // One incremental sequence per course across ALL scheduled types
-    // (ML1-L-01, then a practical becomes ML1-P-02). Only a lectureId that
-    // already matches the current base + letter format (ABBR-L-01 or legacy
-    // ABBR-L01) is kept — anything else (e.g. old code-based IDs like
-    // 202200109-01) is re-numbered against the current base, so re-imports
-    // converge on the readable abbreviation IDs instead of keeping the old ones.
-    const pat = new RegExp(`^${escapeRe(abbrev)}[- ][A-Za-z]{1,2}[- ]?(\\d+)$`, 'i')
-    // If the sequence doesn't start at 01 (e.g. an exam previously consumed 01
-    // before it was moved to a component ID), renumber from scratch so lectures
-    // always start at 01. Once it starts at 01 the numbering stays stable.
-    const existingNums = evs
-      .map(r => r.lectureId && pat.exec(String(r.lectureId)))
-      .filter(Boolean)
-      .map(m => parseInt(m[1], 10))
-    if (existingNums.length > 0 && Math.min(...existingNums) > 1) {
-      for (const r of evs) r.lectureId = null
-    }
     const taken = new Set()
     let max = 0
     for (const r of evs) {
-      const m = r.lectureId && pat.exec(String(r.lectureId))
-      if (m) {
-        const num = parseInt(m[1], 10)
-        taken.add(num)
-        max = Math.max(max, num)
-      }
+      if (!r.lectureId) continue
+      taken.add(String(r.lectureId))
+      const m = /(\d+)\s*$/.exec(String(r.lectureId))
+      if (m) max = Math.max(max, parseInt(m[1], 10))
     }
     evs.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || ''))
     let next = max + 1
     for (const r of evs) {
-      if (r.lectureId && pat.exec(String(r.lectureId))) continue
-      while (taken.has(next)) next++
-      taken.add(next)
+      if (r.lectureId) continue
+      while (taken.has(`${abbrev}-${(typeLetter(inferEventType(r.summary, r.description)) || '')}-${String(next).padStart(2, '0')}`)) next++
       const letter = typeLetter(inferEventType(r.summary, r.description)) || ''
-      r.lectureId = `${abbrev}-${letter}-${String(next).padStart(2, '0')}`
+      const id = `${abbrev}-${letter}-${String(next).padStart(2, '0')}`
+      taken.add(id)
+      r.lectureId = id
+      next++
     }
   }
+}
+
+// Issue #53: stable timetable identity. A re-downloaded .ics (or a per-course
+// file added next to the old ones) must resolve to the SAME calendar rows —
+// UID regeneration, file re-slicing or an added course must never mint
+// duplicate rows or re-key history. Matching is three tiers:
+//   1. uid|date — identical re-download (fast path, incl. same-day time moves
+//      since the key ignores start time);
+//   2. fingerprint course|date|start|normalized-summary — same class whose
+//      .ics UID changed (the #53 breakage);
+//   3. legacy slot course|date|start — same slot, different class title
+//      (adopts the row anchor only, never the lecture/content linkage).
+// The fingerprint deliberately excludes end time/location/description (those
+// are updated onto the adopted row) and excludes UID (volatile). Summaries
+// carry a trailing university course code ("Machine Learning I. 202500276")
+// which is stripped so code-vs-name variants still match.
+function normSummary(s) {
+  return String(s || '').toLowerCase()
+    .replace(/\.\s*\d{6,9}\s*$/, '')
+    .replace(/[.,;:_()[\]{}"'`´‘’“”]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function eventFingerprint(e) {
+  if (!e || !e.course || !e.date) return null
+  return `${e.course}|${e.date}|${e.startTime || ''}|${normSummary(e.summary)}`
+}
+
+// Pre-import snapshot (issue #53): the calendar + syllabus state before an
+// .ics import write, so any import can be undone. Stored under its own key
+// (the regular am_state cache deliberately excludes calendarEvents).
+const IMPORT_SNAPSHOT_KEY = 'am_import_snapshot'
+
+function saveImportSnapshot(calendarEvents, content) {
+  try {
+    localStorage.setItem(IMPORT_SNAPSHOT_KEY, JSON.stringify({
+      at: new Date().toISOString(),
+      calendarEvents: calendarEvents || [],
+      content: content || [],
+    }))
+  } catch (e) {
+    console.error('import snapshot save failed (quota?):', e)
+  }
+}
+
+function loadImportSnapshot() {
+  try {
+    const raw = localStorage.getItem(IMPORT_SNAPSHOT_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
 }
 
 export function AppDataProvider({ children }) {
@@ -992,49 +1028,61 @@ export function AppDataProvider({ children }) {
     }
 
     const existing = dataRef.current?.calendarEvents || []
-    // Issue #49: a timetable event's identity is its recurring series uid +
-    // day, NOT its start time — so when the university moves a class to a
-    // different hour on the same day, the re-import keeps the SAME calendar row
-    // (same cal_ id, cal_id, lecture id), and sessions/additional entries that
-    // reference it never lose their anchor.
-    //
-    // Some institutions regenerate the .ics UIDs on every download, which would
-    // break even the uid+day key. The same recurring slot (course + date + start
-    // time) is then used as a fallback so rows stay linked across a full
-    // re-import: row ids, cal_ids, lecture ids AND content links all carry over.
+    // Issue #53: a re-import MERGES into the existing Calendar tab — it never
+    // rebuilds it. Identity is three tiers (see eventFingerprint): uid|date
+    // (identical re-download, incl. same-day time moves since the key ignores
+    // start time), then the content fingerprint course|date|start|summary
+    // (same class, regenerated UID — the #53 breakage), then the legacy slot
+    // course|date|start (same slot, different class: adopts the row anchor
+    // only, never the lecture/content linkage, which is recomputed below).
+    // Adopted rows keep id, calId, lectureId AND contentId; mutable timetable
+    // fields (times, summary, location, description, source, uid, status) are
+    // refreshed from the fresh parse. Rows the new files no longer list are
+    // kept (see union below) — imports never delete.
     const slotOf = e => (e && e.course && e.date) ? `${e.course}|${e.date}|${e.startTime || ''}` : null
-    const calByKey = new Map()
-    const lectureByKey = new Map()
-    const idByKey = new Map()
-    const contentByKey = new Map()
-    const calBySlot = new Map()
-    const lectureBySlot = new Map()
-    const idBySlot = new Map()
-    const contentBySlotMap = new Map()
+    const byUidDate = new Map()
+    const byFingerprint = new Map()
+    const bySlot = new Map()
     for (const e of existing) {
       const k = `${e.uid}|${e.date}`
-      if (e.calId && !calByKey.has(k)) calByKey.set(k, e.calId)
-      if (e.lectureId && !lectureByKey.has(k)) lectureByKey.set(k, e.lectureId)
-      if (e.contentId && !contentByKey.has(k)) contentByKey.set(k, e.contentId)
-      if (e.id && !idByKey.has(k)) idByKey.set(k, e.id)
+      if (e.uid && !byUidDate.has(k)) byUidDate.set(k, e)
+      const f = eventFingerprint(e)
+      if (f && !byFingerprint.has(f)) byFingerprint.set(f, e)
       const s = slotOf(e)
-      if (s) {
-        if (e.id && !idBySlot.has(s)) idBySlot.set(s, e.id)
-        if (e.calId && !calBySlot.has(s)) calBySlot.set(s, e.calId)
-        if (e.lectureId && !lectureBySlot.has(s)) lectureBySlot.set(s, e.lectureId)
-        if (e.contentId && !contentBySlotMap.has(s)) contentBySlotMap.set(s, e.contentId)
-      }
+      if (s && !bySlot.has(s)) bySlot.set(s, e)
     }
+    let adoptedByUid = 0
+    let adoptedByFingerprint = 0
+    let adoptedBySlot = 0
+    let timeUpdated = 0
     const merged = rows.map(r => {
-      const k = `${r.uid}|${r.date}`
-      const s = slotOf(r)
-      return {
-        ...r,
-        id: idByKey.get(k) || (s ? idBySlot.get(s) : null) || null,
-        calId: calByKey.get(k) || (s ? calBySlot.get(s) : null) || null,
-        lectureId: lectureByKey.get(k) || (s ? lectureBySlot.get(s) : null) || null,
-        contentId: contentByKey.get(k) || (s ? contentBySlotMap.get(s) : null) || null,
+      const fp = eventFingerprint(r)
+      const hit = (r.uid && byUidDate.get(`${r.uid}|${r.date}`))
+        || (fp && byFingerprint.get(fp))
+        || null
+      if (hit) {
+        if (hit.uid && r.uid && hit.uid === r.uid) adoptedByUid++
+        else adoptedByFingerprint++
+        if ((hit.startTime || '') !== (r.startTime || '') || (hit.endTime || '') !== (r.endTime || '')) timeUpdated++
+        return {
+          ...hit,
+          ...r,
+          id: hit.id,
+          calId: hit.calId || null,
+          lectureId: hit.lectureId || null,
+          contentId: hit.contentId || null,
+        }
       }
+      const s = slotOf(r)
+      const slotHit = s ? bySlot.get(s) : null
+      if (slotHit) {
+        adoptedBySlot++
+        // Same slot, different class: keep the row anchor (id/calId) so the
+        // calendar stays deduplicated, but drop the old lecture/content
+        // linkage — it belongs to the previous class, not this one.
+        return { ...r, id: slotHit.id, calId: slotHit.calId || null, lectureId: null, contentId: null }
+      }
+      return { ...r, id: null, calId: null, lectureId: null, contentId: null }
     })
 
     assignLectureIds(merged, courses)
@@ -1078,11 +1126,21 @@ export function AppDataProvider({ children }) {
     }
     const content = [...existingContent]
     const consumed = new Set()
+    // Fresh syllabus rows get stable content_ row ids (milestone 1 scheme),
+    // never the composite Course||lecture|date||topic display key — the row id
+    // is the foreign key sessions (lecture_content_id) and calendar rows
+    // (content_id) point at, so it must be stable from birth.
+    const contentIdSeq = existingContent.map(i => i && i.id).filter(Boolean)
+    const freshContentId = () => {
+      const id = nextId('content_', contentIdSeq)
+      contentIdSeq.push(id)
+      return id
+    }
 
     const makeItem = (r, type) => {
       const topic = r.summary || r.lectureId
       return {
-        id: `${r.course}||${r.lectureId}|${r.date}||${topic}`,
+        id: freshContentId(),
         course: r.course,
         course2: null,
         contentId: r.lectureId,
@@ -1109,7 +1167,7 @@ export function AppDataProvider({ children }) {
     const makeExamItem = (r, id) => {
       const topic = r.summary || id
       return {
-        id: `${r.course}||${id}|${r.date}||${topic}`,
+        id: freshContentId(),
         course: r.course,
         course2: null,
         contentId: id,
@@ -1135,8 +1193,17 @@ export function AppDataProvider({ children }) {
 
     // Reuse (or create) the syllabus entry for one calendar event, deduplicating
     // against every existing entry that points at the same element/occurrence.
-    // Returns the kept entry (the re-keyed existing one or the freshly created
-    // one) so callers can exclude it from later clean-up.
+    // Returns the kept entry (the existing one or the freshly created one).
+    //
+    // Issue #53: the merge never re-keys a content row (the row id is the
+    // lecture_content_id / content_id FK sessions and events point at —
+    // rewriting it orphaned history, the exact #52 breakage) and never drops
+    // a row that sessions still reference. When several entries point at the
+    // same element/occurrence, the referenced one wins; unreferenced
+    // duplicates of it are dropped.
+    const sessionContentRefs = new Set()
+    for (const s of dataRef.current?.studyLog || []) if (s.lectureContentId) sessionContentRefs.add(s.lectureContentId)
+    const isContentReferenced = i => !!i && (sessionContentRefs.has(i.id) || !!i.calendarId)
     const reconcile = (r, type) => {
       if (!r.lectureId || !r.course) return null
       const candidates = []
@@ -1145,12 +1212,13 @@ export function AppDataProvider({ children }) {
       consider(contentByLecture.get(`${r.course}|${r.lectureId}`))
       if (r.calId) for (const i of contentByCal.get(`${r.course}|${r.calId}`) || []) consider(i)
       for (const i of contentByOccurrence.get(`${r.course}|${r.date}|${r.startTime}`) || []) consider(i)
-      const chosen = candidates.find(i => !consumed.has(i.id))
-      for (const c of candidates) if (c !== chosen) consumed.add(c.id)
+      const live = candidates.filter(i => !consumed.has(i.id))
+      const chosen = live.find(isContentReferenced) || live[0] || null
+      for (const c of candidates) if (c !== chosen && !isContentReferenced(c)) consumed.add(c.id)
       if (chosen) {
         if (chosen.contentId !== r.lectureId) {
+          contentByLecture.delete(`${chosen.course}|${chosen.contentId}`)
           chosen.contentId = r.lectureId
-          chosen.id = `${r.course}||${r.lectureId}|${r.date}||${chosen.topic || r.lectureId}`
           contentByLecture.set(`${r.course}|${r.lectureId}`, chosen)
         }
         chosen.date = r.date
@@ -1217,21 +1285,22 @@ export function AppDataProvider({ children }) {
     }
 
     // Exam-family syllabus rows are deadline-shaped (date: null); any row of
-    // that family still carrying a scheduled date is a stale leftover.
+    // that family still carrying a scheduled date is a stale leftover — unless
+    // sessions still reference it, in which case history wins and it stays.
     for (const i of existingContent) {
-      if (EXAM_FAMILY.has(i.type) && i.date && !i.deadline) consumed.add(i.id)
+      if (EXAM_FAMILY.has(i.type) && i.date && !i.deadline && !isContentReferenced(i)) consumed.add(i.id)
     }
 
     const contentFinal = content.filter(i => !consumed.has(i.id))
 
-    // Preserve previously imported personal Google Calendar events and manual
-    // calendar elements (content:… mirrors). They are NOT part of the .ics
-    // timetable and must survive an .ics re-import — otherwise the Calendar tab
-    // silently loses them every time the timetable is refreshed.
-    const preserved = existing.filter(e =>
-      e.personalImport || isContentMirrorEvent(e) || (e.source && !String(e.source).endsWith('.ics')),
-    )
-    let calendarFinal = [...merged, ...preserved]
+    // Issue #53: the import is a union, never a rebuild. Every existing row
+    // survives — timetable rows the new files no longer list, personal Google
+    // Calendar imports, and manual calendar elements (content:… mirrors). Rows
+    // absent from the fresh parse keep their ids and links untouched, so no
+    // re-import can silently drop an event a session, entry or note anchors.
+    const mergedIds = new Set(merged.map(r => r && r.id).filter(Boolean))
+    const keptStale = existing.filter(e => e && e.id && !mergedIds.has(e.id))
+    let calendarFinal = [...merged, ...keptStale]
 
     // Link the imported events to their content rows and make sure any
     // user-added scheduled row that has no calendar row yet (e.g. a meeting
@@ -1241,21 +1310,10 @@ export function AppDataProvider({ children }) {
     ensureScheduledContentCalendarLinks(linked)
     calendarFinal = linked.calendarEvents
 
-    // Issue #49: never drop a timetable event that a logged session / additional
-    // entry (event_id) or a content row (calendar_id) still references, even if
-    // the refreshed .ics no longer lists it (the university moved it, an exam
-    // was rescheduled…). The event is the anchor of a fact — it stays.
-    const referencedIds = new Set()
-    for (const s of dataRef.current?.studyLog || []) if (s.eventId) referencedIds.add(s.eventId)
-    for (const a of dataRef.current?.additionalLog || []) if (a.eventId) referencedIds.add(a.eventId)
-    for (const i of contentFinal || []) if (i.calendarId) referencedIds.add(i.calendarId)
-    const anchored = existing.filter(e =>
-      e && e.id && referencedIds.has(e.id) &&
-      (e.source || '').endsWith('.ics') &&
-      !calendarFinal.some(ev => ev && ev.id === e.id),
-    )
-    if (anchored.length > 0) calendarFinal = [...calendarFinal, ...anchored]
-
+    // Snapshot before the write (issue #53): the pre-import calendar +
+    // syllabus state, so any import can be undone from the Calendar tab.
+    saveImportSnapshot(dataRef.current?.calendarEvents || [], dataRef.current?.content || [])
+    const contentAdded = contentFinal.filter(i => !existingContent.some(x => x.id === i.id)).length
     const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: contentFinal }
     const planner = plannerRef.current || []
     setAll(d, planner)
@@ -1264,7 +1322,39 @@ export function AppDataProvider({ children }) {
       [TAB_CALENDAR]: serializeCalendar(calendarFinal, courseIdMap),
       [TAB_CONTENT]: serializeContent(contentFinal, courseIdMap),
     })
-    return { imported: merged.length, files: files.length }
+    return {
+      imported: merged.length,
+      files: files.length,
+      added: merged.filter(r => !existing.some(e => e.id === r.id)).length,
+      adoptedByUid,
+      adoptedByFingerprint,
+      adoptedBySlot,
+      timeUpdated,
+      keptStale: keptStale.length,
+      contentAdded,
+    }
+  }
+
+  // Undo the last .ics import (issue #53): restores the snapshotted calendar +
+  // syllabus state and writes it back to Drive. Sessions logged after the
+  // import keep their ids — the restore only moves the timetable/syllabus back.
+  async function restoreImportSnapshot() {
+    const info = driveRef.current
+    if (!info) throw new Error('Connect to Drive first')
+    const snap = loadImportSnapshot()
+    if (!snap || !Array.isArray(snap.calendarEvents)) throw new Error('No pre-import snapshot found.')
+    const d = { ...(dataRef.current || {}), calendarEvents: snap.calendarEvents, content: snap.content || dataRef.current?.content || [] }
+    const linked = { calendarEvents: d.calendarEvents, content: d.content }
+    ensureScheduledContentCalendarLinks(linked)
+    d.calendarEvents = linked.calendarEvents
+    d.content = linked.content
+    setAll(d, plannerRef.current || [])
+    const courseIdMap = new Map((d.courses || []).map(c => [c.course, c.id || c.code || null]))
+    await writeTabsBatch(info.fileId, {
+      [TAB_CALENDAR]: serializeCalendar(d.calendarEvents, courseIdMap),
+      [TAB_CONTENT]: serializeContent(d.content, courseIdMap),
+    })
+    return { restoredEvents: d.calendarEvents.length, at: snap.at || null }
   }
 
   // Import the events of one of the user's own Google calendars (work, personal,
@@ -2419,6 +2509,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       refreshFromCSVs,
       importCSVToTab,
       importCalendarFromDrive,
+      restoreImportSnapshot,
       importGoogleCalendar,
       listUserCalendars,
       pushCalendarToGoogle,

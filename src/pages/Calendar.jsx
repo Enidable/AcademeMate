@@ -66,7 +66,7 @@ function monthGrid(year, month) {
 export default function Calendar() {
   const {
     calendarEvents, deadlines, content, hasDrive, driveError, masterCourses,
-    importCalendarFromDrive, importGoogleCalendar, listUserCalendars, pushCalendarToGoogle,
+    importCalendarFromDrive, restoreImportSnapshot, importGoogleCalendar, listUserCalendars, pushCalendarToGoogle,
   } = useAppData()
 
   const [mode, setMode] = useState('week')
@@ -253,9 +253,33 @@ export default function Calendar() {
     setMessage('')
     try {
       const res = await importCalendarFromDrive()
-      setMessage(`Imported ${res.imported} events from ${res.files} .ics file(s).`)
+      // Issue #53: the import merges — report what actually happened so a
+      // surprising result is visible immediately, while it can still be undone.
+      const parts = []
+      if (res.added) parts.push(`${res.added} new`)
+      if (res.timeUpdated) parts.push(`${res.timeUpdated} moved`)
+      if (res.contentAdded) parts.push(`${res.contentAdded} syllabus new`)
+      if (res.keptStale) parts.push(`${res.keptStale} kept (no longer in files)`)
+      setMessage(`Merged ${res.imported} events from ${res.files} .ics file(s)` +
+        (parts.length ? ` — ${parts.join(', ')}.` : ' — no changes.') +
+        ' Nothing was deleted; use “Undo last import” below if this looks wrong.')
     } catch (e) {
       setMessage(`Import failed: ${e.message}`)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function runUndoImport() {
+    if (!window.confirm('Restore the calendar + syllabus state from before the last .ics import? Sessions you logged since are kept.')) return
+    setBusy('undimport')
+    setMessage('')
+    try {
+      const res = await restoreImportSnapshot()
+      setMessage(`Import undone — restored ${res.restoredEvents} calendar events` +
+        (res.at ? ` (snapshot from ${res.at}).` : '.'))
+    } catch (e) {
+      setMessage(`Undo failed: ${e.message}`)
     } finally {
       setBusy('')
     }
@@ -383,8 +407,14 @@ export default function Calendar() {
 
         <div className="ml-auto flex items-center gap-2">
           <button onClick={runImport} disabled={!hasDrive || busy !== ''}
-            className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 cursor-pointer">
+            className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
+            title="Merges the Drive iCal .ics files into the calendar — nothing is deleted, and the previous state is snapshotted for undo">
             {busy === 'import' ? 'Importing…' : '↧ Import .ics'}
+          </button>
+          <button onClick={runUndoImport} disabled={!hasDrive || busy !== ''}
+            className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50 cursor-pointer text-slate-600"
+            title="Restore the calendar + syllabus state from before the last .ics import (sessions you logged since are kept)">
+            {busy === 'undimport' ? 'Undoing…' : '↩ Undo last import'}
           </button>
           <button onClick={openCalImport} disabled={!hasDrive || busy !== ''}
             className="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-500 disabled:opacity-50 cursor-pointer">
