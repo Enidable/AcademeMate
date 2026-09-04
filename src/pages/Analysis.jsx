@@ -40,7 +40,7 @@ function heatStyleDay(v, max) {
 }
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  ReferenceArea, BarChart, Bar, Cell,
+  ReferenceArea, BarChart, Bar, Cell, ScatterChart, Scatter, ZAxis,
 } from 'recharts'
 
 function pad(n) {
@@ -852,7 +852,41 @@ export default function Analysis() {
         <p className="text-[10px] text-slate-400 mb-3">
           Per course: logged time, weekly pace while active, grade, and average efficiency/wellbeing —
           to see which courses paid off for the effort and where prioritisation pays.
+          Only graded courses plot below; bubble size = sessions. Click a bubble to filter this tab to that course.
         </p>
+        {courseOutcomes.some(r => r.grade != null) && (
+          <div className="h-64 mb-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 8, right: 16, bottom: 0, left: -14 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="hours" name="Total hours" tick={{ fontSize: 9 }} type="number"
+                  domain={['auto', 'auto']} label={{ value: 'Total hours', fontSize: 10, fill: '#94a3b8', position: 'insideBottom', offset: -2 }} />
+                <YAxis dataKey="grade" name="Grade" tick={{ fontSize: 9 }} type="number" domain={['auto', 'auto']}
+                  label={{ value: 'Grade', fontSize: 10, fill: '#94a3b8', angle: -90, position: 'insideLeft' }} />
+                <ZAxis dataKey="sessions" name="Sessions" type="number" range={[50, 500]} />
+                <Tooltip cursor={{ strokeDasharray: '3 3' }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const p = payload[0].payload
+                    return (
+                      <div className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs shadow-sm">
+                        <p className="font-semibold text-slate-700 mb-1">{p.course}</p>
+                        <p className="text-slate-500 tabular-nums">{p.hours.toFixed(1)}h · grade {p.grade.toFixed(1)} · {p.sessions} sessions</p>
+                        <p className="text-slate-400 tabular-nums">{p.avgWeek.toFixed(1)} h/week over {p.weeks} weeks</p>
+                      </div>
+                    )
+                  }} />
+                <Scatter data={courseOutcomes.filter(r => r.grade != null).map(r => ({ ...r }))}
+                  onClick={node => { const c = node?.payload?.course; if (c) setCourseFilter(c) }}
+                  style={{ cursor: 'pointer' }}>
+                  {courseOutcomes.filter(r => r.grade != null).map(r => (
+                    <Cell key={r.course} fill={r.color.dotCss?.backgroundColor || '#6366f1'} fillOpacity={0.65} />
+                  ))}
+                </Scatter>
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+        )}
         {courseOutcomes.length === 0 ? (
           <p className="text-xs text-slate-400 py-4 text-center">No course data yet.</p>
         ) : (
