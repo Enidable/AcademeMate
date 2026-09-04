@@ -40,7 +40,7 @@ function heatStyleDay(v, max) {
 }
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  ScatterChart, Scatter, ReferenceArea,
+  ReferenceArea, BarChart, Bar, Cell,
 } from 'recharts'
 
 function pad(n) {
@@ -92,24 +92,6 @@ function makeCategoryNormalizer() {
   }
 }
 
-// Pearson correlation coefficient of two equal-length numeric arrays.
-function pearson(xs, ys) {
-  const n = Math.min(xs.length, ys.length)
-  if (n < 3) return null
-  let sx = 0, sy = 0
-  for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i] }
-  const mx = sx / n, my = sy / n
-  let num = 0, dx = 0, dy = 0
-  for (let i = 0; i < n; i++) {
-    const a = xs[i] - mx, b = ys[i] - my
-    num += a * b
-    dx += a * a
-    dy += b * b
-  }
-  const den = Math.sqrt(dx * dy)
-  return den === 0 ? null : num / den
-}
-
 // Buckets (sorted) -> rolling-average series. The window ADAPTS to the amount
 // of data: short ranges stay responsive, multi-year ranges still show a smooth
 // long-term line — while always plotting the FULL selected range.
@@ -133,6 +115,13 @@ const METRICS = {
   efficiency: { name: 'Efficiency', color: '#f59e0b', domain: [0, 10] },
   hours: { name: 'Study hours', color: '#6366f1' },
   xp: { name: 'XP earned', color: '#8b5cf6' },
+}
+
+// Short quartile label with year ("2026 · Q1" -> "26 Q1") — every year has
+// four quartiles, so the year is part of the label.
+function shortQuartile(key) {
+  const [y, p] = String(key || '').split(' · ')
+  return `${(y || '').slice(2)} ${p || ''}`.trim()
 }
 
 function tickLabel(key) {
@@ -167,45 +156,11 @@ function DualTrendCard({ title, left, right, bands, note }) {
               <Tooltip formatter={v => Number(v).toFixed(2)} labelFormatter={k => tickLabel(k)} labelStyle={{ fontSize: 11 }} />
               {(bands || []).map(b => (
                 <ReferenceArea key={b.label} yAxisId="left" x1={b.x1} x2={b.x2} fill="#f1f5f9" fillOpacity={0.7}
-                  label={{ value: b.label.replace(/^\d{4} · /, ''), fontSize: 9, fill: '#94a3b8', position: 'insideTopLeft' }} />
+                  label={{ value: shortQuartile(b.label), fontSize: 9, fill: '#94a3b8', position: 'insideTopLeft' }} />
               ))}
               <Line yAxisId="left" type="monotone" dataKey="l" name={left.name} stroke={left.color} strokeWidth={2} dot={false} connectNulls />
               <Line yAxisId="right" type="monotone" dataKey="r" name={right.name} stroke={right.color} strokeWidth={2} dot={false} connectNulls />
             </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function CorrelationCard({ title, points, xLabel, yLabel }) {
-  const r = pearson(points.map(p => p.x), points.map(p => p.y))
-  const strength = r == null ? '—' : `${r > 0 ? '+' : ''}${r.toFixed(2)}`
-  const tone = r == null ? 'bg-slate-100 text-slate-500'
-    : Math.abs(r) >= 0.5 ? (r > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700')
-    : Math.abs(r) >= 0.25 ? 'bg-amber-100 text-amber-700'
-    : 'bg-slate-100 text-slate-500'
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${tone}`} title="Pearson correlation coefficient">
-          r = {strength}
-        </span>
-      </div>
-      {points.length < 3 ? (
-        <p className="text-xs text-slate-400 py-8 text-center">Not enough data.</p>
-      ) : (
-        <div className="h-40">
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 4, right: 8, bottom: 0, left: -22 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="x" name={xLabel} tick={{ fontSize: 9 }} type="number" domain={['auto', 'auto']} />
-              <YAxis dataKey="y" name={yLabel} tick={{ fontSize: 9 }} type="number" domain={['auto', 'auto']} />
-              <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(v, n) => [Number(v).toFixed(2), n]} labelStyle={{ fontSize: 11 }} />
-              <Scatter data={points} fill="#6366f1" fillOpacity={0.55} />
-            </ScatterChart>
           </ResponsiveContainer>
         </div>
       )}
@@ -219,10 +174,14 @@ export default function Analysis() {
   } = useAppData()
 
   const [gran, setGran] = useState('week')
+  const [tab, setTab] = useState('overview')
   const [courseFilter, setCourseFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [rangeFrom, setRangeFrom] = useState('')
   const [rangeTo, setRangeTo] = useState('')
+  // Project comparison selection (issue #48): excluded project keys. Everything
+  // else is selected, so newly logged projects join the comparison by default.
+  const [excludedProjects, setExcludedProjects] = useState([])
 
   // Per-course XP inputs (same model as the Dashboard curve).
   const xpInputs = useMemo(() => {
@@ -389,41 +348,6 @@ export default function Analysis() {
     }).filter(Boolean)
   }, [trends, quartileRanges])
 
-  // --- Correlation datasets ----------------------------------------------
-  const scatters = useMemo(() => {
-    const effDur = entries
-      .filter(e => e.efficiency != null && (e.durationHours || 0) > 0)
-      .map(e => ({ x: +(e.durationHours).toFixed(2), y: e.efficiency }))
-    // Daily hours vs that day's average wellbeing.
-    const byDay = new Map()
-    for (const e of entries) {
-      if (!byDay.has(e.date)) byDay.set(e.date, { hours: 0, wells: [] })
-      const d = byDay.get(e.date)
-      d.hours += e.durationHours || 0
-      if (e.wellbeing != null) d.wells.push(e.wellbeing)
-    }
-    const wellHours = []
-    for (const [, d] of byDay) {
-      if (d.wells.length === 0) continue
-      wellHours.push({ x: +d.hours.toFixed(2), y: +(d.wells.reduce((s, v) => s + v, 0) / d.wells.length).toFixed(2) })
-    }
-    const effWell = entries
-      .filter(e => e.efficiency != null && e.wellbeing != null)
-      .map(e => ({ x: e.wellbeing, y: e.efficiency }))
-    const effStart = entries
-      .filter(e => e.efficiency != null && /^\d{1,2}:\d{2}/.test(e.startTime || ''))
-      .map(e => {
-        const [h, m] = e.startTime.split(':').map(Number)
-        return { x: h + m / 60, y: e.efficiency }
-      })
-    return [
-      { title: 'Efficiency vs study duration', points: effDur, xLabel: 'Duration (h)', yLabel: 'Efficiency' },
-      { title: 'Efficiency vs wellbeing', points: effWell, xLabel: 'Wellbeing', yLabel: 'Efficiency' },
-      { title: 'Wellbeing vs study hours (per day)', points: wellHours, xLabel: 'Hours/day', yLabel: 'Wellbeing' },
-      { title: 'Efficiency vs time of day', points: effStart, xLabel: 'Session start (h)', yLabel: 'Efficiency' },
-    ]
-  }, [entries])
-
   // --- Workload guidance (study hours) -------------------------------------
   const prediction = useMemo(() => {
     // Weekly aggregates over ALL history: study hours, additional commitments
@@ -539,9 +463,47 @@ export default function Analysis() {
     }).sort((a, b) => a.key.localeCompare(b.key))
   }, [inputLog, masterCourses, academicYears])
 
+  // --- Projects (issue #48) --------------------------------------------------
+  // Time investment per project, across courses: total hours, session count
+  // and first→last span from the session project field. The table is the
+  // selector — unticked projects drop out of the comparison below, so a
+  // current project can be held against any hand-picked set of past ones.
+  const projects = useMemo(() => {
+    const map = new Map()
+    for (const e of entries) {
+      const name = String(e.project || '').trim()
+      if (!name || !(e.durationHours > 0)) continue
+      const k = name.toLowerCase()
+      if (!map.has(k)) map.set(k, { key: k, name, courses: new Set(), hours: 0, sessions: 0, first: e.date, last: e.date })
+      const p = map.get(k)
+      if (e.course) p.courses.add(e.course)
+      p.hours += e.durationHours || 0
+      p.sessions += 1
+      if (e.date < p.first) p.first = e.date
+      if (e.date > p.last) p.last = e.date
+    }
+    return [...map.values()].sort((a, b) => b.hours - a.hours)
+  }, [entries])
+
+  const selectedProjects = useMemo(
+    () => projects.filter(p => !excludedProjects.includes(p.key)),
+    [projects, excludedProjects],
+  )
+
+  const projectSummary = useMemo(() => {
+    if (!selectedProjects.length) return null
+    const hs = selectedProjects.map(p => p.hours)
+    return {
+      n: selectedProjects.length,
+      total: hs.reduce((s, v) => s + v, 0),
+      avg: hs.reduce((s, v) => s + v, 0) / hs.length,
+      min: Math.min(...hs),
+      max: Math.max(...hs),
+    }
+  }, [selectedProjects])
+
   // --- Per-course outcomes --------------------------------------------------
-  const courseOutcomes = useMemo(() => {
-    const gradeOf = name => gradeComponents?.find(g => g.course === name)?.totalGrade ?? null
+  const courseOutcomes = useMemo(() => {    const gradeOf = name => gradeComponents?.find(g => g.course === name)?.totalGrade ?? null
     const rows = []
     for (const c of masterCourses || []) {
       const entries = (inputLog || []).filter(e => e.course === c.course && e.durationHours > 0)
@@ -601,6 +563,109 @@ export default function Analysis() {
         </div>
       </div>
 
+      {/* Sub-tabs: overview vs projects (issue #48) */}
+      <div className="flex rounded-lg border border-slate-200 overflow-hidden w-fit">
+        {[{ value: 'overview', label: 'Overview' }, { value: 'projects', label: 'Projects' }].map(t => (
+          <button key={t.value} onClick={() => setTab(t.value)}
+            className={`text-xs px-4 py-1.5 cursor-pointer ${tab === t.value ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'projects' ? (
+      <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+        <h2 className="text-sm font-semibold text-slate-700 mb-1">Project timelines — time investment per project</h2>
+        <p className="text-[10px] text-slate-400 mb-3">
+          Across courses, from the session project field. Untick projects to drop them from the comparison —
+          hold a current project against any hand-picked set of past ones to estimate it.
+        </p>
+        {projects.length === 0 ? (
+          <p className="text-xs text-slate-400 py-4 text-center">No logged project sessions in this range — tag sessions with a project in the Time Log.</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-3 mb-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">Selected</p>
+                <p className="text-2xl font-bold text-slate-800 tabular-nums">{projectSummary.n}
+                  <span className="text-xs text-slate-400 font-medium ml-2">projects</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">Total</p>
+                <p className="text-2xl font-bold text-slate-800 tabular-nums">{projectSummary.total.toFixed(1)}h</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">Average per project</p>
+                <p className="text-2xl font-bold text-indigo-600 tabular-nums">{projectSummary.avg.toFixed(1)}h</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">Range</p>
+                <p className="text-2xl font-bold text-slate-800 tabular-nums">{projectSummary.min.toFixed(1)}–{projectSummary.max.toFixed(1)}h</p>
+              </div>
+              <div className="ml-auto flex gap-2">
+                <button onClick={() => setExcludedProjects([])}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer text-slate-600">Select all</button>
+                <button onClick={() => setExcludedProjects(projects.map(p => p.key))}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer text-slate-600">Select none</button>
+              </div>
+            </div>
+            {selectedProjects.length > 0 && (
+              <div className="h-56 mb-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={selectedProjects} layout="vertical" margin={{ top: 0, right: 16, bottom: 0, left: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 9 }} />
+                    <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={140} />
+                    <Tooltip formatter={v => [`${Number(v).toFixed(1)}h`, 'Total']} labelStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="hours" name="Total hours" radius={[0, 4, 4, 0]}>
+                      {selectedProjects.map(p => (
+                        <Cell key={p.key} fill={getCourseStyle([...p.courses][0] || '').dotCss?.backgroundColor || '#6366f1'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <table className="w-full text-xs border-collapse min-w-[560px]">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500">
+                  <th className="px-2 py-1.5 w-8" />
+                  <th className="text-left px-2 py-1.5 font-medium">Project</th>
+                  <th className="text-left px-2 py-1.5 font-medium">Courses</th>
+                  <th className="text-right px-2 py-1.5 font-medium">Sessions</th>
+                  <th className="text-right px-2 py-1.5 font-medium">Total h</th>
+                  <th className="text-right px-2 py-1.5 font-medium">First</th>
+                  <th className="text-right px-2 py-1.5 font-medium">Last</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.map(p => {
+                  const on = !excludedProjects.includes(p.key)
+                  return (
+                    <tr key={p.key} className={`border-b border-slate-50 hover:bg-slate-50/60 ${on ? '' : 'opacity-40'}`}>
+                      <td className="px-2 py-1.5 text-center">
+                        <input type="checkbox" checked={on} onChange={() => setExcludedProjects(
+                          on ? [...excludedProjects, p.key] : excludedProjects.filter(k => k !== p.key),
+                        )} className="cursor-pointer" title={on ? 'Exclude from comparison' : 'Include in comparison'} />
+                      </td>
+                      <td className="px-2 py-1.5 text-slate-700 font-medium">{p.name}</td>
+                      <td className="px-2 py-1.5 text-slate-500">{[...p.courses].join(', ')}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{p.sessions}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-slate-800">{p.hours.toFixed(1)}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{formatDateShort(p.first)}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{formatDateShort(p.last)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+      ) : (
+      <>
+
       {/* Study load guidance */}
       <div className={`rounded-xl border p-4 ${prediction.over ? 'border-red-200 bg-red-50' : prediction.aboveAvg ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
         <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
@@ -654,9 +719,9 @@ export default function Analysis() {
           The <span className="font-medium text-slate-500">Year [h]</span> row is that week's total. Cells are tinted by
           intensity: warm (orange) for low hours, cool (blue) for high. The daily averages use yellow → purple so
           the busiest weekday stands out.
-          {' '}<span className="inline-block w-2 h-2 rounded-[2px] align-middle" style={{ boxShadow: 'inset 0 0 0 2px #9333ea' }} />{' '}
+          {' '}<span className="inline-block w-2 h-2 rounded-[2px] align-middle" style={{ boxShadow: 'inset 0 0 0 1px #a855f7' }} />{' '}
           = day at uni (University-location session),
-          {' '}<span className="inline-block w-2 h-2 rounded-[2px] align-middle" style={{ boxShadow: 'inset 0 0 0 2px #dc2626' }} />{' '}
+          {' '}<span className="inline-block w-2 h-2 rounded-[2px] align-middle" style={{ boxShadow: 'inset 0 0 0 1px #ef4444' }} />{' '}
           = exam day, thick left rule = quartile boundary (Academic Year ranges).
         </p>
         {weeklyBreakdown.length === 0 ? (
@@ -704,8 +769,8 @@ export default function Analysis() {
                               const isUni = !isExam && dayFlags.uni.has(dateStr)
                               const shadows = []
                               if (ci > 0 && c.quartile && c.quartile !== y.cols[ci - 1].quartile) shadows.push('inset 2px 0 0 0 #64748b')
-                              if (isExam) shadows.push('inset 0 0 0 2px #dc2626')
-                              else if (isUni) shadows.push('inset 0 0 0 2px #9333ea')
+                              if (isExam) shadows.push('inset 0 0 0 1px #ef4444')
+                              else if (isUni) shadows.push('inset 0 0 0 1px #a855f7')
                               return (
                                 <td key={c.week} style={{ ...heatStyle(c.day[di], y.maxDay), ...(shadows.length ? { boxShadow: shadows.join(', ') } : null) }}
                                   title={[dateStr, c.quartile, isExam ? 'exam day' : isUni ? 'at uni' : ''].filter(Boolean).join(' · ')}
@@ -728,7 +793,7 @@ export default function Analysis() {
                           <th className="px-2 py-1 text-right font-medium" title="All weeks in span">All</th>
                           <th className="px-2 py-1 text-right font-medium" title="Active days/weeks only (>0h)">Active</th>
                           {quartileStats.map(q => (
-                            <th key={q.key} className="px-2 py-1 text-right font-medium" title={`${q.key}: ${q.total.toFixed(0)}h over ${q.weeks} weeks`}>{q.key.replace(/^\d{4} · /, '')}</th>
+                            <th key={q.key} className="px-2 py-1 text-right font-medium" title={`${q.key}: ${q.total.toFixed(0)}h over ${q.weeks} weeks`}>{shortQuartile(q.key)}</th>
                           ))}
                         </tr>
                       </thead>
@@ -762,61 +827,6 @@ export default function Analysis() {
         )}
       </div>
 
-      {/* Quartile analysis */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
-        <h2 className="text-sm font-semibold text-slate-700 mb-1">Quartile analysis</h2>
-        <p className="text-[10px] text-slate-400 mb-3">
-          Sessions grouped by the year + quartile of their course — how much you actually studied per period,
-          per week, per course and per weekday. Use it to judge how many courses you can handle per quartile.
-        </p>
-        {quartileStats.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4 text-center">
-            No quartile data yet — set Year and Quartile on your courses so sessions can be grouped.
-          </p>
-        ) : (
-          <table className="w-full text-xs border-collapse min-w-[560px]">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500">
-                <th className="text-left px-2 py-1.5 font-medium">Period</th>
-                <th className="text-center px-2 py-1.5 font-medium">Courses</th>
-                <th className="text-center px-2 py-1.5 font-medium">Weeks</th>
-                <th className="text-right px-2 py-1.5 font-medium">Total h</th>
-                <th className="text-right px-2 py-1.5 font-medium">Avg h/week</th>
-                <th className="text-right px-2 py-1.5 font-medium">h/course/week</th>
-                <th className="text-left px-2 py-1.5 font-medium">Avg per weekday</th>
-              </tr>
-            </thead>
-            <tbody>
-              {quartileStats.map(q => (
-                <tr key={q.key} className="border-b border-slate-50 hover:bg-slate-50/60 align-top">
-                  <td className="px-2 py-1.5">
-                    <div className="font-medium text-slate-700 whitespace-nowrap">{q.key}</div>
-                    <div className="text-[10px] text-slate-400 whitespace-nowrap">{formatDateShort(q.start)} – {formatDateShort(q.end)}</div>
-                  </td>
-                  <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">{q.nCourses}</td>
-                  <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">{q.weeks}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{q.total.toFixed(0)}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-slate-800">{q.avgWeek.toFixed(1)}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-indigo-600 font-medium">{q.avgPerCourse.toFixed(1)}</td>
-                  <td className="px-2 py-1.5">
-                    <table className="text-[10px] w-full">
-                      <tbody>
-                        {DOW.map((d, i) => (
-                          <tr key={d}>
-                            <td className="pr-2 text-slate-400">{d}</td>
-                            <td className="text-right tabular-nums text-slate-600">{q.dayAvg[i].toFixed(1)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
       {/* Trends */}
       <div>
         <h2 className="text-sm font-semibold text-slate-700 mb-2">Trends ({GRANULARITIES.find(g => g.value === gran)?.label})</h2>
@@ -833,16 +843,6 @@ export default function Analysis() {
             left={{ ...METRICS.hours, data: trends.hours }}
             right={{ ...METRICS.xp, data: trends.xp }}
             bands={trendBands} note="Hours on the left axis, XP on the right." />
-        </div>
-      </div>
-
-      {/* Correlations */}
-      <div>
-        <h2 className="text-sm font-semibold text-slate-700 mb-2">Correlations</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {scatters.map(s => (
-            <CorrelationCard key={s.title} title={s.title} points={s.points} xLabel={s.xLabel} yLabel={s.yLabel} />
-          ))}
         </div>
       </div>
 
@@ -893,6 +893,9 @@ export default function Analysis() {
           </table>
         )}
       </div>
+
+      </>
+      )}
 
       <div className="h-16" />
     </div>
