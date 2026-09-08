@@ -466,25 +466,20 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     return map
   }, [inputLog])
 
-  // Which calendar events have already been logged (so their scheduled auto
-  // entry doesn't double-count once a session/additional entry exists for it).
-  // A session is indexed under BOTH keys when it has both: its content-row FK
-  // (content:…) and its lecture string (course|lectureId). Calendar rows only
-  // ever carry one of the two (content_id may be missing until a relink), so
-  // the lookup below matches whichever key the session actually landed on.
-  const loggedEvents = useMemo(() => {
-    const study = new Set()
-    for (const s of inputLog || []) {
-      if (!s.date) continue
-      if (s.lectureContentId) study.add('content:' + s.lectureContentId)
-      if (s.course && s.lectureId) study.add(`course:${s.course}|${s.lectureId}`)
-    }
+  // Which ADDITIONAL-time entries already exist for a calendar event's key, so
+  // a scheduled additional event (Work / …) that was logged directly (no event
+  // link) stops contributing its schedule hours. Study sessions are matched
+  // per-event below (eventId FK, or a same-day course + lecture/content-id
+  // match) — deliberately NOT through a date-agnostic id set, which would tick a
+  // class off from a session logged on any other day (e.g. the prep/homework
+  // logged the day before a lecture).
+  const loggedAdditionalKeys = useMemo(() => {
     const addl = new Set()
     for (const a of additionalLog || []) {
       if (a.date && a.category && a.task) addl.add(`${a.date}|${a.category}|${a.task}`)
     }
-    return { study, addl }
-  }, [inputLog, additionalLog])
+    return addl
+  }, [additionalLog])
 
   // Logs indexed by their calendar-event FK (issue #49): a session / additional
   // entry created by ticking an auto entry carries the event's row id, so "has
@@ -655,17 +650,20 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       // the scheduled hours of its calendar events must not count on top.
       const addlLoggedThatDay = isAdditional && (additionalLog || []).some(a => a.date === e.date && a.category === rowName)
       const fkLogged = isAdditional ? (fkAddl.length > 0 || addlLoggedThatDay) : fkSessions.length > 0
-      const legacyLogged = isAdditional
-        ? loggedEvents.addl.has(`${e.date}|${rowName}|${e.summary}`) || addlLoggedThatDay
-        : !!((e.contentId && loggedEvents.study.has('content:' + e.contentId)) || loggedEvents.study.has(`course:${rowName}|${e.lectureId}`))
-      const logged = fkLogged || legacyLogged
       // Sessions logged before the event_id FK existed still count as actual
-      // hours for the class when they match its lecture/content id on its day.
-      const legacySessions = fkSessions.length === 0 && !isAdditional && legacyLogged && e.course
+      // hours for a class when they match its lecture/content id ON THE CLASS
+      // DAY. Sessions on any other day — e.g. the prep/homework logged ahead of
+      // a lecture, whose plan row carries the lecture's id — are not the class
+      // itself and must never tick it off. Sessions that already have their own
+      // planner row (planId) are likewise counted via that row, never here.
+      const legacySessions = !isAdditional && e.course
         ? (inputLog || []).filter(s =>
             !s.planId && s.date === e.date && s.course === e.course &&
             ((e.contentId && s.lectureContentId === e.contentId) || (e.lectureId && s.lectureId === e.lectureId)))
         : []
+      const logged = isAdditional
+        ? (fkLogged || (loggedAdditionalKeys.has(`${e.date}|${rowName}|${e.summary}`)))
+        : (fkLogged || legacySessions.length > 0)
       // Attendance (issue #42): classes marked "Skip" in the course show greyed
       // out in the planner (still listed, still loggable if you do go).
       const attendRow = !isAdditional ? (linkedContent || contentBySlot.get(`${rowName}|${e.date}|${e.startTime || ''}`) || null) : null
@@ -764,7 +762,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
     }
     map.__courses = [...courseRows]
     return map
-  }, [calendarEvents, deadlines, dates, today, inputLog, additionalLog, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedEvents, sessionsByEvent, addlByEvent, catOverrides])
+  }, [calendarEvents, deadlines, dates, today, inputLog, additionalLog, noteById, contentById, prepById, prepByLecture, contentBySlot, loggedAdditionalKeys, sessionsByEvent, addlByEvent, catOverrides])
 
   // Rows of the plan matrix: one row per course (active first, then name, with
   // "Other University Stuff" pinned to the bottom), plus a separate band for the
