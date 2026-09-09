@@ -25,7 +25,7 @@ function seedSession(e) {
       date: '', startTime: '', endTime: '', durationHours: '',
       course: '', category: '', project: '', location: '',
       efficiency: '', wellbeing: '', lectureId: '', lectureContentId: '',
-      transportMode: '', commuteTime: '', notes: '',
+      transportMode: '', commuteTime: '', notes: '', recapSummary: '',
     }
   }
   return {
@@ -44,6 +44,7 @@ function seedSession(e) {
     transportMode: e.transportMode || '',
     commuteTime: e.commuteTime != null ? String(e.commuteTime) : '',
     notes: e.notes || '',
+    recapSummary: e.recapSummary || '',
   }
 }
 
@@ -158,6 +159,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
         location: preset.location || '',
         lectureId: preset.lectureId || '',
         lectureContentId: preset.lectureContentId || '',
+        recapSummary: preset.recapSummary || '',
       })
     } else {
       setForm(seedSession(initial))
@@ -344,6 +346,13 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
       alert('Pick a course for this session first.')
       return
     }
+    const recapSummary = (form.recapSummary || '').trim()
+    // A recap is filed under a project or lecture ID (Week in Review), so it can
+    // only be saved when the session points at one of the two.
+    if (recapSummary && !form.project && !form.lectureId) {
+      alert('A Recap Summary must be tied to a Project or a Lecture/Class. Pick one of the two above (or clear the recap).')
+      return
+    }
     const start = form.startTime ? form.startTime + ':00' : ''
     const end = form.endTime ? form.endTime + ':00' : ''
     const dh = parseFloat(String(form.durationHours).replace(',', '.')) || 0
@@ -366,6 +375,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
       transportMode: form.transportMode || null,
       commuteTime: form.commuteTime ? parseFloat(form.commuteTime) : null,
       notes: form.notes || null,
+      recapSummary: recapSummary || null,
     }
     if (isEdit && initial?.id) updateSession(initial.id, payload)
     else {
@@ -378,7 +388,7 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
       if (preset?.eventId) payload.eventId = preset.eventId
       addSession(payload)
     }
-    setForm({ date: '', startTime: '', endTime: '', durationHours: '', course: '', category: '', project: '', location: '', efficiency: '', wellbeing: '', lectureId: '', transportMode: '', commuteTime: '', notes: '' })
+    setForm({ date: '', startTime: '', endTime: '', durationHours: '', course: '', category: '', project: '', location: '', efficiency: '', wellbeing: '', lectureId: '', transportMode: '', commuteTime: '', notes: '', recapSummary: '' })
     onClose()
   }
 
@@ -509,6 +519,12 @@ export function AddSessionModal({ open, onClose, initial, preset }) {
         <div>
           <label className="text-xs text-slate-500 block mb-1">Notes</label>
           <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" rows={2} />
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">Recap Summary</label>
+          <textarea value={form.recapSummary || ''} onChange={e => setForm(f => ({ ...f, recapSummary: e.target.value }))} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300" rows={3} placeholder="What did you work on / cover? Buzzwords & key terms — shown in the Week in Review tab." />
+          <p className="text-[10px] text-slate-400 mt-1">Requires a Project or Lecture/Class above — the recap is filed under its ID.</p>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

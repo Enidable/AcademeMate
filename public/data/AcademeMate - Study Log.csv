@@ -1,4 +1,4 @@
-id,date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes,plan_id,lecture_content_id,event_id
+id,date,start_time,end_time,duration_hours,duration_minutes,course_id,category,project,location,efficiency,wellbeing,lecture_id,transport_mode,commute_minutes,notes,plan_id,lecture_content_id,event_id,recap_summary
 ,20/07/2026,08:45,10:45,2,120,System Identification with Parameter Estimation and Machine Learning,Exam,,University,,,,Bicycle,90,,,
 ,19/07/2026,12:24,17:15,4.85,291,System Identification with Parameter Estimation and Machine Learning,Studying,,Home,2,5,,,,,,
 ,18/07/2026,21:21,22:00,0.65,39,System Identification with Parameter Estimation and Machine Learning,Studying,,Home,,,,,,,,
@@ -390,21 +390,21 @@ id,date,start_time,end_time,duration_hours,duration_minutes,course_id,category,p
 ,16/02/2026,14:14,15:14,1,60,Design Principles for Robotic and Mechatronic Mechanisms,Studying,,Parents,5,6,DPPM5,,,,,
 ,16/02/2026,13:56,14:14,0.3,18,Advanced Software Development for Robotics,Project Work,ASDfR 1,Parents,4,6,,,,,,
 ,16/02/2026,07:30,12:00,4.5,270,Work,Project Work,,Parents,2,7,,,,,,
-,15/02/2026,10:59,11:08,0.15,9,Design Principles for Robotic and Mechatronic Mechanisms,Studying,,Parents,2,6,DPPM5,,,,,
+,15/02/2026,10:59,11:08,0.15,9,Design Principles for Robotic and Mechatronic Mechanisms,Studying,,Parents,2,6,DPPM5,,,,,,,"Final pass over DPPM5: gear-train selection, load cases and failure criteria; re-derived torque/speed trade-offs. Key terms: transmission ratio, service factor, bearing life."
 ,13/02/2026,14:30,15:45,1.25,75,Professional and Personal Development,Meeting,PPD 1,University,7,7,,Public Transport,120,,,
-,13/02/2026,11:10,12:22,1.2,72,Design Principles for Robotic and Mechatronic Mechanisms,Lecture,,Home,4,5,DPPM5,,,,,
+,13/02/2026,11:10,12:22,1.2,72,Design Principles for Robotic and Mechatronic Mechanisms,Lecture,,Home,4,5,DPPM5,,,,,,,"Lecture DPPM5 - mechanism design review: linkage synthesis, cam profiles and tolerance stacking. Key terms: four-bar linkage, dwell, backlash."
 ,12/02/2026,19:29,20:02,0.55,33,Professional and Personal Development,Project Work,PPD 1,Home,8,6,,,,,,
 ,12/02/2026,16:55,19:28,2.55,153,Other University Stuff,Other,,Home,5,5,,,,,,
 ,12/02/2026,10:30,16:30,6,360,Work,Project Work,,Home Office,7,5,,,,,,
-,12/02/2026,09:30,10:21,0.85,51,Biomechanics of Human Movement,Lecture,,Home,5,5,BMHM4,,,,,
-,11/02/2026,13:30,17:21,3.85,231,Advanced Software Development for Robotics,Meeting,ASDfR 1,University,4,8,,,,,,
-,11/02/2026,11:30,13:27,1.95,117,Biomechanics of Human Movement,Practical,BMHM 1,University,7,6,,Bicycle,80,,,
+,12/02/2026,09:30,10:21,0.85,51,Biomechanics of Human Movement,Lecture,,Home,5,5,BMHM4,,,,,,,"Lecture BMHM4 - inverse dynamics of gait: joint torques, ground reaction forces and segmental energy. Key terms: gait cycle, centre of pressure, inverse dynamics."
+,11/02/2026,13:30,17:21,3.85,231,Advanced Software Development for Robotics,Meeting,ASDfR 1,University,4,8,,,,,,,,"Group stand-up ASDfR 1 - split robot-arm submodules, defined interfaces, merged CMake targets. Key terms: ROS2, state machine, joint limits."
+,11/02/2026,11:30,13:27,1.95,117,Biomechanics of Human Movement,Practical,BMHM 1,University,7,6,,Bicycle,80,,,,,"Practical BMHM 1 - marker-based motion capture: calibration, gap filling, joint-angle extraction. Key terms: joint coordinate system, soft tissue artefact."
 ,11/02/2026,09:00,10:00,1,60,Necesarry Self Care,Health,,,3,5,,,,,,
 ,10/02/2026,15:30,16:00,0.5,30,Biomechanics of Human Movement,Meeting,BMHM 1,University,,,,,,,,
-,10/02/2026,12:30,15:30,3,180,Advanced Software Development for Robotics,Meeting,ASDfR 1,University,,,,,,,,
+,10/02/2026,12:30,15:30,3,180,Advanced Software Development for Robotics,Meeting,ASDfR 1,University,,,,,,,,,,"ASDfR 1 integration: controller tuning on the sim and odometry-drift checks. Key terms: PID, dead reckoning, teleop."
 ,10/02/2026,10:45,12:30,1.75,105,Advanced Software Development for Robotics,Lecture,,University,,,ASDfR2,,,,,
 ,10/02/2026,09:15,10:30,1.25,75,Design Principles for Robotic and Mechatronic Mechanisms,Lecture,,University,,,DPPM4,Public Transport,120,,,
-,09/02/2026,14:19,17:34,3.25,195,Advanced Software Development for Robotics,Project Work,ASDfR 1,Home,,,,,,,,
+,09/02/2026,14:19,17:34,3.25,195,Advanced Software Development for Robotics,Project Work,ASDfR 1,Home,,,,,,,,,,"ASDfR 1 - implemented inverse-kinematics solver and unit tests; refactored trajectory planner. Key terms: DH parameters, path planning."
 ,09/02/2026,09:51,13:15,3.4,204,Work,Project Work,,Home Office,,,,,,,,
 ,09/02/2026,08:00,09:30,1.5,90,Necesarry Self Care,Health,,,,,,,,,,
 ,08/02/2026,22:26,22:47,0.35,21,System Improvement (Spreadsheet),Project Work,AkademeMate,Home,,,,,,,,

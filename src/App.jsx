@@ -6,6 +6,7 @@ import DailyPlanner from './pages/DailyPlanner'
 import WeeklyOverview from './pages/WeeklyOverview'
 import Analysis from './pages/Analysis'
 import TimeLog from './pages/TimeLog'
+import WeekInReview from './pages/WeekInReview'
 import Courses from './pages/Courses'
 import Calendar from './pages/Calendar'
 import AdditionalTimeLog from './pages/AdditionalTimeLog'
@@ -32,6 +33,7 @@ const pages = {
   'Daily Planner': { component: DailyPlanner, title: 'Daily Planner' },
   Analysis: { component: Analysis, title: 'Analysis' },
   'Time Log': { component: TimeLog, title: 'Time Log' },
+  'Week in Review': { component: WeekInReview, title: 'Week in Review' },
   Courses: { component: Courses, title: 'Courses' },
   Calendar: { component: Calendar, title: 'Calendar' },
   'Additional Time Log': { component: AdditionalTimeLog, title: 'Additional Time Log' },
@@ -140,6 +142,7 @@ function AppContent() {
     'Weekly Overview': {},
     'Daily Planner': {},
     'Time Log': { onAddSession: () => { setSessionPreset(null); setModal('session') } },
+    'Week in Review': {},
     Courses: { onAddCourse: () => setModal('course') },
     Calendar: { onAddDeadline: () => setModal('deadline') },
     'Additional Time Log': { onAddAdditional: () => setAdditionalModal({ preset: null, existingId: null }) },
@@ -149,6 +152,7 @@ function AppContent() {
   const pageProps = {
     Dashboard: { inputLog, courses: masterCourses, deadlines, weeklyHours, gradeComponents, onLogTask: t => { setSessionPreset(t); setModal('session') }, onLogAdditional: (preset, existingId) => setAdditionalModal({ preset, existingId }) },
     'Time Log': { entries: inputLog },
+    'Week in Review': {},
     Courses: { courses: masterCourses },
     Calendar: {},
     'Weekly Overview': {},

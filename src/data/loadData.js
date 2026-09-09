@@ -58,6 +58,7 @@ function parseStudyLog(rows, rc) {
         planId: (r.plan_id || '').trim() || null,
         lectureContentId: (r.lecture_content_id || '').trim() || null,
         eventId: (r.event_id || '').trim() || null,
+        recapSummary: (r.recap_summary || '').trim() || null,
       }
     })
 }

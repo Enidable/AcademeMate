@@ -5,6 +5,7 @@ const navItems = [
   { name: 'Weekly Overview', icon: '🗂️' },
   { name: 'Daily Planner', icon: '📋' },
   { name: 'Time Log', icon: '⏱' },
+  { name: 'Week in Review', icon: '🗒️' },
   { name: 'Analysis', icon: '📈' },
   { name: 'Courses', icon: '📚' },
   { name: 'Calendar', icon: '📅' },

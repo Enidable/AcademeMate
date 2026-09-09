@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { formatDate, formatTime, getCourseStyle, getCategoryStyle, getEfficiencyBar, getWellbeingBar, normalizeCategory, truncate, isCourseActive } from '../utils/helpers'
 import { useAppData } from '../context/AppDataContext'
 import { AddSessionModal } from '../components/forms/Modals'
@@ -12,6 +12,7 @@ export default function TimeLog({ entries }) {
   const [filterCategory, setFilterCategory] = useState('All')
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
 
   const { deleteSession, masterCourses } = useAppData()
 
@@ -148,6 +149,7 @@ export default function TimeLog({ entries }) {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
+              <th className="w-8"></th>
               {sortableHeader('Date', 'date')}
               {sortableHeader('Start', 'startTime')}
               <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-3">End</th>
@@ -167,8 +169,17 @@ export default function TimeLog({ entries }) {
               const style = getCourseStyle(entry.course, colorByCourse[entry.course])
               const effBar = getEfficiencyBar(entry.efficiency)
               const wellBar = getWellbeingBar(entry.wellbeing)
+              const isOpen = expandedId === entry.id
               return (
-                <tr key={`${entry.date}-${entry.startTime}-${i}`} className="hover:bg-slate-50 group">
+                <Fragment key={`${entry.date}-${entry.startTime}-${i}`}>
+                <tr className="hover:bg-slate-50 group">
+                  <td className="px-2 py-2.5 text-center">
+                    <button type="button" onClick={() => setExpandedId(isOpen ? null : entry.id)}
+                      className="text-slate-300 hover:text-slate-600 cursor-pointer transition-transform"
+                      title={isOpen ? 'Hide details' : 'Show recap summary & notes'}>
+                      <span className={`inline-block transition-transform ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                    </button>
+                  </td>
                   <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{formatDate(entry.date)}</td>
                   <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{formatTime(entry.startTime)}</td>
                   <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{formatTime(entry.endTime)}</td>
@@ -224,6 +235,42 @@ export default function TimeLog({ entries }) {
                     </div>
                   </td>
                 </tr>
+                {isOpen && (
+                  <tr className="bg-slate-50/60 border-t border-b border-slate-100">
+                    <td colSpan={13} className="px-6 py-4">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                        {entry.lectureId && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Lecture {entry.lectureId}</span>
+                        )}
+                        {entry.project && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Project / Assignment {entry.project}</span>
+                        )}
+                        {!entry.lectureId && !entry.project && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">No lecture or project tied to this session</span>
+                        )}
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="bg-white rounded-lg border border-slate-200 p-3">
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1.5">Recap Summary</p>
+                          {entry.recapSummary ? (
+                            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{entry.recapSummary}</p>
+                          ) : (
+                            <p className="text-xs text-slate-300 italic">No recap summary — open a session with a Project or Lecture/Class and fill the Recap Summary box.</p>
+                          )}
+                        </div>
+                        <div className="bg-white rounded-lg border border-slate-200 p-3">
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1.5">Notes</p>
+                          {entry.notes ? (
+                            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{entry.notes}</p>
+                          ) : (
+                            <p className="text-xs text-slate-300 italic">No notes.</p>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               )
             })}
           </tbody>
