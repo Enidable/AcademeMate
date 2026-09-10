@@ -712,7 +712,9 @@ export function AppDataProvider({ children }) {
   async function healCourses(d, savedLocal) {
     healCoursesFromLocal(d, savedLocal)
     healContentFromLocal(d, savedLocal)
+    const studyLogChanged = healStudyLogFromLocal(d, savedLocal)
     await fillCourseGapsFromTemplate(d)
+    return { studyLogChanged }
   }
 
   // Recover syllabus content from the last-known-good localStorage snapshot:
@@ -747,6 +749,52 @@ export function AppDataProvider({ children }) {
     }
   }
 
+  // User-authored session fields a stale device can silently blank out when it
+  // writes the whole Study Log tab back (Google Sheets is last-write-wins). The
+  // recap summary is the worst offender: a device that loaded before the recap
+  // existed serialises it as empty, so the note vanishes from the log even
+  // though the session row survives. Links (plan/lecture/event ids) are left to
+  // the regular backfill passes — only the visible session content is healed.
+  const SESSION_GAP_FIELDS = ['startTime', 'endTime', 'durationHours', 'category', 'project', 'location', 'efficiency', 'wellbeing', 'lectureId', 'transportMode', 'commuteTime', 'notes', 'recapSummary']
+
+  // Recover study sessions from the last-known-good localStorage snapshot:
+  //  • an existing session (matched by stable id, then by date+start+course)
+  //    has its empty fields filled from local — Drive wins on conflicts;
+  //  • a session Drive no longer lists at all is re-added, so a full-tab
+  //    overwrite can't wipe a logged session (and its recap) for good.
+  // Idempotent — returns whether anything changed.
+  function healStudyLogFromLocal(d, savedLocal) {
+    const local = savedLocal?.data?.studyLog
+    if (!Array.isArray(local) || local.length === 0) return false
+    const keyOf = s => `${s.date || ''}|${s.startTime || ''}|${s.course || ''}|${s.durationHours || 0}`
+    const driveById = new Map()
+    const driveByKey = new Map()
+    for (const s of d.studyLog || []) {
+      if (s.id) driveById.set(s.id, s)
+      const k = keyOf(s)
+      if (!driveByKey.has(k)) driveByKey.set(k, s)
+    }
+    let changed = false
+    for (const l of local) {
+      if (!l || !l.course || !l.date) continue
+      const existing = (l.id && driveById.get(l.id)) || driveByKey.get(keyOf(l))
+      if (existing) {
+        for (const field of SESSION_GAP_FIELDS) {
+          if ((existing[field] == null || existing[field] === '') && l[field] != null && l[field] !== '') {
+            existing[field] = l[field]
+            changed = true
+          }
+        }
+      } else {
+        d.studyLog.push({ ...l })
+        if (l.id) driveById.set(l.id, l)
+        driveByKey.set(keyOf(l), l)
+        changed = true
+      }
+    }
+    return changed
+  }
+
   async function loadAndApplyFromDrive(file, savedLocal = null) {
     const info = { fileId: file.id, fileUrl: file.webViewLink, user: resolveUser() }
     setDrive(info)
@@ -756,7 +804,7 @@ export function AppDataProvider({ children }) {
     // A brand-new spreadsheet is a clean slate: never heal the stale
     // localStorage snapshot (which may still hold the bundled example data
     // from a previous connection) back into it.
-    await healCourses(d, file.createdNew ? null : savedLocal)
+    const { studyLogChanged } = await healCourses(d, file.createdNew ? null : savedLocal)
     cleanContent(d)
     assignEntityIds(d)
     // Rows restored by the heal may need their calendar link too.
@@ -764,6 +812,8 @@ export function AppDataProvider({ children }) {
     if ((ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) && driveRef.current) syncTabs(['dailyPlan'])
     if (contentCalChanged2 && driveRef.current) syncTabs(['content', 'calendarEvents'])
     if (commuteChanged && driveRef.current) syncTabs(['additionalLog'])
+    // Push healed recaps/sessions back so every other device sees them too.
+    if (studyLogChanged && driveRef.current) syncTabs(['studyLog'])
 
     dataRef.current = d
     plannerRef.current = p
@@ -909,12 +959,13 @@ export function AppDataProvider({ children }) {
     try {
       const rowsByTab = await readAllTabs(info.fileId)
       const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged } = buildState(rowsByTab)
-      await healCourses(d, loadJSON())
+      const { studyLogChanged } = await healCourses(d, loadJSON())
       cleanContent(d)
       const contentCalChanged2 = ensureScheduledContentCalendarLinks(d) || contentCalChanged
       if (ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) syncTabs(['dailyPlan'])
       if (contentCalChanged2) syncTabs(['content', 'calendarEvents'])
       if (commuteChanged) syncTabs(['additionalLog'])
+      if (studyLogChanged) syncTabs(['studyLog'])
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt
