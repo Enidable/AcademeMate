@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { computeXp, courseWeightFor, XP_CONSTANTS } from '../data/xp'
-import { formatDateShort, getCourseStyle } from '../utils/helpers'
+import { formatDateShort, getCourseStyle, shortCourseName } from '../utils/helpers'
 import { isoWeekOf, weekdayIndex, mondayOfWeek } from '../data/normalize'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -40,7 +40,7 @@ function heatStyleDay(v, max) {
 }
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  ReferenceArea, BarChart, Bar, Cell, ScatterChart, Scatter, ZAxis,
+  ReferenceArea, BarChart, Bar, Cell,
 } from 'recharts'
 
 function pad(n) {
@@ -115,6 +115,32 @@ const METRICS = {
   efficiency: { name: 'Efficiency', color: '#f59e0b', domain: [0, 10] },
   hours: { name: 'Study hours', color: '#6366f1' },
   xp: { name: 'XP earned', color: '#8b5cf6' },
+}
+
+// Recharts needs concrete fills (the Tailwind classes in getCategoryStyle can't
+// be passed to SVG). Hues mirror categoryVariants in utils/helpers.js so a
+// category keeps one colour across the app; unknown/custom labels are hashed
+// into a stable palette.
+const CATEGORY_HEX = {
+  Studying: '#3b82f6',
+  Lecture: '#a855f7',
+  'Project Work': '#6366f1',
+  'Group Work': '#14b8a6',
+  Practical: '#06b6d4',
+  Exam: '#ef4444',
+  'Exam Prep': '#f97316',
+  Exercise: '#22c55e',
+  Meeting: '#f59e0b',
+  Presentation: '#8b5cf6',
+  Work: '#6b7280',
+  Other: '#64748b',
+}
+const CATEGORY_PALETTE = ['#0ea5e9', '#d946ef', '#f43f5e', '#84cc16', '#eab308', '#14b8a6', '#8b5cf6', '#f97316', '#22c55e', '#ef4444', '#3b82f6', '#a855f7']
+function categoryHex(cat) {
+  if (CATEGORY_HEX[cat]) return CATEGORY_HEX[cat]
+  let h = 0
+  for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) | 0
+  return CATEGORY_PALETTE[Math.abs(h) % CATEGORY_PALETTE.length]
 }
 
 // Short quartile label with year ("2026 · Q1" -> "26 Q1") — every year has
@@ -531,6 +557,37 @@ export default function Analysis() {
     return rows.sort((a, b) => b.hours - a.hours)
   }, [masterCourses, inputLog, gradeComponents])
 
+  // Per-course hour investment, split by session category (studying, lecture,
+  // project work, group work, …) for the stacked bars. Respects the date range
+  // and category filter, but deliberately NOT the course filter: all courses
+  // stay visible so clicking a bar can (un)filter the rest of the tab.
+  const categoryLog = useMemo(() => (inputLog || []).filter(e =>
+    e.date &&
+    (!rangeFrom || e.date >= rangeFrom) && (!rangeTo || e.date <= rangeTo) &&
+    (!filterKey || String(e.category || '').trim().toLowerCase() === filterKey)
+  ), [inputLog, rangeFrom, rangeTo, filterKey])
+
+  const courseBreakdown = useMemo(() => {
+    const canonical = raw => {
+      const s = String(raw || '').trim()
+      return s ? normalizer.canonical(s.toLowerCase()) : 'Other'
+    }
+    const byCourse = new Map()
+    const catTotals = new Map()
+    for (const e of categoryLog) {
+      if (!e.course || !(e.durationHours > 0)) continue
+      if (!byCourse.has(e.course)) byCourse.set(e.course, { course: e.course, total: 0 })
+      const row = byCourse.get(e.course)
+      const cat = canonical(e.category)
+      row[cat] = (row[cat] || 0) + e.durationHours
+      row.total += e.durationHours
+      catTotals.set(cat, (catTotals.get(cat) || 0) + e.durationHours)
+    }
+    const categoryKeys = [...catTotals.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
+    const rows = [...byCourse.values()].sort((a, b) => b.total - a.total)
+    return { rows, categoryKeys, catTotals }
+  }, [categoryLog, normalizer])
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -850,42 +907,37 @@ export default function Analysis() {
       <div className="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
         <h2 className="text-sm font-semibold text-slate-700 mb-1">Course outcomes — time investment vs result</h2>
         <p className="text-[10px] text-slate-400 mb-3">
-          Per course: logged time, weekly pace while active, grade, and average efficiency/wellbeing —
-          to see which courses paid off for the effort and where prioritisation pays.
-          Only graded courses plot below; bubble size = sessions. Click a bubble to filter this tab to that course.
+          Per course: logged time split by activity (studying, lectures, project work, …), weekly pace
+          while active, grade, and average efficiency/wellbeing. Click a bar to filter the whole tab to
+          that course; click it again to clear.
         </p>
-        {courseOutcomes.some(r => r.grade != null) && (
-          <div className="h-64 mb-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 8, right: 16, bottom: 0, left: -14 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="hours" name="Total hours" tick={{ fontSize: 9 }} type="number"
-                  domain={['auto', 'auto']} label={{ value: 'Total hours', fontSize: 10, fill: '#94a3b8', position: 'insideBottom', offset: -2 }} />
-                <YAxis dataKey="grade" name="Grade" tick={{ fontSize: 9 }} type="number" domain={['auto', 'auto']}
-                  label={{ value: 'Grade', fontSize: 10, fill: '#94a3b8', angle: -90, position: 'insideLeft' }} />
-                <ZAxis dataKey="sessions" name="Sessions" type="number" range={[50, 500]} />
-                <Tooltip cursor={{ strokeDasharray: '3 3' }}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null
-                    const p = payload[0].payload
-                    return (
-                      <div className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs shadow-sm">
-                        <p className="font-semibold text-slate-700 mb-1">{p.course}</p>
-                        <p className="text-slate-500 tabular-nums">{p.hours.toFixed(1)}h · grade {p.grade.toFixed(1)} · {p.sessions} sessions</p>
-                        <p className="text-slate-400 tabular-nums">{p.avgWeek.toFixed(1)} h/week over {p.weeks} weeks</p>
-                      </div>
-                    )
-                  }} />
-                <Scatter data={courseOutcomes.filter(r => r.grade != null).map(r => ({ ...r }))}
-                  onClick={node => { const c = node?.payload?.course; if (c) setCourseFilter(c) }}
-                  style={{ cursor: 'pointer' }}>
-                  {courseOutcomes.filter(r => r.grade != null).map(r => (
-                    <Cell key={r.course} fill={r.color.dotCss?.backgroundColor || '#6366f1'} fillOpacity={0.65} />
+        {courseBreakdown.rows.length > 0 && (
+          <>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={courseBreakdown.rows} layout="vertical" margin={{ top: 4, right: 24, bottom: 0, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 9 }} />
+                  <YAxis dataKey="course" type="category" tick={{ fontSize: 10 }} width={150} tickFormatter={shortCourseName} />
+                  <Tooltip formatter={(v, n) => [`${Number(v).toFixed(1)}h`, n]} labelStyle={{ fontSize: 11 }} />
+                  {courseBreakdown.categoryKeys.map(cat => (
+                    <Bar key={cat} dataKey={cat} stackId="a" fill={categoryHex(cat)} name={cat}
+                      className="cursor-pointer"
+                      onClick={d => { const c = d?.payload?.course; if (c) setCourseFilter(prev => prev === c ? '' : c) }} />
                   ))}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
-          </div>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mb-4 mt-1">
+              {courseBreakdown.categoryKeys.map(cat => (
+                <span key={cat} className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                  <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: categoryHex(cat) }} />
+                  {cat}
+                  <span className="text-slate-400 tabular-nums">{courseBreakdown.catTotals.get(cat).toFixed(1)}h</span>
+                </span>
+              ))}
+            </div>
+          </>
         )}
         {courseOutcomes.length === 0 ? (
           <p className="text-xs text-slate-400 py-4 text-center">No course data yet.</p>
@@ -905,7 +957,9 @@ export default function Analysis() {
             </thead>
             <tbody>
               {courseOutcomes.map(r => (
-                <tr key={r.course} className="border-b border-slate-50 hover:bg-slate-50/60">
+                <tr key={r.course}
+                  onClick={() => setCourseFilter(prev => prev === r.course ? '' : r.course)}
+                  className={`border-b border-slate-50 hover:bg-slate-50/60 cursor-pointer ${courseFilter === r.course ? 'bg-indigo-50/70' : ''}`}>
                   <td className="px-2 py-1.5">
                     <div className="flex items-center gap-1.5">
                       <span className={`w-2 h-2 rounded-full shrink-0 ${r.color.dot}`} style={r.color.dotCss} />
