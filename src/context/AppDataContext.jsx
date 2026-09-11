@@ -612,9 +612,12 @@ export function AppDataProvider({ children }) {
     }, 500)
   }
 
-  // If the page is closed/reloaded right after an edit, flush any pending
-  // debounced Drive writes instead of losing them — an edit that is then read
-  // back from Drive on the next load would otherwise look "reverted".
+  // If the page is closed/reloaded/hidden right after an edit, flush any
+  // pending debounced Drive writes instead of losing them — an edit that is
+  // then read back from Drive on the next load would otherwise look "reverted".
+  // `visibilitychange` (hidden) fires earlier and far more reliably than
+  // `beforeunload` — especially on mobile / tab switches — giving the async
+  // write a real chance to complete before the page is frozen or discarded.
   const performWriteRef = useRef(performWrite)
   useEffect(() => { performWriteRef.current = performWrite })
   useEffect(() => {
@@ -630,8 +633,13 @@ export function AppDataProvider({ children }) {
       }
       performWriteRef.current(keys)
     }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flush() }
     window.addEventListener('beforeunload', flush)
-    return () => window.removeEventListener('beforeunload', flush)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   function setAll(d, p) {
@@ -713,8 +721,13 @@ export function AppDataProvider({ children }) {
     healCoursesFromLocal(d, savedLocal)
     healContentFromLocal(d, savedLocal)
     const studyLogChanged = healStudyLogFromLocal(d, savedLocal)
+    const dailyPlanChanged = healDailyPlanFromLocal(d, savedLocal)
+    const additionalChanged = healAdditionalLogFromLocal(d, savedLocal)
+    const gradesChanged = healGradeComponentsFromLocal(d, savedLocal)
+    const academicsChanged = healAcademicYearsFromLocal(d, savedLocal)
+    const weeklyChanged = healWeeklyOverridesFromLocal(d, savedLocal)
     await fillCourseGapsFromTemplate(d)
-    return { studyLogChanged }
+    return { studyLogChanged, dailyPlanChanged, additionalChanged, gradesChanged, academicsChanged, weeklyChanged }
   }
 
   // Recover syllabus content from the last-known-good localStorage snapshot:
@@ -795,7 +808,157 @@ export function AppDataProvider({ children }) {
     return changed
   }
 
-  async function loadAndApplyFromDrive(file, savedLocal = null) {
+  // Generic safety net for a snapshot-backed table. Google Sheets is
+  // last-write-wins and every save rewrites a whole tab, so a stale tab/device
+  // (or a write lost on unload) can blank out user rows. For each locally-known
+  // row: fill any empty user-authored field on its Drive twin (Drive wins on
+  // conflicts) and re-add rows Drive no longer lists at all. Identity is the
+  // stable row id first, then a natural key. Idempotent.
+  function healRowsFromLocal(driveRows, localRows, { keyOf, gapFields }) {
+    if (!Array.isArray(localRows) || localRows.length === 0) return { rows: driveRows || [], changed: false }
+    const rows = Array.isArray(driveRows) ? driveRows : []
+    const byId = new Map()
+    const byKey = new Map()
+    for (const r of rows) {
+      if (r?.id) byId.set(r.id, r)
+      const k = keyOf(r)
+      if (k && !byKey.has(k)) byKey.set(k, r)
+    }
+    let changed = false
+    for (const l of localRows) {
+      if (!l) continue
+      const existing = (l.id && byId.get(l.id)) || byKey.get(keyOf(l))
+      if (existing) {
+        for (const field of gapFields) {
+          if ((existing[field] == null || existing[field] === '') && l[field] != null && l[field] !== '') {
+            existing[field] = l[field]
+            changed = true
+          }
+        }
+      } else {
+        const row = { ...l }
+        rows.push(row)
+        if (row.id) byId.set(row.id, row)
+        const k = keyOf(row)
+        if (k) byKey.set(k, row)
+        changed = true
+      }
+    }
+    return { rows, changed }
+  }
+
+  // Daily Planner rows are the user's hand-written to-dos — the single worst
+  // thing to lose. A planner row Drive no longer lists (or whose fields came
+  // back blank after a full-tab rewrite) is restored from the local snapshot.
+  function healDailyPlanFromLocal(d, savedLocal) {
+    const local = savedLocal?.data?.dailyPlan
+    if (!Array.isArray(local) || local.length === 0) return false
+    const { rows, changed } = healRowsFromLocal(d.dailyPlan, local, {
+      keyOf: r => (r?.date && r?.course) ? `${r.date}|${r.course}|${r.task || ''}` : null,
+      gapFields: ['task', 'plannedHours', 'actualHours', 'done', 'notes', 'courseId'],
+    })
+    d.dailyPlan = rows
+    return changed
+  }
+
+  // Additional Time Log rows (work / obligations / commute / exercise) are just
+  // as user-authored as planner to-dos — heal them the same way. Commute
+  // mirrors are re-derived by syncCommuteRows, so duplicates never linger.
+  function healAdditionalLogFromLocal(d, savedLocal) {
+    const local = savedLocal?.data?.additionalLog
+    if (!Array.isArray(local) || local.length === 0) return false
+    const { rows, changed } = healRowsFromLocal(d.additionalLog, local, {
+      keyOf: r => (r?.date && r?.category) ? `${r.date}|${r.category}|${r.task || ''}` : null,
+      gapFields: ['task', 'hours', 'startTime', 'endTime', 'efficiency', 'wellbeing', 'location', 'notes', 'done', 'eventId'],
+    })
+    d.additionalLog = rows
+    return changed
+  }
+
+  // Grade components live in a nested table (one group per course, each with
+  // its component rows), so they get a bespoke heal. A group or component Drive
+  // no longer lists is restored; empty fields on existing components are filled.
+  function healGradeComponentsFromLocal(d, savedLocal) {
+    const local = savedLocal?.data?.gradeComponents
+    if (!Array.isArray(local) || local.length === 0) return false
+    d.gradeComponents = d.gradeComponents || []
+    const byCourse = new Map(d.gradeComponents.map(g => [g.course, g]))
+    const compKey = c => c?.id != null ? `id:${c.id}` : `nm:${String(c?.name || '').toLowerCase()}`
+    const COMP_GAP_FIELDS = ['type', 'weight', 'grade', 'dueDate', 'hoursSpent', 'done', 'notes']
+    let changed = false
+    for (const l of local) {
+      if (!l?.course) continue
+      let g = byCourse.get(l.course)
+      if (!g) {
+        g = { course: l.course, courseId: l.courseId || null, components: [], totalGrade: l.totalGrade ?? null, check: l.check ?? null }
+        d.gradeComponents.push(g)
+        byCourse.set(l.course, g)
+        changed = true
+      }
+      const existing = new Map((g.components || []).map(c => [compKey(c), c]))
+      for (const lc of l.components || []) {
+        const e = existing.get(compKey(lc))
+        if (!e) {
+          g.components.push({ ...lc })
+          existing.set(compKey(lc), lc)
+          changed = true
+          continue
+        }
+        for (const field of COMP_GAP_FIELDS) {
+          if ((e[field] == null || e[field] === '') && lc[field] != null && lc[field] !== '') {
+            e[field] = lc[field]
+            changed = true
+          }
+        }
+      }
+    }
+    return changed
+  }
+
+  // Academic-year structure (quartile date ranges + holidays), keyed by year.
+  function healAcademicYearsFromLocal(d, savedLocal) {
+    const local = savedLocal?.data?.academicYears
+    if (!Array.isArray(local) || local.length === 0) return false
+    d.academicYears = d.academicYears || []
+    const byYear = new Map(d.academicYears.map(y => [y.year, y]))
+    let changed = false
+    for (const l of local) {
+      if (!l?.year) continue
+      const e = byYear.get(l.year)
+      if (!e) {
+        d.academicYears.push({ ...l })
+        byYear.set(l.year, l)
+        changed = true
+        continue
+      }
+      if ((!e.quarters || Object.keys(e.quarters).length === 0) && l.quarters && Object.keys(l.quarters).length) {
+        e.quarters = l.quarters
+        changed = true
+      }
+      if ((!e.holidays || e.holidays.length === 0) && l.holidays?.length) {
+        e.holidays = l.holidays
+        changed = true
+      }
+    }
+    return changed
+  }
+
+  // Manual weekly-total overrides, keyed by "year-week".
+  function healWeeklyOverridesFromLocal(d, savedLocal) {
+    const local = savedLocal?.data?.weeklyOverrides
+    if (!local || typeof local !== 'object') return false
+    d.weeklyOverrides = d.weeklyOverrides || {}
+    let changed = false
+    for (const [key, value] of Object.entries(local)) {
+      if (!d.weeklyOverrides[key]) {
+        d.weeklyOverrides[key] = value
+        changed = true
+      }
+    }
+    return changed
+  }
+
+  async function loadAndApplyFromDrive(file) {
     const info = { fileId: file.id, fileUrl: file.webViewLink, user: resolveUser() }
     setDrive(info)
     driveRef.current = info
@@ -803,17 +966,32 @@ export function AppDataProvider({ children }) {
     const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged } = buildState(rowsByTab)
     // A brand-new spreadsheet is a clean slate: never heal the stale
     // localStorage snapshot (which may still hold the bundled example data
-    // from a previous connection) back into it.
-    const { studyLogChanged } = await healCourses(d, file.createdNew ? null : savedLocal)
+    // from a previous connection) back into it. For an existing sheet read the
+    // snapshot FRESH (not the one captured at mount) so edits made while this
+    // Drive load was in flight are recovered rather than clobbered by it.
+    const snapshot = file.createdNew ? null : loadJSON()
+    const healed = await healCourses(d, snapshot)
     cleanContent(d)
     assignEntityIds(d)
     // Rows restored by the heal may need their calendar link too.
     const contentCalChanged2 = ensureScheduledContentCalendarLinks(d) || contentCalChanged
-    if ((ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) && driveRef.current) syncTabs(['dailyPlan'])
+    // Run BOTH reconciliation passes (the old `||` short-circuit skipped the
+    // second whenever the first changed something).
+    const preAugChanged = ensurePreAugustDone(d)
+    const loggedChanged = ensureLoggedPastSessions(d)
+    const dailyPlanNormalised = preAugChanged || loggedChanged
     if (contentCalChanged2 && driveRef.current) syncTabs(['content', 'calendarEvents'])
     if (commuteChanged && driveRef.current) syncTabs(['additionalLog'])
-    // Push healed recaps/sessions back so every other device sees them too.
-    if (studyLogChanged && driveRef.current) syncTabs(['studyLog'])
+    // Push every healed tab back so a lost/clobbered write is repaired on Drive
+    // and every other device converges.
+    const healedKeys = []
+    if (healed.studyLogChanged) healedKeys.push('studyLog')
+    if (healed.dailyPlanChanged || dailyPlanNormalised) healedKeys.push('dailyPlan')
+    if (healed.additionalChanged) healedKeys.push('additionalLog')
+    if (healed.gradesChanged) healedKeys.push('gradeComponents')
+    if (healed.academicsChanged) healedKeys.push('academicYears')
+    if (healed.weeklyChanged) healedKeys.push('weeklyTotals')
+    if (healedKeys.length && driveRef.current) syncTabs(healedKeys)
 
     dataRef.current = d
     plannerRef.current = p
@@ -885,7 +1063,7 @@ export function AppDataProvider({ children }) {
           // its tabs looked empty has wiped real data.
           if (file.createdNew) await seedEmptyTabs(file.id)
           if (cancelled) return
-          await loadAndApplyFromDrive(file, saved)
+          await loadAndApplyFromDrive(file)
         } catch (e) {
           if (!cancelled) setDriveError(e.message)
           if (!saved?.data && !cancelled) {
@@ -938,7 +1116,7 @@ export function AppDataProvider({ children }) {
       await ensureTabs(file.id)
       // Only a brand-new spreadsheet gets seeded — never overwrite existing data.
       if (file.createdNew) await seedEmptyTabs(file.id)
-      return await loadAndApplyFromDrive(file, loadJSON())
+      return await loadAndApplyFromDrive(file)
     } catch (e) {
       setDriveError(e.message)
       throw e
@@ -959,13 +1137,25 @@ export function AppDataProvider({ children }) {
     try {
       const rowsByTab = await readAllTabs(info.fileId)
       const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged } = buildState(rowsByTab)
-      const { studyLogChanged } = await healCourses(d, loadJSON())
+      const healed = await healCourses(d, loadJSON())
       cleanContent(d)
       const contentCalChanged2 = ensureScheduledContentCalendarLinks(d) || contentCalChanged
-      if (ensurePreAugustDone(d) || ensureLoggedPastSessions(d)) syncTabs(['dailyPlan'])
+      // Run BOTH reconciliation passes (the old `||` short-circuit skipped the
+      // second whenever the first changed something).
+      const preAugChanged = ensurePreAugustDone(d)
+      const loggedChanged = ensureLoggedPastSessions(d)
+      const dailyPlanNormalised = preAugChanged || loggedChanged
       if (contentCalChanged2) syncTabs(['content', 'calendarEvents'])
       if (commuteChanged) syncTabs(['additionalLog'])
-      if (studyLogChanged) syncTabs(['studyLog'])
+      // Repair any tab a stale/whole-tab write clobbered, so Drive converges.
+      const healedKeys = []
+      if (healed.studyLogChanged) healedKeys.push('studyLog')
+      if (healed.dailyPlanChanged || dailyPlanNormalised) healedKeys.push('dailyPlan')
+      if (healed.additionalChanged) healedKeys.push('additionalLog')
+      if (healed.gradesChanged) healedKeys.push('gradeComponents')
+      if (healed.academicsChanged) healedKeys.push('academicYears')
+      if (healed.weeklyChanged) healedKeys.push('weeklyTotals')
+      if (healedKeys.length) syncTabs(healedKeys)
       dataRef.current = d
       plannerRef.current = p
       weeklyRef.current = wt
