@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
 import { computeXp, courseWeightFor, XP_CONSTANTS } from '../data/xp'
-import { formatDateShort, getCourseStyle, shortCourseName } from '../utils/helpers'
+import { formatDateShort, getCourseStyle, shortCourseName, colorToHex } from '../utils/helpers'
 import { isoWeekOf, weekdayIndex, mondayOfWeek } from '../data/normalize'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -500,16 +500,32 @@ export default function Analysis() {
       const name = String(e.project || '').trim()
       if (!name || !(e.durationHours > 0)) continue
       const k = name.toLowerCase()
-      if (!map.has(k)) map.set(k, { key: k, name, courses: new Set(), hours: 0, sessions: 0, first: e.date, last: e.date })
+      if (!map.has(k)) map.set(k, { key: k, name, courses: new Set(), courseHours: {}, hours: 0, sessions: 0, first: e.date, last: e.date })
       const p = map.get(k)
-      if (e.course) p.courses.add(e.course)
+      if (e.course) {
+        p.courses.add(e.course)
+        p.courseHours[e.course] = (p.courseHours[e.course] || 0) + (e.durationHours || 0)
+      }
       p.hours += e.durationHours || 0
       p.sessions += 1
       if (e.date < p.first) p.first = e.date
       if (e.date > p.last) p.last = e.date
     }
-    return [...map.values()].sort((a, b) => b.hours - a.hours)
+    return [...map.values()].map(p => {
+      let dom = null, max = 0
+      for (const [c, h] of Object.entries(p.courseHours)) {
+        if (h > max) { max = h; dom = c }
+      }
+      p.dominantCourse = dom
+      return p
+    }).sort((a, b) => b.hours - a.hours)
   }, [entries])
+
+  const courseColorByCourse = useMemo(() => {
+    const m = {}
+    for (const c of masterCourses || []) m[c.course] = c.color
+    return m
+  }, [masterCourses])
 
   const selectedProjects = useMemo(
     () => projects.filter(p => !excludedProjects.includes(p.key)),
@@ -676,9 +692,11 @@ export default function Analysis() {
                     <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={140} />
                     <Tooltip formatter={v => [`${Number(v).toFixed(1)}h`, 'Total']} labelStyle={{ fontSize: 11 }} />
                     <Bar dataKey="hours" name="Total hours" radius={[0, 4, 4, 0]}>
-                      {selectedProjects.map(p => (
-                        <Cell key={p.key} fill={getCourseStyle([...p.courses][0] || '').dotCss?.backgroundColor || '#6366f1'} />
-                      ))}
+                      {selectedProjects.map(p => {
+                        const dom = p.dominantCourse || [...p.courses][0] || ''
+                        const fill = dom ? colorToHex(courseColorByCourse[dom], dom) : '#6366f1'
+                        return <Cell key={p.key} fill={fill} />
+                      })}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
