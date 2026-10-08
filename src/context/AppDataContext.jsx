@@ -28,6 +28,7 @@ import {
   fetchIcsFile,
   ensureCalendar,
   toGcalEvent,
+  dayAfter,
   inferEventType,
   typeSymbol,
   deriveAbbrev,
@@ -1881,15 +1882,21 @@ export function AppDataProvider({ children }) {
       deadlines.filter(i => isDate(i.deadline) && i.calId).map(i => i.calId),
     )
 
-    // An exam-type content row whose day is already covered by a timetable
+    // An exam-family content row whose day is already covered by a timetable
     // event is skipped in the deadline loop below (examEventDays). When such a
     // row shares its event's cal_id (imported exams are mirrored into the
     // syllabus this way), the deadlineCalIds guard below would ALSO skip the
     // event — double-skipping the exam so it never reaches Google Calendar.
     // Detect that case so the timetable exam event is still pushed (Tomato-red).
+    //
+    // The type check must cover the whole exam family ('exam review', 'resit'
+    // too) and must NOT depend on the row's course/date happening to equal the
+    // event's — a manually edited exam row often drifts, and matching on the
+    // course|date string left both the row and its event skipped (the exam then
+    // vanished from the calendar entirely).
     const sharedDeadlineIsSkippedExam = calId => {
       const shared = deadlines.find(i => i.calId === calId)
-      return !!shared && shared.type === 'exam' && examEventDays.has(`${shared.course || ''}|${shared.deadline}`)
+      return !!shared && EXAM_FAMILY.has(shared.type)
     }
 
     // Never insert more than one fresh copy of the same payload per push:
@@ -1929,7 +1936,7 @@ export function AppDataProvider({ children }) {
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
     for (const item of deadlines) {
       if (!isDate(item.deadline)) continue
-      if (item.type === 'exam' && examEventDays.has(`${item.course || ''}|${item.deadline}`)) continue
+      if (EXAM_FAMILY.has(item.type) && examEventDays.has(`${item.course || ''}|${item.deadline}`)) continue
       if (item.calId && deadlineCalIds.has(item.calId) && events.some(e => e.calId === item.calId)) continue
       const summary = item.description || item.topic || item.contentId
       // Deadlines usually carry a due time (e.g. 17:00, 09:00) in the item's
@@ -1937,12 +1944,15 @@ export function AppDataProvider({ children }) {
       const dueTime = (item.end || item.start || '').trim()
       const timed = /^\d{1,2}:\d{2}$/.test(dueTime)
       const start = timed ? { dateTime: `${item.deadline}T${dueTime}:00`, timeZone } : { date: item.deadline }
+      // All-day deadlines need an exclusive end date (start+1) or Google
+      // rejects the event, so untimed deadlines never appeared on the calendar.
+      const end = timed ? { ...start } : { date: dayAfter(item.deadline) }
       const gcal = {
         summary: `Due: ${typeSymbol(item.type || 'deadline')} ${summary}`.trim(),
         location: item.location || '',
         description: summary,
         start,
-        end: { ...start },
+        end,
         colorId: '11',
       }
       if (item.id) gcal.extendedProperties = { private: { amId: String(item.id) } }

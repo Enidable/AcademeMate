@@ -241,6 +241,12 @@ export function typeSymbol(type) {
 }
 
 const TYPE_KEYWORDS = [
+  // Exam-family first: an exam's text often also mentions its format
+  // ("Written", "Chromebook", "Practical") or venue words, so a later
+  // 'practical'/'lecture' match must never win over 'exam'.
+  ['exam review', 'exam review'],
+  ['resit', 'resit'],
+  ['exam', 'exam'],
   ['lectorial', 'lectorial'],
   ['tutorial', 'tutorial'],
   ['practical', 'practical'],
@@ -251,7 +257,6 @@ const TYPE_KEYWORDS = [
   ['project', 'project'],
   ['meeting', 'meeting'],
   ['assignment', 'assignment'],
-  ['exam', 'exam'],
 ]
 
 // Guess the kind of class from a timetable event's text. Falls back to
@@ -327,6 +332,17 @@ function addMinutes(time, minutes) {
   return `${h}:${m}`
 }
 
+// Google Calendar treats an all-day event's end date as EXCLUSIVE, so an event
+// on one day needs end.date = the day after. Passing start == end makes Google
+// reject it ("The specified time range is empty") — all-day events (holidays,
+// untimed deadlines/exams) silently never synced because of this.
+export function dayAfter(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return iso
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d + 1))
+  return dt.toISOString().slice(0, 10)
+}
+
 export function toGcalEvent(ev, courseColorMap = null) {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const startTime = (ev.startTime || '09:00').padStart(5, '0')
@@ -335,7 +351,7 @@ export function toGcalEvent(ev, courseColorMap = null) {
     ? { date: ev.date }
     : { dateTime: `${ev.date}T${startTime}:00`, timeZone }
   const end = ev.allDay
-    ? { date: ev.date }
+    ? { date: dayAfter(ev.date) }
     : { dateTime: `${ev.date}T${endTime}:00`, timeZone }
   const body = {
     summary: `${typeSymbol(inferEventType(ev.summary, ev.description))} ${ev.summary}`.trim(),
