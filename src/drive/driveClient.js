@@ -303,7 +303,6 @@ const COURSE_COLOR_ID = {
   'Biomechatronics': '1',
   'Design Principles for Robotic and Mechatronic Mechanisms': '3',
   'Modelling and Simulation': '6',
-  'AI for Autonomous Robots': '11',
   'System Identification with Parameter Estimation and Machine Learning': '7',
   'Professional and Personal Development': '2',
   'Other University Stuff': '8',
@@ -345,6 +344,11 @@ export function toGcalEvent(ev, courseColorMap = null) {
     start,
     end,
   }
+  // Carry the local row id on the event so the push can always match a Google
+  // event back to its app row — even after the browser's fingerprint cache is
+  // lost (new device, cleared storage) or the event's summary/time changed.
+  // Without this, such events can't be adopted on a re-push and pile up.
+  if (ev.id) body.extendedProperties = { private: { amId: String(ev.id) } }
   const colorId = isExamEvent(ev) ? '11' : (courseColorMap?.get(ev.course) || courseColorId(ev.course))
   if (colorId) body.colorId = colorId
   return body
@@ -397,7 +401,7 @@ export async function listCalendarEvents(calendarId, timeMin, timeMax) {
     singleEvents: 'true',
     maxResults: '2500',
     orderBy: 'startTime',
-    fields: 'items(id,summary,start,status)',
+    fields: 'items(id,summary,start,status,extendedProperties)',
   })
   if (timeMin) params.set('timeMin', `${timeMin}T00:00:00Z`)
   if (timeMax) params.set('timeMax', `${timeMax}T23:59:59Z`)

@@ -30,6 +30,7 @@ import {
   toGcalEvent,
   inferEventType,
   typeSymbol,
+  TYPE_SYMBOL,
   deriveAbbrev,
   courseColorId,
   batchCalendarEvents,
@@ -56,6 +57,10 @@ import {
 const STORAGE_KEY = 'am_state'
 const CAL_FP_KEY = 'am_cal_fp'
 const LIVE_SESSION_KEY = 'am_live_session'
+// Per-course Google Calendar colours chosen in the Calendar page. Kept in
+// localStorage so EVERY push path (the Calendar dialog and the global Sync
+// button) applies the user's selection instead of the fallback colour hash.
+const CAL_COLORS_KEY = 'am_calendar_colors'
 
 // Stable course id for a course name, or null (unknown course). Keeps newly
 // created rows on the same course_id foreign key the parsers resolve.
@@ -100,6 +105,10 @@ function loadCalFp() {
 
 function saveCalFp(fp) {
   try { localStorage.setItem(CAL_FP_KEY, JSON.stringify(fp)) } catch { /* ignore */ }
+}
+
+function loadSavedCourseColors() {
+  try { return JSON.parse(localStorage.getItem(CAL_COLORS_KEY)) || {} } catch { return {} }
 }
 
 function clearStorage() {
@@ -154,19 +163,23 @@ function synthCourses(parsed) {
 
 // Remove exact-duplicate syllabus rows (same course + component ID + date/
 // deadline) — earlier bugs wrote the same deadline twice. The row with more
-// user content (description/hours/prep) wins, and when a duplicate is dropped,
-// any user text it carries that the survivor lacks (prep, notes, description,
-// location) is carried over — so editing the "other copy" never loses work.
+// user content (description/hours) wins, and when a duplicate is dropped, any
+// user text it carries that the survivor lacks (notes, description, location)
+// is carried over — so editing the "other copy" never loses work.
 function dedupeContent(items) {
   const seen = new Map()
   const out = []
-  // Deliberately NOT scoring the done flag: when two copies of the same row
-  // disagree, the user's most recent action (checked OR unchecked) lives on
-  // the row they edited — the stale copy must never win back.
-  const score = it => ((it.description && it.description.trim()) ? 2 : 0) + (it.hoursSpent ? 1 : 0) + (it.prep ? 1 : 0)
+  // Deliberately NOT scoring done or prep: when two copies of the same row
+  // disagree, the user's most recent action (checked OR unchecked, or a cleared
+  // prep) lives on the row they edited — the stale copy must never win back.
+  // Scoring prep here (and carrying it over below) resurrected preps the user
+  // had deleted from a duplicate row on every load.
+  const score = it => ((it.description && it.description.trim()) ? 2 : 0) + (it.hoursSpent ? 1 : 0)
   const absorb = (target, from) => {
     if (!target || !from) return target
-    for (const f of ['prep', 'content', 'location', 'description', 'topic']) {
+    // `prep` is deliberately NOT carried over: an empty prep on the survivor is
+    // a deliberate deletion, not a gap to fill from a stale duplicate.
+    for (const f of ['content', 'location', 'description', 'topic']) {
       if ((target[f] == null || target[f] === '') && from[f] != null && from[f] !== '') target[f] = from[f]
     }
     return target
@@ -752,7 +765,11 @@ export function AppDataProvider({ children }) {
       if (existing) {
         // calId is included so an event that was pushed to Google Calendar but
         // whose Drive write failed isn't re-inserted as a duplicate on reload.
-        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done', 'calId', 'prep']) {
+        // `prep` is deliberately excluded: an empty prep is a legitimate user
+        // state (they deleted it), indistinguishable from a field a failed
+        // write blanked — refilling it from a possibly-stale snapshot restored
+        // deleted preps on every load.
+        for (const f of ['description', 'topic', 'notes', 'content', 'hoursSpent', 'time', 'done', 'calId']) {
           if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
         }
       } else {
@@ -1751,11 +1768,16 @@ export function AppDataProvider({ children }) {
     if (events.length === 0 && deadlines.length === 0) return { inserted: 0, updated: 0, deadlinesInserted: 0 }
     const calendarId = await ensureCalendar('AcademeMate')
 
-    // Course colour: the pre-push dialog override wins; otherwise the stable
-    // course hash. Google Calendar colours stay independent from the in-app
-    // course colour (which can be any colour via the colour wheel). 11/Tomato
-    // is reserved for exams, enforced in toGcalEvent.
-    const ov = colorOverrides instanceof Map ? colorOverrides : new Map(Object.entries(colorOverrides || {}))
+    // Course colour: an explicit push override wins, then the colours the user
+    // saved in the Calendar page, then the stable course hash. Reading the saved
+    // colours here means the global Sync button applies the same colours as the
+    // Calendar push dialog instead of falling back to the hash (which looked
+    // like the colours "reset" on every sync). Google Calendar colours stay
+    // independent from the in-app course colour. 11/Tomato is reserved for
+    // exams, enforced in toGcalEvent.
+    const ov = colorOverrides instanceof Map
+      ? colorOverrides
+      : new Map(Object.entries(colorOverrides || loadSavedCourseColors()))
     const courseColorMap = new Map()
     ;(data.courses || []).forEach((c, i) => {
       if (!c?.course || courseColorMap.has(c.course)) return
@@ -1795,19 +1817,25 @@ export function AppDataProvider({ children }) {
       return `${summary}::${s.slice(0, 16)}`
     }
 
-    // Existing events that already live on the AcademeMate calendar. An event
-    // about to be inserted whose exact match already exists adopts the existing
-    // id (update instead of a fresh insert), and surplus exact duplicates a past
-    // bug left behind get removed — so re-pushes converge instead of piling up.
-    const unlinked = [
-      ...events.filter(e => isDate(e.date) && !e.calId && !e.personalImport && !(e.source && !String(e.source).endsWith('.ics'))),
-      ...deadlines.filter(i => isDate(i.deadline) && !i.calId),
+    // The stable local row id embedded in a pushed event (see toGcalEvent). It
+    // survives a lost fingerprint cache, a renamed summary or a moved time, so
+    // an existing Google event can always be traced back to its app row.
+    const amIdOf = g => g?.extendedProperties?.private?.amId || ''
+
+    // Every item we intend to place on the calendar, so existing events can be
+    // listed across the whole span (for adoption AND stale-duplicate cleanup).
+    const planned = [
+      ...events.filter(e => isDate(e.date) && !e.personalImport && !(e.source && !String(e.source).endsWith('.ics'))),
+      ...deadlines.filter(i => isDate(i.deadline)),
     ]
     const existingByKey = new Map()
+    const existingByAmId = new Map()
     const adopted = new Set()
-    if (unlinked.length > 0) {
+    const listed = []
+    let listOk = false
+    if (planned.length > 0) {
       try {
-        const dates = unlinked.map(i => i.date || i.deadline).filter(isDate).sort()
+        const dates = planned.map(i => i.date || i.deadline).filter(isDate).sort()
         const shift = (iso, days) => {
           const [y, m, d] = iso.split('-')
           const dt = new Date(Date.UTC(+y, +m - 1, +d))
@@ -1816,8 +1844,12 @@ export function AppDataProvider({ children }) {
         }
         const timeMin = dates.length ? shift(dates[0], -1) : null
         const timeMax = dates.length ? shift(dates[dates.length - 1], 1) : null
-        const listed = await listCalendarEvents(calendarId, timeMin, timeMax)
-        for (const ex of listed) {
+        const existing = await listCalendarEvents(calendarId, timeMin, timeMax)
+        listOk = true
+        for (const ex of existing) {
+          listed.push(ex)
+          const am = amIdOf(ex)
+          if (am && !existingByAmId.has(am)) existingByAmId.set(am, ex)
           const k = gcalKey(ex)
           if (!existingByKey.has(k)) existingByKey.set(k, [])
           existingByKey.get(k).push(ex)
@@ -1827,9 +1859,12 @@ export function AppDataProvider({ children }) {
         console.warn('Could not list existing calendar events; skipping duplicate adoption:', e.message)
       }
     }
-    // Reuse an existing event for an item about to be inserted. Returns the id
-    // of the first not-yet-adopted exact match, else null.
-    const adoptFor = (gcal) => {
+    // Reuse an existing event for an item about to be inserted. The stable app
+    // row id is tried first — it matches even when the summary or time changed —
+    // then the exact summary+start (for events pushed before amId existed).
+    const adoptFor = (ref, gcal) => {
+      const am = ref?.id ? existingByAmId.get(String(ref.id)) : null
+      if (am && !adopted.has(am.id)) { adopted.add(am.id); return am.id }
       const matches = (existingByKey.get(gcalKey(gcal)) || []).filter(ex => !adopted.has(ex.id))
       if (matches.length === 0) return null
       adopted.add(matches[0].id)
@@ -1874,7 +1909,7 @@ export function AppDataProvider({ children }) {
         ops.push({ method: 'PUT', eventId: ref.calId, body: gcal })
         return
       }
-      const adoptedId = adoptFor(gcal)
+      const adoptedId = adoptFor(ref, gcal)
       if (!adoptedId) {
         const k = gcalKey(gcal)
         const n = plannedPosts.get(k) || 0
@@ -1913,6 +1948,7 @@ export function AppDataProvider({ children }) {
         end: { ...start },
         colorId: '11',
       }
+      if (item.id) gcal.extendedProperties = { private: { amId: String(item.id) } }
       queueOp('deadline', item, gcal)
     }
 
@@ -1985,19 +2021,31 @@ export function AppDataProvider({ children }) {
       })
     }
 
-    // Remove surplus exact duplicates — leftovers of the earlier duplicate-insert
-    // bug. A key is kept when at least one of its events maps to a real app item
-    // (freshly adopted OR already linked); the rest are exact duplicates and get
-    // deleted. Keys with no mapping are never touched.
+    // Reconcile the AcademeMate calendar with the app's rows. Any existing event
+    // no app item maps to is a leftover — of an earlier duplicate-insert bug, or
+    // of a re-import that re-keyed the local rows — and would otherwise pile up
+    // on every re-push. Removing it makes a re-push converge instead of crowding
+    // (the result the user previously got by deleting the whole calendar).
+    // Only this app's own events are touched; anything the user added directly
+    // in the calendar has no type symbol / amId and is left alone.
     const linkedIds = new Set([
       ...events.filter(e => e.calId).map(e => e.calId),
       ...deadlines.filter(i => i.calId).map(i => i.calId),
     ])
-    for (const matches of existingByKey.values()) {
-      const keepIds = new Set(matches.filter(ex => adopted.has(ex.id) || linkedIds.has(ex.id)).map(ex => ex.id))
-      if (keepIds.size === 0) continue
-      for (const ex of matches) {
-        if (!keepIds.has(ex.id)) deleteCalendarEvent(ex.id, calendarId)
+    const localAmIds = new Set(planned.map(i => String(i.id || '')).filter(Boolean))
+    const appSymbols = Object.values(TYPE_SYMBOL)
+    const isAppEvent = ex => {
+      if (amIdOf(ex)) return true
+      const s = String(ex.summary || '').trim()
+      return s.startsWith('Due:') || appSymbols.some(sym => s.startsWith(sym))
+    }
+    if (listOk && calendarId !== 'primary') {
+      const matched = new Set([...linkedIds, ...adopted])
+      for (const ex of listed) {
+        if (matched.has(ex.id)) continue
+        const am = amIdOf(ex)
+        if (am && localAmIds.has(am)) continue
+        if (isAppEvent(ex)) deleteCalendarEvent(ex.id, calendarId)
       }
     }
 
