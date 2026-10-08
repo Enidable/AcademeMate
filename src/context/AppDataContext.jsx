@@ -1285,6 +1285,17 @@ export function AppDataProvider({ children }) {
       }
     }
 
+    // A .ics row whose summary ends in a university course code, yet resolved to
+    // NO tracked course, belongs to a course the user is no longer following
+    // (e.g. one they deleted). Do not resurrect it on every re-import. Rows with
+    // no course code (holidays, general timetable blocks) are left alone.
+    const isUntrackedCourseRow = e =>
+      !!e && !e.course
+      && !e.personalImport
+      && !(e.source && !String(e.source).endsWith('.ics'))
+      && /\.?\s*\d{6,9}\s*$/.test(e.summary || '')
+    const importable = rows.filter(r => !isUntrackedCourseRow(r))
+
     const existing = dataRef.current?.calendarEvents || []
     // Issue #53: a re-import MERGES into the existing Calendar tab — it never
     // rebuilds it. Identity is three tiers (see eventFingerprint): uid|date
@@ -1313,7 +1324,7 @@ export function AppDataProvider({ children }) {
     let adoptedByFingerprint = 0
     let adoptedBySlot = 0
     let timeUpdated = 0
-    const merged = rows.map(r => {
+    const merged = importable.map(r => {
       const fp = eventFingerprint(r)
       const hit = (r.uid && byUidDate.get(`${r.uid}|${r.date}`))
         || (fp && byFingerprint.get(fp))
@@ -1558,7 +1569,11 @@ export function AppDataProvider({ children }) {
     // re-import can silently drop an event a session, entry or note anchors.
     const mergedIds = new Set(merged.map(r => r && r.id).filter(Boolean))
     const keptStale = existing.filter(e => e && e.id && !mergedIds.has(e.id))
+    // Also drop any already-imported row for a course the user no longer tracks
+    // — unless a logged session / note still references it (history wins).
+    const referenced = referencedEventIds(dataRef.current)
     let calendarFinal = [...merged, ...keptStale]
+      .filter(e => !(isUntrackedCourseRow(e) && !referenced.has(e.id)))
 
     // Link the imported events to their content rows and make sure any
     // user-added scheduled row that has no calendar row yet (e.g. a meeting
