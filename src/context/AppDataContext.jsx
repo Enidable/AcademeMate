@@ -30,7 +30,6 @@ import {
   toGcalEvent,
   inferEventType,
   typeSymbol,
-  TYPE_SYMBOL,
   deriveAbbrev,
   courseColorId,
   batchCalendarEvents,
@@ -1831,7 +1830,6 @@ export function AppDataProvider({ children }) {
     const existingByKey = new Map()
     const existingByAmId = new Map()
     const adopted = new Set()
-    const listed = []
     let listOk = false
     if (planned.length > 0) {
       try {
@@ -1847,7 +1845,6 @@ export function AppDataProvider({ children }) {
         const existing = await listCalendarEvents(calendarId, timeMin, timeMax)
         listOk = true
         for (const ex of existing) {
-          listed.push(ex)
           const am = amIdOf(ex)
           if (am && !existingByAmId.has(am)) existingByAmId.set(am, ex)
           const k = gcalKey(ex)
@@ -2021,31 +2018,28 @@ export function AppDataProvider({ children }) {
       })
     }
 
-    // Reconcile the AcademeMate calendar with the app's rows. Any existing event
-    // no app item maps to is a leftover — of an earlier duplicate-insert bug, or
-    // of a re-import that re-keyed the local rows — and would otherwise pile up
-    // on every re-push. Removing it makes a re-push converge instead of crowding
-    // (the result the user previously got by deleting the whole calendar).
-    // Only this app's own events are touched; anything the user added directly
-    // in the calendar has no type symbol / amId and is left alone.
+    // Remove surplus exact duplicates — leftovers of the earlier duplicate-insert
+    // bug. A key is kept when at least one of its events maps to a real app item
+    // (freshly adopted, already linked by cal_id, or carrying a local amId); the
+    // rest are exact duplicates and get deleted. Events that map to NOTHING are
+    // deliberately left untouched — deleting those could remove entries the app
+    // doesn't currently carry a row for (e.g. a just re-keyed manual entry).
     const linkedIds = new Set([
       ...events.filter(e => e.calId).map(e => e.calId),
       ...deadlines.filter(i => i.calId).map(i => i.calId),
     ])
     const localAmIds = new Set(planned.map(i => String(i.id || '')).filter(Boolean))
-    const appSymbols = Object.values(TYPE_SYMBOL)
-    const isAppEvent = ex => {
-      if (amIdOf(ex)) return true
-      const s = String(ex.summary || '').trim()
-      return s.startsWith('Due:') || appSymbols.some(sym => s.startsWith(sym))
-    }
-    if (listOk && calendarId !== 'primary') {
-      const matched = new Set([...linkedIds, ...adopted])
-      for (const ex of listed) {
-        if (matched.has(ex.id)) continue
-        const am = amIdOf(ex)
-        if (am && localAmIds.has(am)) continue
-        if (isAppEvent(ex)) deleteCalendarEvent(ex.id, calendarId)
+    if (listOk) {
+      for (const matches of existingByKey.values()) {
+        const keep = new Set(
+          matches
+            .filter(ex => adopted.has(ex.id) || linkedIds.has(ex.id) || (amIdOf(ex) && localAmIds.has(amIdOf(ex))))
+            .map(ex => ex.id),
+        )
+        if (keep.size === 0) continue
+        for (const ex of matches) {
+          if (!keep.has(ex.id)) deleteCalendarEvent(ex.id, calendarId)
+        }
       }
     }
 
