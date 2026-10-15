@@ -2168,18 +2168,14 @@ export function AppDataProvider({ children }) {
     }
     const keys = ['courses']
     if (_gradeComponents && _gradeComponents.length > 0) {
-      const totalGrade = calcWeightedGrade(_gradeComponents)
       const gradeComps = [...(updated.gradeComponents || [])]
       gradeComps.push({
         course: courseData.course,
         courseId: newId,
         components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || null })),
-        totalGrade,
+        totalGrade: calcWeightedGrade(_gradeComponents),
       })
       updated.gradeComponents = gradeComps
-      updated.courses = updated.courses.map(c => (
-        c.id === newId ? { ...c, grade: totalGrade } : c
-      ))
       keys.push('gradeComponents')
     }
     setAll(updated, plannerRef.current)
@@ -2303,21 +2299,16 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     }
 
     if (_gradeComponents) {
-      const totalGrade = calcWeightedGrade(_gradeComponents)
       const gradeComps = [...(updated2.gradeComponents || [])]
-      const gIdx = gradeComps.findIndex(g => g.course === name || (courseId && g.courseId === courseId))
+      const gIdx = gradeComps.findIndex(g => g.course === id)
       const entry = {
-        course: name,
-        courseId: courseId || courseIdForName(updated2.courses, name),
+        course: courseData.course,
         components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || null })),
-        totalGrade,
+        totalGrade: calcWeightedGrade(_gradeComponents),
       }
       if (gIdx >= 0) gradeComps[gIdx] = entry
       else gradeComps.push(entry)
       updated2.gradeComponents = gradeComps
-      updated2.courses = (updated2.courses || []).map((c, i) => (
-        i === idx ? { ...c, grade: totalGrade } : c
-      ))
       keys.push('gradeComponents')
     }
     setAll(updated2, plannerRef.current)
@@ -2519,12 +2510,11 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     for (let i = 0; i < gradeComponents.length; i++) {
       if (gradeComponents[i].course === course) { idx = i; break }
     }
-    const totalGrade = calcWeightedGrade(components)
     const entry = {
       course,
       courseId: courseIdForName(prev.courses, course),
       components: components.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || c.type || null })),
-      totalGrade,
+      totalGrade: calcWeightedGrade(components),
     }
     if (idx >= 0) {
       gradeComponents[idx] = { ...gradeComponents[idx], ...entry }
@@ -2598,15 +2588,7 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       return !(i.hoursSpent == null || i.hoursSpent === 0)
     })
 
-    // Keep the denormalized course grade in step with the recomputed
-    // totalGrade. Displays prefer c.grade over gradeComponents totalGrade,
-    // so without this the new average would be invisible until a reload
-    // (attachCourseGrades only runs on load).
-    const courses = (prev.courses || []).map(c => (
-      c.course === course ? { ...c, grade: totalGrade } : c
-    ))
-
-    const updated = { ...prev, gradeComponents, content, courses }
+    const updated = { ...prev, gradeComponents, content }
     setAll(updated, plannerRef.current)
     syncTabs(['gradeComponents', 'courses', 'content'])
   }
