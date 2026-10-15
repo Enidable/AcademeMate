@@ -206,7 +206,7 @@ function dedupeContent(items) {
 // Used after loading from Drive AND after healing from the localStorage
 // snapshot, so stale copies resurrected by the heal pass are merged away too.
 function cleanContent(data) {
-  normalizeContentCourses(data)
+  normalizeCourseRefs(data)
   data.content = dedupeContent(data.content)
 }
 
@@ -324,11 +324,13 @@ function ensureLoggedPastSessions(data) {
   return changed
 }
 
-// Content rows created through some paths carry the raw course CODE (or
-// abbreviation) as their course instead of the canonical name. Normalise them
-// so such duplicates collapse into their name-keyed twin in dedupeContent
-// below — otherwise an old copy with done='done' survives unchecking forever.
-function normalizeContentCourses(data) {
+// Rows created through older paths can carry a course CODE, abbreviation or
+// even the stable id (course_000123) in their `course` field instead of the
+// canonical name. Normalise every course-bearing table to the name so a course
+// never shows up twice in the planner / weekly overview / calendar — once under
+// its name and once under its code/id. It also lets an old content copy with
+// done='done' collapse into its name-keyed twin in dedupeContent below.
+function normalizeCourseRefs(data) {
   const lookup = new Map()
   const put = (key, name) => {
     const k = String(key || '').trim().toLowerCase()
@@ -337,13 +339,18 @@ function normalizeContentCourses(data) {
   for (const c of data.courses || []) {
     if (!c?.course) continue
     put(c.course, c.course)
+    put(c.id, c.course)
     put(c.code, c.course)
     put(c.abbrev, c.course)
   }
   if (lookup.size === 0) return
-  for (const i of data.content || []) {
-    const name = lookup.get(String(i.course || '').trim().toLowerCase())
-    if (name && name !== i.course) i.course = name
+  const fix = o => {
+    if (!o || !o.course) return
+    const name = lookup.get(String(o.course).trim().toLowerCase())
+    if (name && name !== o.course) o.course = name
+  }
+  for (const arr of [data.content, data.calendarEvents, data.studyLog, data.dailyPlan, data.gradeComponents]) {
+    for (const o of arr || []) fix(o)
   }
 }
 
@@ -1181,6 +1188,9 @@ export function AppDataProvider({ children }) {
       saved.data.courses = dropPhantomCourses(
         (saved.data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
       )
+      // The snapshot predates the name-normalisation fix, so rows may still key
+      // a course by its code/abbrev/id — normalise before anything reads them.
+      normalizeCourseRefs(saved.data)
       assignEntityIds(saved.data)
       backfillPlanLinks(saved.data)
       relinkContentCalendar(saved.data)
@@ -2308,14 +2318,16 @@ export function AppDataProvider({ children }) {
     }
     const keys = ['courses']
     if (_gradeComponents && _gradeComponents.length > 0) {
+      const totalGrade = calcWeightedGrade(_gradeComponents)
       const gradeComps = [...(updated.gradeComponents || [])]
       gradeComps.push({
         course: courseData.course,
         courseId: newId,
         components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || null })),
-        totalGrade: calcWeightedGrade(_gradeComponents),
+        totalGrade,
       })
       updated.gradeComponents = gradeComps
+      updated.courses = updated.courses.map(c => (c.id === newId ? { ...c, grade: totalGrade } : c))
       keys.push('gradeComponents')
     }
     setAll(updated, plannerRef.current)
@@ -2439,16 +2451,21 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     }
 
     if (_gradeComponents) {
+      const totalGrade = calcWeightedGrade(_gradeComponents)
       const gradeComps = [...(updated2.gradeComponents || [])]
-      const gIdx = gradeComps.findIndex(g => g.course === id)
+      // Match the existing group by canonical name (or its stable id) — not by
+      // the raw `id` argument, which is often the course code.
+      const gIdx = gradeComps.findIndex(g => g.course === name || (courseId && g.courseId === courseId))
       const entry = {
-        course: courseData.course,
+        course: name,
+        courseId: courseId || courseIdForName(updated2.courses, name),
         components: _gradeComponents.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || null })),
-        totalGrade: calcWeightedGrade(_gradeComponents),
+        totalGrade,
       }
       if (gIdx >= 0) gradeComps[gIdx] = entry
       else gradeComps.push(entry)
       updated2.gradeComponents = gradeComps
+      updated2.courses = (updated2.courses || []).map((c, i) => (i === idx ? { ...c, grade: totalGrade } : c))
       keys.push('gradeComponents')
     }
     setAll(updated2, plannerRef.current)
@@ -2650,11 +2667,12 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     for (let i = 0; i < gradeComponents.length; i++) {
       if (gradeComponents[i].course === course) { idx = i; break }
     }
+    const totalGrade = calcWeightedGrade(components)
     const entry = {
       course,
       courseId: courseIdForName(prev.courses, course),
       components: components.map(c => ({ ...c, id: c.id || null, name: c.name || c.id || c.type || null })),
-      totalGrade: calcWeightedGrade(components),
+      totalGrade,
     }
     if (idx >= 0) {
       gradeComponents[idx] = { ...gradeComponents[idx], ...entry }
@@ -2728,7 +2746,15 @@ function renameIdPrefix(contentId, oldBase, newBase) {
       return !(i.hoursSpent == null || i.hoursSpent === 0)
     })
 
-    const updated = { ...prev, gradeComponents, content }
+    // Keep the denormalized course grade in step with the recomputed
+    // totalGrade. Displays (Courses list, CourseDetail, Dashboard) prefer
+    // c.grade over gradeComponents totalGrade, and attachCourseGrades only runs
+    // on load — so without this the new average is invisible until a reload.
+    const courses = (prev.courses || []).map(c => (
+      c.course === course ? { ...c, grade: totalGrade } : c
+    ))
+
+    const updated = { ...prev, gradeComponents, content, courses }
     setAll(updated, plannerRef.current)
     syncTabs(['gradeComponents', 'courses', 'content'])
   }
