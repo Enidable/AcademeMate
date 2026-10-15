@@ -38,6 +38,29 @@ export function assignIds(rows, prefix) {
   return rows
 }
 
+// --- Phantom course cleanup -------------------------------------------------
+// An older load-time synth pass (synthCourses) minted a "course" whenever a
+// grade component / syllabus row referenced a course by its stable id that
+// wasn't resolvable at that moment: { id: 'course_000123', course:
+// 'course_000123' }. These phantom rows carry no real data, yet they shadow the
+// real, named course with the same id in every name/id lookup — so course_id
+// references misroute onto them and the app looks "shifted" / unlinked.
+//
+// Drop a phantom whenever the real course (same id, a proper name) is present;
+// keep it only when it is the sole row for that id (never lose a course we
+// cannot otherwise reconstruct).
+export function isPhantomCourse(c) {
+  return !!c && /^course_\d+$/.test(String(c.course || ''))
+}
+
+export function dropPhantomCourses(courses) {
+  const properIds = new Set()
+  for (const c of courses || []) {
+    if (c && !isPhantomCourse(c) && c.id) properIds.add(c.id)
+  }
+  return (courses || []).filter(c => !(isPhantomCourse(c) && c.id && properIds.has(c.id)))
+}
+
 // Assign stable ids to every entity table of a parsed dataset. Grade
 // components are excluded — they are identified by (course + component id).
 export function assignEntityIds(data) {

@@ -16,7 +16,7 @@ import { parseIcs, dedupeCalendarRows } from '../data/ical'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows, isPhantomCourse, dropPhantomCourses } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -149,6 +149,9 @@ function synthCourses(parsed) {
   const existingNames = new Set((parsed.courses || []).map(c => c.course))
   for (const name of referenced) {
     if (!name || /^\d{5,9}$/.test(name)) continue
+    // Never mint a phantom course named after a stable id — that is exactly the
+    // bug that shadowed the real course and misrouted its references.
+    if (isPhantomCourse({ course: name })) continue
     if (existingNames.has(name)) continue
     parsed.courses.push({
       id: name,
@@ -344,6 +347,113 @@ function normalizeContentCourses(data) {
   }
 }
 
+// Drop component rows that are byte-for-byte duplicates of another row in the
+// same course (earlier double-writes / heal passes copied them). Identical rows
+// carry no extra information and inflate the course's weight sum, which skews
+// the weighted grade. Distinct rows (legacy "Component N" vs a named component,
+// even with equal weight) are left untouched. Idempotent.
+function dedupeGradeComponents(data) {
+  let changed = false
+  for (const g of data.gradeComponents || []) {
+    const seen = new Set()
+    const kept = []
+    for (const c of g.components || []) {
+      const k = [c.id, c.name, c.type, c.weight, c.grade, c.dueDate, c.hoursSpent, c.done, c.notes]
+        .map(v => v == null ? '' : String(v)).join('|')
+      if (seen.has(k)) { changed = true; continue }
+      seen.add(k)
+      kept.push(c)
+    }
+    g.components = kept
+  }
+  return changed
+}
+
+// An old heal pass could re-add a syllabus row carrying an id that another row
+// already used, leaving two DIFFERENT content items sharing one `content_*` id.
+// by-id lookups then collapse them, so one item's calendar/study links silently
+// point at the other. Give every duplicate occurrence a fresh unique id and
+// follow its references (calendar.content_id, studyLog.lecture_content_id) by
+// positive identity — the row's own calendar_id link, or course + lecture id.
+// When both copies of an id claim the SAME calendar event they are one logical
+// item recorded twice: keep the copy the event names (its lecture id), drop the
+// other. Idempotent; returns whether anything changed.
+function repairContentIds(data) {
+  const content = data.content || []
+  const calendar = data.calendarEvents || []
+  const byCalId = new Map(calendar.map(e => [e.id, e]))
+  const used = new Set(content.map(i => i.id).filter(Boolean))
+  const seen = new Set()
+  const kept = []
+  const dropped = new Set()
+  const reassigned = []
+  let changed = false
+
+  for (const item of content) {
+    if (!item.id || !seen.has(item.id)) {
+      if (item.id) seen.add(item.id)
+      kept.push(item)
+      continue
+    }
+    const first = kept.find(k => k.id === item.id)
+    const ev = item.calendarId && first && first.calendarId === item.calendarId
+      ? byCalId.get(item.calendarId)
+      : null
+    if (ev && ev.lectureId) {
+      const itemMatches = ev.lectureId === item.contentId
+      const firstMatches = ev.lectureId === first.contentId
+      if (itemMatches && !firstMatches) {
+        kept[kept.indexOf(first)] = item
+        changed = true
+        continue
+      }
+      if (firstMatches && !itemMatches) {
+        dropped.add(item)
+        changed = true
+        continue
+      }
+    }
+    const newId = nextId('content_', [...used])
+    used.add(newId)
+    reassigned.push({ oldId: item.id, newId, course: item.course, contentId: item.contentId, calendarId: item.calendarId })
+    item.id = newId
+    kept.push(item)
+    changed = true
+  }
+
+  if (!changed) return false
+  data.content = kept.filter(i => !dropped.has(i))
+
+  for (const ev of calendar) {
+    for (const m of reassigned) {
+      if (ev.contentId !== m.oldId) continue
+      const belongs = (m.calendarId && ev.id === m.calendarId) ||
+        (ev.course === m.course && ev.lectureId && ev.lectureId === m.contentId)
+      if (belongs) { ev.contentId = m.newId; break }
+    }
+  }
+  for (const s of data.studyLog || []) {
+    if (!s.lectureContentId) continue
+    for (const m of reassigned) {
+      if (s.lectureContentId === m.oldId && s.course === m.course && s.lectureId === m.contentId) {
+        s.lectureContentId = m.newId
+        break
+      }
+    }
+  }
+  // Drop a reassigned row's calendarId when that event belongs to a different
+  // content row, so the mirror pass can't steal it back.
+  for (const m of reassigned) {
+    if (!m.calendarId) continue
+    const item = data.content.find(i => i.id === m.newId)
+    if (item && item.calendarId && item.calendarId === m.calendarId) {
+      const ev = byCalId.get(m.calendarId)
+      if (ev && ev.contentId && ev.contentId !== m.newId) item.calendarId = null
+    }
+  }
+  return true
+}
+
 function buildState(rowsByTab) {
   const data = parseAll(rowsByTab)
   // Sessions that carry transport + commute minutes get their "Commute"
@@ -353,13 +463,18 @@ function buildState(rowsByTab) {
   const weeklyHours = deriveWeeklyTotals(data.studyLog, data.weeklyOverrides, data.additionalLog)
   // Drop garbage rows created by earlier bugs: a "course" whose name is purely
   // the numeric course code (e.g. "191211110" next to the real "Modelling and
-  // Simulation"). The next Courses write removes them from Drive for good.
-  data.courses = (data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
+  // Simulation"), and phantom courses named after their own stable id. The next
+  // Courses write removes them from Drive for good.
+  data.courses = dropPhantomCourses(
+    (data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
+  )
   cleanContent(data)
+  const contentIdsRepaired = repairContentIds(data)
   ensurePreAugustDone(data)
   ensureLoggedPastSessions(data)
   synthCourses(data)
   linkGradeComponents(data)
+  const gradesDeduped = dedupeGradeComponents(data)
   // Stable primary keys for every entity (legacy rows get them backfilled).
   assignEntityIds(data)
   // Sessions logged before the plan↔session link existed get backfilled links.
@@ -373,7 +488,15 @@ function buildState(rowsByTab) {
   // Overview, Daily Planner and Google push, and prep/notes resolve via the FK.
   const contentCalChanged = ensureScheduledContentCalendarLinks(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
-  return { data, weeklyHours, plannerWeeks, contentCalChanged, commuteChanged }
+  return { data, weeklyHours, plannerWeeks, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired }
+}
+
+// Corruption the parse pass repairs, detected from the RAW tab rows so the
+// cleaned result is written back to Drive. Column 2 of the Courses tab is the
+// name; a phantom row has name === "course_000123".
+function rawCoursesNeedRepair(rowsByTab) {
+  const rows = rowsByTab?.[TAB_COURSES] || []
+  return rows.slice(1).some(r => /^course_\d+$/.test(String((r && r[2]) || '').trim()))
 }
 
 // Link existing grade components to their syllabus items so old data gets the
@@ -711,10 +834,14 @@ export function AppDataProvider({ children }) {
   function healCoursesFromLocal(d, savedLocal) {
     const local = savedLocal?.data?.courses
     if (!Array.isArray(local) || local.length === 0) return
-    fillCourseGaps(d, local.filter(c => c && !/^\d{5,9}$/.test(String(c.course || ''))))
+    // Never resurrect a phantom course ({ course: 'course_000123' }) from the
+    // snapshot — that is the corruption the synth pass minted, and re-adding it
+    // is what made "restoring the backend" impossible.
+    const restorable = local.filter(c => c && !/^\d{5,9}$/.test(String(c.course || '')) && !isPhantomCourse(c))
+    fillCourseGaps(d, restorable)
     const byName = new Map((d.courses || []).map(c => [c.course, c]))
-    for (const c of local) {
-      if (!c?.course || byName.has(c.course) || /^\d{5,9}$/.test(String(c.course))) continue
+    for (const c of restorable) {
+      if (!c?.course || byName.has(c.course)) continue
       byName.set(c.course, c)
       d.courses.push({ ...c, id: c.code || c.course, course: c.course })
     }
@@ -980,7 +1107,10 @@ export function AppDataProvider({ children }) {
     setDrive(info)
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
-    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged } = buildState(rowsByTab)
+    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired } = buildState(rowsByTab)
+    // Course rows the parse pass had to repair (phantom courses, etc.) are
+    // written back so Drive converges and the junk disappears from the sheet.
+    const coursesNeedRepair = rawCoursesNeedRepair(rowsByTab)
     // A brand-new spreadsheet is a clean slate: never heal the stale
     // localStorage snapshot (which may still hold the bundled example data
     // from a previous connection) back into it. For an existing sheet read the
@@ -1005,9 +1135,11 @@ export function AppDataProvider({ children }) {
     if (healed.studyLogChanged) healedKeys.push('studyLog')
     if (healed.dailyPlanChanged || dailyPlanNormalised) healedKeys.push('dailyPlan')
     if (healed.additionalChanged) healedKeys.push('additionalLog')
-    if (healed.gradesChanged) healedKeys.push('gradeComponents')
+    if (healed.gradesChanged || gradesDeduped) healedKeys.push('gradeComponents')
     if (healed.academicsChanged) healedKeys.push('academicYears')
     if (healed.weeklyChanged) healedKeys.push('weeklyTotals')
+    if (coursesNeedRepair) healedKeys.push('courses')
+    if (contentIdsRepaired) healedKeys.push('content', 'calendarEvents', 'studyLog')
     if (healedKeys.length && driveRef.current) syncTabs(healedKeys)
 
     dataRef.current = d
@@ -1044,6 +1176,11 @@ export function AppDataProvider({ children }) {
     const saved = loadJSON()
     if (saved?.data) {
       const planner = ensureDefaultRows(saved.plannerWeeks || [])
+      // Purge phantom/junk courses the snapshot may carry before anything else
+      // reads course ids — otherwise they shadow the real courses again.
+      saved.data.courses = dropPhantomCourses(
+        (saved.data.courses || []).filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
+      )
       assignEntityIds(saved.data)
       backfillPlanLinks(saved.data)
       relinkContentCalendar(saved.data)
@@ -1153,7 +1290,8 @@ export function AppDataProvider({ children }) {
     setSyncing(true)
     try {
       const rowsByTab = await readAllTabs(info.fileId)
-      const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged } = buildState(rowsByTab)
+      const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired } = buildState(rowsByTab)
+      const coursesNeedRepair = rawCoursesNeedRepair(rowsByTab)
       const healed = await healCourses(d, loadJSON())
       cleanContent(d)
       const contentCalChanged2 = ensureScheduledContentCalendarLinks(d) || contentCalChanged
@@ -1169,9 +1307,11 @@ export function AppDataProvider({ children }) {
       if (healed.studyLogChanged) healedKeys.push('studyLog')
       if (healed.dailyPlanChanged || dailyPlanNormalised) healedKeys.push('dailyPlan')
       if (healed.additionalChanged) healedKeys.push('additionalLog')
-      if (healed.gradesChanged) healedKeys.push('gradeComponents')
+      if (healed.gradesChanged || gradesDeduped) healedKeys.push('gradeComponents')
+      if (coursesNeedRepair) healedKeys.push('courses')
       if (healed.academicsChanged) healedKeys.push('academicYears')
       if (healed.weeklyChanged) healedKeys.push('weeklyTotals')
+      if (contentIdsRepaired) healedKeys.push('content', 'calendarEvents', 'studyLog')
       if (healedKeys.length) syncTabs(healedKeys)
       dataRef.current = d
       plannerRef.current = p

@@ -13,7 +13,7 @@ import {
   CONTENT_TYPES,
 } from '../config'
 import { toFloat, toInt, parseDateDDMMYYYY } from './normalize.js'
-import { assignEntityIds } from './relations.js'
+import { assignEntityIds, dropPhantomCourses } from './relations.js'
 
 const CSV_FILES = {
   [TAB_STUDY_LOG]: `${ASSET_BASE}data/AcademeMate - Study Log.csv`,
@@ -400,6 +400,11 @@ export function parseAll(rowsByTab) {
   // them would shadow the real course in the code→name lookup and steal its
   // grade components.
   courses = courses.filter(c => !/^\d{5,9}$/.test(String(c.course || '')))
+  // Phantom courses ({ id: 'course_000123', course: 'course_000123' }) shadow
+  // the real course of the same id and make every course_id reference resolve
+  // to the phantom name. Drop them BEFORE building the resolver so grade
+  // components, syllabus and logs all re-link to the real course.
+  courses = dropPhantomCourses(courses)
   const resolveCourse = resolveCourseFor(courses)
   const gradeComponents = parseGradeComponents(parseCSVRows(rowsByTab[TAB_GRADES] || []), resolveCourse)
   attachCourseGrades(courses, gradeComponents)
