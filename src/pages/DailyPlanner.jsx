@@ -649,7 +649,17 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       // this day (even directly in the Additional Time Log, with no event link),
       // the scheduled hours of its calendar events must not count on top.
       const addlLoggedThatDay = isAdditional && (additionalLog || []).some(a => a.date === e.date && a.category === rowName)
-      const fkLogged = isAdditional ? (fkAddl.length > 0 || addlLoggedThatDay) : fkSessions.length > 0
+      // Only the event that was itself logged is "done" — a sibling work/gym
+      // event on the same day must stay visible and checkable even though the
+      // category as a whole no longer contributes schedule hours. The legacy
+      // date/category/summary match is skipped when several same-named events
+      // share a day, so logging one never ticks its siblings off.
+      const ambiguousSummary = isAdditional && (calendarEvents || []).some(o =>
+        o.id !== e.id && o.date === e.date && o.summary === e.summary &&
+        (o.course || categoryForEvent(o, catOverrides)) === rowName)
+      const ownLogged = isAdditional && (fkAddl.length > 0 ||
+        (!ambiguousSummary && loggedAdditionalKeys.has(`${e.date}|${rowName}|${e.summary}`)))
+      const fkLogged = isAdditional ? ownLogged : fkSessions.length > 0
       // Sessions logged before the event_id FK existed still count as actual
       // hours for a class when they match its lecture/content id ON THE CLASS
       // DAY. Sessions on any other day — e.g. the prep/homework logged ahead of
@@ -662,7 +672,7 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
             ((e.contentId && s.lectureContentId === e.contentId) || (e.lectureId && s.lectureId === e.lectureId)))
         : []
       const logged = isAdditional
-        ? (fkLogged || (loggedAdditionalKeys.has(`${e.date}|${rowName}|${e.summary}`)))
+        ? ownLogged
         : (fkLogged || legacySessions.length > 0)
       // Attendance (issue #42): classes marked "Skip" in the course show greyed
       // out in the planner (still listed, still loggable if you do go).
@@ -676,9 +686,10 @@ export default function DailyPlanner({ onLogTask, onLogAdditional }) {
       // corrects to reality, exactly like reconcilePastDays does for plan rows.
       let hours
       if (isAdditional) {
-        // Logged additional auto rows are hidden and carried by their own row —
-        // their schedule hours must never count here.
-        hours = logged ? 0 : durHours(e)
+        // A logged sibling suppresses this event's schedule hours (no double
+        // counting), but the entry itself stays visible and checkable until it
+        // is logged on its own.
+        hours = (ownLogged || addlLoggedThatDay) ? 0 : durHours(e)
       } else if (fkLogged) {
         hours = Math.round(fkSessions.reduce((t, s) => t + (s.durationHours || 0), 0) * 100) / 100
       } else if (legacySessions.length > 0) {
