@@ -698,6 +698,49 @@ function loadImportSnapshot() {
   } catch { return null }
 }
 
+// Courses the user deliberately removed. The .ics import auto-creates courses
+// missing from the Courses tab, but must not resurrect one the user deleted —
+// so deleted names/codes are remembered until the course is added back.
+const DELETED_COURSES_KEY = 'am_deleted_courses'
+
+function loadDeletedCourses() {
+  try {
+    const raw = localStorage.getItem(DELETED_COURSES_KEY)
+    const o = raw ? JSON.parse(raw) : {}
+    return {
+      codes: new Set((o.codes || []).map(String)),
+      names: new Set((o.names || []).map(s => String(s).toLowerCase())),
+    }
+  } catch {
+    return { codes: new Set(), names: new Set() }
+  }
+}
+
+function saveDeletedCourses(d) {
+  try {
+    localStorage.setItem(DELETED_COURSES_KEY, JSON.stringify({
+      codes: [...d.codes],
+      names: [...d.names],
+    }))
+  } catch { /* quota/unavailable — tombstones are best-effort */ }
+}
+
+function markCourseDeleted(course) {
+  if (!course) return
+  const d = loadDeletedCourses()
+  if (course.code) d.codes.add(String(course.code))
+  if (course.course) d.names.add(String(course.course).toLowerCase())
+  saveDeletedCourses(d)
+}
+
+function unmarkCourseDeleted(course) {
+  if (!course) return
+  const d = loadDeletedCourses()
+  if (course.code) d.codes.delete(String(course.code))
+  if (course.course) d.names.delete(String(course.course).toLowerCase())
+  saveDeletedCourses(d)
+}
+
 export function AppDataProvider({ children }) {
   const [data, setData] = useState(null)
   const [plannerWeeks, setPlannerWeeks] = useState([])
@@ -1399,10 +1442,70 @@ export function AppDataProvider({ children }) {
     // abbreviation ("Exam Systems Engineering", "SE - Tutorial"), so exams and
     // shorthand-titled events land in the right course instead of being dropped.
     const keywordRules = loadCourseKeywords()
-    const courses = dataRef.current?.courses || []
+    // Work on a mutable copy: importing a timetable may introduce courses that
+    // are not in the Courses tab yet (see ensureCourse below).
+    const courses = [...(dataRef.current?.courses || [])]
+    const courseIds = new Set(courses.map(c => c && c.id).filter(Boolean))
+    const newCourses = []
     const codeToCourse = new Map()
-    for (const c of courses) if (c.code) codeToCourse.set(c.code, c.course)
+    for (const c of courses) if (c.code) codeToCourse.set(String(c.code), c.course)
     const escapeRe2 = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+    // A timetable SUMMARY is usually "<Course name>. <university code>". Pull
+    // both out so a course missing from the Courses tab can be created instead
+    // of silently dropping all of its events.
+    const courseFromSummary = summary => {
+      const m = /^(.*?)\s*\.?\s*(\d{6,9})\s*$/.exec(String(summary || '').trim())
+      if (!m) return null
+      const name = m[1].trim()
+        .replace(/\s*\.\s*$/, '')
+        // A class-type word in front of the course name ("Exam Systems
+        // Engineering") is not part of the course.
+        .replace(/^(?:exam(?:\s+review)?|resit|lecture|tutorial|practical|seminar|presentation|meeting|quiz|q\s*&\s*a)[\s:.-]+/i, '')
+        .trim()
+      return name ? { name, code: m[2] } : null
+    }
+    const deletedCourses = loadDeletedCourses()
+    const ensureCourse = summary => {
+      const parsed = courseFromSummary(summary)
+      if (!parsed) return null
+      const { name, code } = parsed
+      const byCode = codeToCourse.get(code)
+      if (byCode) return byCode
+      const byName = courses.find(c => String(c.course || '').toLowerCase() === name.toLowerCase())
+      if (byName) {
+        if (!byName.code) { byName.code = code; codeToCourse.set(code, byName.course) }
+        return byName.course
+      }
+      // Never bring back a course the user deleted on purpose.
+      if (deletedCourses.codes.has(String(code)) || deletedCourses.names.has(name.toLowerCase())) return null
+      const id = nextId('course_', [...courseIds])
+      courseIds.add(id)
+      const course = {
+        id,
+        course: name,
+        code,
+        abbrev: deriveAbbrev(name),
+        year: null,
+        quartile: null,
+        start: null,
+        finish: null,
+        ec: null,
+        status: null,
+        estHours: null,
+        notes: null,
+        comment: null,
+        scope: null,
+        color: null,
+        order: null,
+        grade: null,
+      }
+      courses.push(course)
+      newCourses.push(course)
+      codeToCourse.set(code, name)
+      return name
+    }
+
     for (const r of rows) {
       if (!r.course) {
         const kw = matchKeywordCourse(r.summary, r.description, keywordRules)
@@ -1431,7 +1534,13 @@ export function AppDataProvider({ children }) {
           if (!abbr || abbr.length < 2) return false
           return new RegExp(`(^|[^a-z0-9])${escapeRe2(abbr)}([^a-z0-9]|$)`, 'i').test(r.summary || '')
         })
-        if (abbrMatch) r.course = abbrMatch.course
+        if (abbrMatch) { r.course = abbrMatch.course; continue }
+      }
+      // Still unresolved but carrying a university course code: add the course
+      // now so a brand-new timetable is usable immediately.
+      if (!r.course) {
+        const created = ensureCourse(r.summary)
+        if (created) r.course = created
       }
     }
 
@@ -1719,32 +1828,75 @@ export function AppDataProvider({ children }) {
     // re-import can silently drop an event a session, entry or note anchors.
     const mergedIds = new Set(merged.map(r => r && r.id).filter(Boolean))
     const keptStale = existing.filter(e => e && e.id && !mergedIds.has(e.id))
-    // Also drop any already-imported row for a course the user no longer tracks
-    // — unless a logged session / note still references it (history wins).
     const referenced = referencedEventIds(dataRef.current)
-    let calendarFinal = [...merged, ...keptStale]
-      .filter(e => !(isUntrackedCourseRow(e) && !referenced.has(e.id)))
+    // A .ics row is authoritative: if the CURRENT files no longer list it (an
+    // old file was removed/replaced, or its course was dropped), it is pruned.
+    // Rows the fresh parse still produces are in `merged` and keep their id and
+    // session/note links. History always wins: a row referenced by a logged
+    // session or note is kept, as are personal/manual (non-.ics) rows. Pruning
+    // is skipped when the parse yielded nothing, so a malformed file can never
+    // wipe the whole calendar.
+    const isIcsEvent = e => !!e && !e.personalImport && !!e.source && String(e.source).endsWith('.ics')
+    const canPruneStale = importable.length > 0
+    const prunedContentIds = new Set()
+    const prunedCalIds = new Set()
+    const prunedOccurrences = new Set()
+    let pruned = 0
+    let calendarFinal = [...merged, ...keptStale].filter(e => {
+      // Also drop any already-imported row for a course the user no longer
+      // tracks — unless a logged session / note still references it.
+      if (isUntrackedCourseRow(e) && !referenced.has(e.id)) return false
+      if (canPruneStale && !mergedIds.has(e.id) && isIcsEvent(e) && !referenced.has(e.id)) {
+        pruned++
+        if (e.contentId) prunedContentIds.add(e.contentId)
+        if (e.calId) prunedCalIds.add(e.calId)
+        if (e.course && e.date) prunedOccurrences.add(`${e.course}|${e.date}|${e.startTime || ''}`)
+        return false
+      }
+      return true
+    })
+
+    // Syllabus rows left behind by a pruned .ics event would otherwise be
+    // re-materialised as a calendar mirror below. Drop the ones no logged
+    // session references — a row a session points at is history and stays.
+    let finalContent = contentFinal
+    if (pruned > 0) {
+      const survivingEventContentRefs = new Set(
+        calendarFinal.filter(e => e && e.contentId).map(e => e.contentId)
+      )
+      finalContent = contentFinal.filter(i => {
+        if (!i || sessionContentRefs.has(i.id)) return true
+        if (survivingEventContentRefs.has(i.id)) return true
+        if (prunedContentIds.has(i.id)) return false
+        if (i.calId && prunedCalIds.has(i.calId)) return false
+        if (i.course && i.date && prunedOccurrences.has(`${i.course}|${i.date}|${i.start || ''}`)) return false
+        return true
+      })
+    }
 
     // Link the imported events to their content rows and make sure any
     // user-added scheduled row that has no calendar row yet (e.g. a meeting
     // added in a course) gets one — so every class appears in the calendar
     // views and prep/notes resolve by the content_id FK, not just by string.
-    const linked = { calendarEvents: calendarFinal, content: contentFinal }
+    const linked = { calendarEvents: calendarFinal, content: finalContent }
     ensureScheduledContentCalendarLinks(linked)
     calendarFinal = linked.calendarEvents
 
     // Snapshot before the write (issue #53): the pre-import calendar +
     // syllabus state, so any import can be undone from the Calendar tab.
     saveImportSnapshot(dataRef.current?.calendarEvents || [], dataRef.current?.content || [])
-    const contentAdded = contentFinal.filter(i => !existingContent.some(x => x.id === i.id)).length
-    const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: contentFinal }
+    const contentAdded = finalContent.filter(i => !existingContent.some(x => x.id === i.id)).length
+    const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: finalContent }
+    if (newCourses.length > 0) d.courses = courses
     const planner = plannerRef.current || []
     setAll(d, planner)
-    const courseIdMap = new Map((dataRef.current?.courses || []).map(c => [c.course, c.id || c.code || null]))
-    await writeTabsBatch(info.fileId, {
+    const courseIdMap = new Map(courses.map(c => [c.course, c.id || c.code || null]))
+    const tabs = {
       [TAB_CALENDAR]: serializeCalendar(calendarFinal, courseIdMap),
-      [TAB_CONTENT]: serializeContent(contentFinal, courseIdMap),
-    })
+      [TAB_CONTENT]: serializeContent(finalContent, courseIdMap),
+    }
+    if (newCourses.length > 0) tabs[TAB_COURSES] = serializeCourses(courses)
+    await writeTabsBatch(info.fileId, tabs)
     return {
       imported: merged.length,
       files: files.length,
@@ -1754,6 +1906,8 @@ export function AppDataProvider({ children }) {
       adoptedBySlot,
       timeUpdated,
       keptStale: keptStale.length,
+      pruned,
+      coursesAdded: newCourses.length,
       contentAdded,
     }
   }
@@ -2305,6 +2459,8 @@ export function AppDataProvider({ children }) {
 
   function addCourse(course) {
     const { _gradeComponents, ...courseData } = course
+    // Adding a course back clears any deletion tombstone for it.
+    unmarkCourseDeleted(courseData)
     const prev = dataRef.current || {}
     // The year is always derived from the start (or finish) date.
     const s = String(courseData.start || '')
@@ -2626,6 +2782,8 @@ function renameIdPrefix(contentId, oldBase, newBase) {
     const course = (prev.courses || []).find(c => c.id === id || c.course === id)
     const courseName = course?.course || id
     const courseId = course?.id || null
+    // Remember the deletion so a timetable re-import does not auto-create it.
+    markCourseDeleted(course)
     // Referential integrity (#31): cascade removes everything referencing the
     // course — grade components, syllabus content, calendar events, planner
     // rows and study-log sessions — so no dangling foreign keys survive.

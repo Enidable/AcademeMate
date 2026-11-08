@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAppData } from '../context/AppDataContext'
-import { getCourseStyle, slotIndexOfContent, shortCourseName } from '../utils/helpers'
+import { getCourseStyle, slotIndexOfContent } from '../utils/helpers'
 import { typeSymbol, inferEventType } from '../drive/driveClient'
 import { loadCourseKeywords, saveCourseKeywords } from '../utils/courseKeywords'
 import { categoryForEvent, loadEventCategoryOverrides, saveEventCategoryOverrides } from '../utils/additionalRouting'
@@ -199,12 +199,12 @@ export default function Calendar() {
   }, [content])
   const contentBySlot = useMemo(() => slotIndexOfContent(content), [content])
 
-  // Short per-course label for chip titles: the stored abbreviation if the
-  // course has one, else a compact name.
+  // Full course name per chip title — the abbreviation is only a shortcut for
+  // IDs, the calendar should read like the real course.
   const courseLabelOf = useMemo(() => {
     const m = {}
-    for (const c of masterCourses || []) if (c?.course) m[c.course] = c.abbrev || shortCourseName(c.course) || c.course
-    return course => m[course] || shortCourseName(course) || course || ''
+    for (const c of masterCourses || []) if (c?.course) m[c.course] = c.course
+    return course => m[course] || course || ''
   }, [masterCourses])
 
   // Calendar chips for a course class read "<Course label> · <syllabus>", so
@@ -258,11 +258,13 @@ export default function Calendar() {
       const parts = []
       if (res.added) parts.push(`${res.added} new`)
       if (res.timeUpdated) parts.push(`${res.timeUpdated} moved`)
+      if (res.coursesAdded) parts.push(`${res.coursesAdded} course${res.coursesAdded > 1 ? 's' : ''} added`)
       if (res.contentAdded) parts.push(`${res.contentAdded} syllabus new`)
+      if (res.pruned) parts.push(`${res.pruned} removed (no longer in files)`)
       if (res.keptStale) parts.push(`${res.keptStale} kept (no longer in files)`)
       setMessage(`Merged ${res.imported} events from ${res.files} .ics file(s)` +
         (parts.length ? ` — ${parts.join(', ')}.` : ' — no changes.') +
-        ' Nothing was deleted; use “Undo last import” below if this looks wrong.')
+        ' Use “Undo last import” below if this looks wrong.')
     } catch (e) {
       setMessage(`Import failed: ${e.message}`)
     } finally {
@@ -360,15 +362,16 @@ export default function Calendar() {
     // Attendance (issue #42): classes marked "Skip" in the course stay visible
     // but are greyed out.
     const skipped = !e.isDeadline && linked != null && linked.attend === false
+    const label = e.isDeadline ? `Due: ${e.description}` : (classTitle(e) || e.summary)
     return (
       <div key={e.id || `${e.date}|${e.summary}|${e.startTime}`}
         className={`rounded border ${style.border || 'border-transparent'} ${style.bg} ${style.text} px-1.5 py-0.5 text-[11px] leading-tight ${compact ? '' : 'mb-1'} ${skipped ? 'opacity-40' : ''}`}
-        style={{ ...style.borderCss, ...style.bgCss, ...style.textCss }} title={skipped ? `${e.summary} — not attending` : (needsPrep ? `${e.summary} — prep: ${prepText}` : e.summary)}>
+        style={{ ...style.borderCss, ...style.bgCss, ...style.textCss }} title={skipped ? `${label} — not attending` : (needsPrep ? `${label} — prep: ${prepText}` : label)}>
         <div className="truncate">
           {!compact && time && <span className="opacity-70 mr-1">{time}</span>}
           {compact && e.startTime && <span className="opacity-70 mr-1">{e.startTime}</span>}
           <span className="mr-0.5">{symbol}</span>
-          <span className="truncate">{e.isDeadline ? `Due: ${e.description}` : e.summary}</span>
+          <span className="truncate">{label}</span>
           {needsPrep && (
             <span className="ml-1 inline-block px-1 rounded bg-red-600 text-white text-[9px] font-semibold align-middle" title={`Prep required: ${prepText}`}>Prep</span>
           )}
@@ -408,7 +411,7 @@ export default function Calendar() {
         <div className="ml-auto flex items-center gap-2">
           <button onClick={runImport} disabled={!hasDrive || busy !== ''}
             className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
-            title="Merges the Drive iCal .ics files into the calendar — nothing is deleted, and the previous state is snapshotted for undo">
+            title="Syncs the Drive iCal .ics files into the calendar — updates existing events (keeping their links), adds new courses/events, and removes .ics events no longer in the files unless a logged session references them. Snapshot for undo.">
             {busy === 'import' ? 'Importing…' : '↧ Import .ics'}
           </button>
           <button onClick={runUndoImport} disabled={!hasDrive || busy !== ''}
