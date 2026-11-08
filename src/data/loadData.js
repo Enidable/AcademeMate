@@ -12,7 +12,7 @@ import {
   TAB_ACADEMIC_YEAR,
   CONTENT_TYPES,
 } from '../config'
-import { toFloat, toInt, parseDateDDMMYYYY } from './normalize.js'
+import { toFloat, toInt, parseDateDDMMYYYY, normalizeCourseCode } from './normalize.js'
 import { assignEntityIds, dropPhantomCourses } from './relations.js'
 
 const CSV_FILES = {
@@ -103,7 +103,7 @@ function parseCourses(rows) {
     .map(r => ({
       id: (r.id || '').trim(),
       course: (r.name || r.course_id || '').trim(),
-      code: (r.code || '').trim() || null,
+      code: normalizeCourseCode((r.code || '').trim()),
       abbrev: (r.abbrev || '').trim() || null,
       year: (r.year || '').trim() || null,
       quartile: (r.quartile || '').trim() || null,

@@ -13,6 +13,7 @@ import {
   serializeAcademicYears,
 } from '../data/serialize'
 import { parseIcs, dedupeCalendarRows } from '../data/ical'
+import { normalizeCourseCode } from '../data/normalize'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
@@ -146,7 +147,11 @@ function synthCourses(parsed) {
   for (const e of parsed.studyLog || []) if (e.course) referenced.add(e.course)
   for (const g of parsed.gradeComponents || []) if (g.course) referenced.add(g.course)
   for (const i of parsed.content || []) if (i.course) referenced.add(i.course)
+  // Calendar elements too: an event whose course is not in the Courses tab
+  // (e.g. a timetable course that was never added) must not be left orphaned.
+  for (const e of parsed.calendarEvents || []) if (e.course) referenced.add(e.course)
   const existingNames = new Set((parsed.courses || []).map(c => c.course))
+  let added = 0
   for (const name of referenced) {
     if (!name || /^\d{5,9}$/.test(name)) continue
     // Never mint a phantom course named after a stable id — that is exactly the
@@ -156,12 +161,15 @@ function synthCourses(parsed) {
     parsed.courses.push({
       id: name,
       course: name,
-      code: null, abbrev: null, year: null, quartile: null,
+      code: null, abbrev: deriveAbbrev(name), year: null, quartile: null,
       start: null, finish: null, ec: null, status: null,
       estHours: null, notes: null, grade: null,
       color: null, scope: null, order: null,
     })
+    existingNames.add(name)
+    added++
   }
+  return added > 0
 }
 
 // Remove exact-duplicate syllabus rows (same course + component ID + date/
@@ -341,6 +349,7 @@ function normalizeCourseRefs(data) {
     put(c.course, c.course)
     put(c.id, c.course)
     put(c.code, c.course)
+    put(normalizeCourseCode(c.code), c.course)
     put(c.abbrev, c.course)
   }
   if (lookup.size === 0) return
@@ -479,7 +488,7 @@ function buildState(rowsByTab) {
   const contentIdsRepaired = repairContentIds(data)
   ensurePreAugustDone(data)
   ensureLoggedPastSessions(data)
-  synthCourses(data)
+  const coursesSynth = synthCourses(data)
   linkGradeComponents(data)
   const gradesDeduped = dedupeGradeComponents(data)
   // Stable primary keys for every entity (legacy rows get them backfilled).
@@ -495,7 +504,7 @@ function buildState(rowsByTab) {
   // Overview, Daily Planner and Google push, and prep/notes resolve via the FK.
   const contentCalChanged = ensureScheduledContentCalendarLinks(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
-  return { data, weeklyHours, plannerWeeks, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired }
+  return { data, weeklyHours, plannerWeeks, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth }
 }
 
 // Corruption the parse pass repairs, detected from the RAW tab rows so the
@@ -1157,7 +1166,7 @@ export function AppDataProvider({ children }) {
     setDrive(info)
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
-    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired } = buildState(rowsByTab)
+    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth } = buildState(rowsByTab)
     // Course rows the parse pass had to repair (phantom courses, etc.) are
     // written back so Drive converges and the junk disappears from the sheet.
     const coursesNeedRepair = rawCoursesNeedRepair(rowsByTab)
@@ -1188,7 +1197,7 @@ export function AppDataProvider({ children }) {
     if (healed.gradesChanged || gradesDeduped) healedKeys.push('gradeComponents')
     if (healed.academicsChanged) healedKeys.push('academicYears')
     if (healed.weeklyChanged) healedKeys.push('weeklyTotals')
-    if (coursesNeedRepair) healedKeys.push('courses')
+      if (coursesNeedRepair || coursesSynth) healedKeys.push('courses')
     if (contentIdsRepaired) healedKeys.push('content', 'calendarEvents', 'studyLog')
     if (healedKeys.length && driveRef.current) syncTabs(healedKeys)
 
@@ -1343,7 +1352,7 @@ export function AppDataProvider({ children }) {
     setSyncing(true)
     try {
       const rowsByTab = await readAllTabs(info.fileId)
-      const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired } = buildState(rowsByTab)
+    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth } = buildState(rowsByTab)
       const coursesNeedRepair = rawCoursesNeedRepair(rowsByTab)
       const healed = await healCourses(d, loadJSON())
       cleanContent(d)
@@ -1361,7 +1370,7 @@ export function AppDataProvider({ children }) {
       if (healed.dailyPlanChanged || dailyPlanNormalised) healedKeys.push('dailyPlan')
       if (healed.additionalChanged) healedKeys.push('additionalLog')
       if (healed.gradesChanged || gradesDeduped) healedKeys.push('gradeComponents')
-      if (coursesNeedRepair) healedKeys.push('courses')
+    if (coursesNeedRepair || coursesSynth) healedKeys.push('courses')
       if (healed.academicsChanged) healedKeys.push('academicYears')
       if (healed.weeklyChanged) healedKeys.push('weeklyTotals')
       if (contentIdsRepaired) healedKeys.push('content', 'calendarEvents', 'studyLog')
@@ -1448,7 +1457,10 @@ export function AppDataProvider({ children }) {
     const courseIds = new Set(courses.map(c => c && c.id).filter(Boolean))
     const newCourses = []
     const codeToCourse = new Map()
-    for (const c of courses) if (c.code) codeToCourse.set(String(c.code), c.course)
+    for (const c of courses) {
+      const code = normalizeCourseCode(c.code)
+      if (code) codeToCourse.set(code, c.course)
+    }
     const escapeRe2 = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
     // A timetable SUMMARY is usually "<Course name>. <university code>". Pull
@@ -1761,55 +1773,130 @@ export function AppDataProvider({ children }) {
       return fresh
     }
 
-    // Reconcile one exam/review/resit occurrence. Every occurrence keeps its
-    // own syllabus row (own date), but they all share the course's single exam
-    // component ID (e.g. NLPE1). A row matches when it already points at the
-    // same component ID and date, or at the same calendar element.
-    const reconcileExamOccurrence = (r, examId) => {
-      const sameOccurrence = i =>
-        i.course === r.course &&
-        i.contentId === examId &&
-        (i.date === r.date || i.deadline === r.date || (r.calId && i.calId === r.calId))
-      const chosen = content.find(i => !consumed.has(i.id) && sameOccurrence(i))
+    // Collapse a course's exam/review/resit occurrences into ONE syllabus row
+    // linked to its exam grade component. Older imports minted a fresh exam ID
+    // on every run (the user's exam components often have a blank type), which
+    // is what piled up duplicate "exam" deadlines; every unreferenced
+    // exam-family row of the course is now folded into the survivor.
+    const reconcileExam = (course, comp, pick) => {
+      const examId = comp.id
+      const candidates = content.filter(i =>
+        !consumed.has(i.id) && i.course === course && (
+          i.contentId === examId
+          || EXAM_FAMILY.has(i.type)
+          || (pick.calId && i.calId === pick.calId)
+        )
+      )
+      const chosen = candidates.find(i => sessionContentRefs.has(i.id))
+        || candidates.find(i => i.contentId === examId)
+        || candidates[0]
+        || null
+      for (const c of candidates) {
+        if (c !== chosen && !sessionContentRefs.has(c.id)) consumed.add(c.id)
+      }
       if (chosen) {
         chosen.contentId = examId
-        chosen.deadline = r.date
-        chosen.date = null
         chosen.type = 'exam'
-        chosen.calId = r.calId
+        chosen.date = null
+        chosen.deadline = pick.date
+        chosen.calId = pick.calId || chosen.calId || null
+        if (!chosen.topic) chosen.topic = pick.summary || examId
         return chosen
       }
-      return content.push(makeExamItem(r, examId))
+      return content.push(makeExamItem(pick, examId))
     }
 
     const courseById = new Map(courses.map(c => [c.course, c]))
-    const gradeCompIds = (dataRef.current?.gradeComponents || [])
-      .flatMap(g => (g.components || []).map(x => ({ course: g.course, contentId: x.id, type: x.type })))
+    // Work on a copy so exam components/dates can be filled without mutating
+    // the live state before the single setAll below.
+    const gradeComponents = (dataRef.current?.gradeComponents || []).map(g => ({
+      ...g,
+      components: (g.components || []).map(c => ({ ...c })),
+    }))
+    const gradeCompIds = gradeComponents
+      .flatMap(g => (g.components || []).map(x => ({ course: g.course, contentId: x.id, type: x.type, name: x.name })))
+    let gradesChanged = false
 
-    // Resolve the course's single exam component ID once per course, then give
-    // every exam/review/resit occurrence its own syllabus row under that ID.
-    const examIdByCourse = new Map()
-    const resolveExamId = r => {
-      if (!examIdByCourse.has(r.course)) {
-        const c = courseById.get(r.course) || {}
-        // Reuse the exam component the user already entered (e.g. NLPE1) so
-        // the calendar events match it instead of spawning a second exam.
-        const existingExamComp = (gradeCompIds || []).find(x => x.course === r.course && x.type === 'exam')
-        examIdByCourse.set(r.course, existingExamComp?.contentId || nextDeadlineId(r.course, c.abbrev, c.code, [...existingContent, ...gradeCompIds], 'exam'))
-      }
-      return examIdByCourse.get(r.course)
+    // An exam component may be typed ("exam"), named ("Exam"), or carry an
+    // {abbrev}E{n} id (ML1E1, NLPE1, SEE1…). The user's sheet uses all three,
+    // so recognise them all — matching only type === 'exam' is what made the
+    // importer mint a new exam ID every time and never link the real component.
+    const examBase = course => {
+      const c = courseById.get(course) || {}
+      return String(c.abbrev || deriveAbbrev(course) || c.code || '').replace(/\s+/g, '-')
+    }
+    const isExamComponent = (course, x) => {
+      if (!x) return false
+      if (String(x.type || '').toLowerCase() === 'exam') return true
+      if (/exam/i.test(`${x.name || ''} ${x.id || ''}`)) return true
+      const base = examBase(course)
+      if (!base) return false
+      return new RegExp(`^${escapeRe2(base)}[- ]?E\\d+$`, 'i').test(String(x.id || ''))
+    }
+    const examComponentsByCourse = new Map()
+    for (const g of gradeComponents) {
+      const comps = (g.components || []).filter(x => isExamComponent(g.course, x))
+      if (comps.length) examComponentsByCourse.set(g.course, { group: g, comps })
     }
 
+    const addExamComponent = (course, id) => {
+      const c = courseById.get(course) || {}
+      let group = gradeComponents.find(g => g.course === course)
+      if (!group) {
+        group = { course, courseId: c.id || c.code || null, components: [], totalGrade: null, check: null }
+        gradeComponents.push(group)
+      }
+      const comp = { type: 'exam', id, name: id, weight: null, grade: null, dueDate: null, hoursSpent: null, done: null, notes: null }
+      group.components = [...(group.components || []), comp]
+      group.totalGrade = calcWeightedGrade(group.components)
+      gradeCompIds.push({ course, contentId: id, type: 'exam', name: id })
+      const entry = examComponentsByCourse.get(course)
+      if (entry) entry.comps.push(comp)
+      else examComponentsByCourse.set(course, { group, comps: [comp] })
+      gradesChanged = true
+      return comp
+    }
+
+    // Pick the component this course's exam belongs to: a component already due
+    // on the exam date wins, then a typed exam, then any exam-ish component;
+    // only when the course has none at all is a new one created (so the exam is
+    // shown in Grade Components and the deadline is linked to it).
+    const pickExamComponent = (course, date) => {
+      const entry = examComponentsByCourse.get(course)
+      const comps = entry ? entry.comps : []
+      if (comps.length) {
+        const byDate = comps.find(x => x.dueDate && String(x.dueDate) === String(date))
+        return byDate || comps.find(x => String(x.type || '').toLowerCase() === 'exam') || comps[0]
+      }
+      const c = courseById.get(course) || {}
+      const id = nextDeadlineId(course, c.abbrev, c.code, [...existingContent, ...gradeCompIds], 'exam')
+      return addExamComponent(course, id)
+    }
+
+    // Split exam-family events out per course, then collapse each course's
+    // occurrences (exam, exam review, resit, re-downloads) into a single row.
+    const examEventsByCourse = new Map()
     for (const r of merged) {
       if (!r.course) continue
       const type = inferEventType(r.summary, r.description)
       if (EXAM_FAMILY.has(type)) {
         r.lectureId = null
-        reconcileExamOccurrence(r, resolveExamId(r))
+        if (!examEventsByCourse.has(r.course)) examEventsByCourse.set(r.course, [])
+        examEventsByCourse.get(r.course).push({ r, type })
         continue
       }
       if (!r.lectureId) continue
       reconcile(r, type)
+    }
+
+    for (const [course, occurrences] of examEventsByCourse) {
+      const sorted = occurrences.slice().sort((a, b) => (a.r.date || '').localeCompare(b.r.date || ''))
+      // Prefer the real exam slot over a review/resit when collapsing.
+      const pick = (sorted.find(o => o.type === 'exam') || sorted[0]).r
+      const comp = pickExamComponent(course, pick.date)
+      if (String(comp.type || '').toLowerCase() !== 'exam') { comp.type = 'exam'; gradesChanged = true }
+      if (comp.dueDate !== pick.date) { comp.dueDate = pick.date; gradesChanged = true }
+      reconcileExam(course, comp, pick)
     }
 
     // Exam-family syllabus rows are deadline-shaped (date: null); any row of
@@ -1888,6 +1975,7 @@ export function AppDataProvider({ children }) {
     const contentAdded = finalContent.filter(i => !existingContent.some(x => x.id === i.id)).length
     const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: finalContent }
     if (newCourses.length > 0) d.courses = courses
+    if (gradesChanged) d.gradeComponents = gradeComponents
     const planner = plannerRef.current || []
     setAll(d, planner)
     const courseIdMap = new Map(courses.map(c => [c.course, c.id || c.code || null]))
@@ -1896,6 +1984,7 @@ export function AppDataProvider({ children }) {
       [TAB_CONTENT]: serializeContent(finalContent, courseIdMap),
     }
     if (newCourses.length > 0) tabs[TAB_COURSES] = serializeCourses(courses)
+    if (gradesChanged) tabs[TAB_GRADES] = serializeGradeComponents(gradeComponents, courseIdMap)
     await writeTabsBatch(info.fileId, tabs)
     return {
       imported: merged.length,

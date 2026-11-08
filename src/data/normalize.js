@@ -14,6 +14,20 @@ export function toInt(val) {
   return isNaN(n) ? null : n
 }
 
+// University course codes are long integers (e.g. 202200100). Google Sheets /
+// Excel often store them in scientific notation ("2.022001E8"), which no longer
+// matches the plain code in a .ics SUMMARY. Normalise back to the digit string.
+export function normalizeCourseCode(val) {
+  if (val == null) return null
+  let s = String(val).trim()
+  if (!s) return null
+  if (/^\d+(?:[.,]\d+)?E\+?\d+$/i.test(s)) {
+    const n = Number(s.replace(',', '.'))
+    if (Number.isFinite(n)) s = n.toFixed(0)
+  }
+  return s || null
+}
+
 export function parseDateDDMMYYYY(val) {
   if (!val) return null
   const parts = String(val).trim().split('/')
