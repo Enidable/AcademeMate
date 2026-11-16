@@ -112,7 +112,9 @@ export function startRedirectAuth() {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri(),
-    response_type: 'token',
+    // `nonce` is only valid alongside an id_token request — pairing it with a
+    // bare `response_type=token` makes Google fail with invalid_request.
+    response_type: 'token id_token',
     scope: SCOPES.join(' '),
     include_granted_scopes: 'true',
     state,
@@ -273,24 +275,19 @@ export async function getAccessToken({ force = false } = {}) {
     window.addEventListener('blur', onBlur)
     window.addEventListener('focus', onFocus)
 
-    // If no pop-up ever takes focus, it was blocked — fail fast and clearly.
+    // If no pop-up ever takes focus it was blocked. Rather than dead-end, use
+    // the redirect (same-tab navigation needs no pop-up permission at all).
     noPopupTimer = setTimeout(() => {
       if (!settled && !popupOpened) {
-        finish(reject, new Error('No Google sign-in pop-up appeared. Allow pop-ups for this site, then click Connect again.'))
+        fallbackToRedirect()
       }
     }, 5000)
 
-    // Backstop: if the flow opened but never came back at all, switch to the
-    // redirect fallback rather than dead-ending on an error.
+    // Backstop: if the flow never comes back at all, switch to the redirect
+    // fallback rather than dead-ending on an error.
     requestTimer = setTimeout(() => {
       if (settled) return
-      if (popupOpened) {
-        fallbackToRedirect()
-      } else {
-        finish(reject, new Error(
-          'The Google sign-in window did not complete in time. If a pop-up was blocked, allow pop-ups for this site and try again.',
-        ))
-      }
+      fallbackToRedirect()
     }, REQUEST_TIMEOUT_MS)
 
     // Wire the outstanding request to the token client's callback and start the
