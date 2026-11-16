@@ -119,6 +119,7 @@ export default function DriveSettings({ open, onClose }) {
             <ul className="mt-2 space-y-1.5 list-disc pl-4">
               <li>This app is using Client ID <code className="text-slate-700 break-all">{GOOGLE_CLIENT_ID}</code>. Check it matches the one shown in your Google Cloud <em>Credentials</em> page.</li>
               <li>The page's origin in the address bar (e.g. <code className="text-slate-700">http://localhost:5173</code>) must be under <strong>Authorized JavaScript origins</strong>. The path after it doesn't matter.</li>
+              <li>If sign-in keeps stalling after you approve, the app retries with a full-page redirect. For that, the exact page address (e.g. <code className="text-slate-700">http://localhost:5173/AcademeMate/</code>) must also be listed under <strong>Authorized redirect URIs</strong>.</li>
               <li>Make sure <em>Google Drive API</em> and <em>Google Sheets API</em> are both enabled, and that your Google account is a <strong>test user</strong> while the consent screen is in &quot;Testing&quot; mode.</li>
             </ul>
           </details>

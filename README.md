@@ -30,8 +30,11 @@ npm run dev
    - Add the scopes `.../auth/drive.file`, `.../auth/spreadsheets`, `.../auth/drive.readonly`, `.../auth/calendar`, `openid`, `email`, `profile`.
    - Add yourself (and friends) as **Test users**.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID** → *Web application*:
-   - **Authorized JavaScript origins** (these are the only ones checked by this app's sign-in flow; redirect URIs are not used): `http://localhost:5173` for local dev **and** `https://<username>.github.io` for the deployed GitHub Pages site.
-   - *Authorized redirect URIs* can stay empty for this flow.
+   - **Authorized JavaScript origins**: `http://localhost:5173` for local dev **and** `https://<username>.github.io` for the deployed GitHub Pages site. (No path — origin only.)
+   - **Authorized redirect URIs**: add the exact page URLs too, **including the path and trailing slash**:
+     - `http://localhost:5173/AcademeMate/` for local dev
+     - `https://<username>.github.io/AcademeMate/` for GitHub Pages
+     These are used by the automatic redirect fallback if the normal pop-up sign-in can't hand the token back to the app (some browsers block that). Without them, pop-up sign-in still works but the fallback will fail with `redirect_uri_mismatch`.
 5. Your Client ID is already baked into `src/config.js` as the default, so the **GitHub Pages build works with it automatically** (Client IDs are public identifiers — they're visible in the shipped JS either way).
    - Only need a local env file if you want to *override* it for a different Client ID:
      ```bash

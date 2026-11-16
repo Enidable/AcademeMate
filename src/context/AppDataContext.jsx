@@ -41,7 +41,7 @@ import {
   deleteCalendarEvent,
 } from '../drive/driveClient'
 import { fetchTemplateRows } from '../drive/template'
-import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn, initGis } from '../drive/gis'
+import { getAccessToken, signOut, readToken, getTokenUser, isSignedIn, initGis, consumeRedirectToken, takeRedirectAuthError } from '../drive/gis'
 import {
   TAB_STUDY_LOG,
   TAB_COURSES,
@@ -1264,6 +1264,11 @@ export function AppDataProvider({ children }) {
     }
 
     async function bootstrap() {
+      // If we've just come back from the redirect-based sign-in fallback, the
+      // token is sitting in the URL fragment — store it before any sign-in checks.
+      consumeRedirectToken()
+      const redirectErr = takeRedirectAuthError()
+      if (redirectErr && !cancelled) setDriveError(redirectErr)
       // Pre-warm the Google sign-in script at app start. Loading it lazily on the
       // first "Connect" click makes the consent popup open outside the click's
       // user-gesture window, so browsers can block it (endless sign-in hang).
