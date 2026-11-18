@@ -259,6 +259,7 @@ export default function Calendar() {
       if (res.added) parts.push(`${res.added} new`)
       if (res.timeUpdated) parts.push(`${res.timeUpdated} moved`)
       if (res.coursesAdded) parts.push(`${res.coursesAdded} course${res.coursesAdded > 1 ? 's' : ''} added`)
+      if (res.coursesRemoved) parts.push(`${res.coursesRemoved} course${res.coursesRemoved > 1 ? 's' : ''} removed (no longer in files)`)
       if (res.contentAdded) parts.push(`${res.contentAdded} syllabus new`)
       if (res.pruned) parts.push(`${res.pruned} removed (no longer in files)`)
       if (res.keptStale) parts.push(`${res.keptStale} kept (no longer in files)`)

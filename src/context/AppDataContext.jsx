@@ -17,7 +17,7 @@ import { normalizeCourseCode } from '../data/normalize'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows, isPhantomCourse, dropPhantomCourses } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows, isPhantomCourse, dropPhantomCourses, pruneOrphanCourses } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -1974,21 +1974,43 @@ export function AppDataProvider({ children }) {
     ensureScheduledContentCalendarLinks(linked)
     calendarFinal = linked.calendarEvents
 
+    // A course the current .ics files no longer produce is an artefact once its
+    // events/syllabus rows have been pruned above. Drop it so it stops showing
+    // in the programme — but only when it was an auto-generated timetable course
+    // and nothing else (grades, sessions, planner) still refers to it.
+    const activeCourseNames = new Set(
+      importable.map(r => r.course).filter(Boolean)
+    )
+    let coursesFinal = courses
+    let coursesRemoved = 0
+    if (importable.length > 0) {
+      const prunedCourses = pruneOrphanCourses({
+        courses,
+        calendarEvents: calendarFinal,
+        content: finalContent,
+        gradeComponents,
+        studyLog: dataRef.current?.studyLog || [],
+        dailyPlan: dataRef.current?.dailyPlan || [],
+      }, activeCourseNames)
+      coursesFinal = prunedCourses.courses
+      coursesRemoved = prunedCourses.removed.length
+    }
+
     // Snapshot before the write (issue #53): the pre-import calendar +
     // syllabus state, so any import can be undone from the Calendar tab.
     saveImportSnapshot(dataRef.current?.calendarEvents || [], dataRef.current?.content || [])
     const contentAdded = finalContent.filter(i => !existingContent.some(x => x.id === i.id)).length
     const d = { ...(dataRef.current || {}), calendarEvents: calendarFinal, content: finalContent }
-    if (newCourses.length > 0) d.courses = courses
+    if (newCourses.length > 0 || coursesRemoved > 0) d.courses = coursesFinal
     if (gradesChanged) d.gradeComponents = gradeComponents
     const planner = plannerRef.current || []
     setAll(d, planner)
-    const courseIdMap = new Map(courses.map(c => [c.course, c.id || c.code || null]))
+    const courseIdMap = new Map(coursesFinal.map(c => [c.course, c.id || c.code || null]))
     const tabs = {
       [TAB_CALENDAR]: serializeCalendar(calendarFinal, courseIdMap),
       [TAB_CONTENT]: serializeContent(finalContent, courseIdMap),
     }
-    if (newCourses.length > 0) tabs[TAB_COURSES] = serializeCourses(courses)
+    if (newCourses.length > 0 || coursesRemoved > 0) tabs[TAB_COURSES] = serializeCourses(coursesFinal)
     if (gradesChanged) tabs[TAB_GRADES] = serializeGradeComponents(gradeComponents, courseIdMap)
     await writeTabsBatch(info.fileId, tabs)
     return {
@@ -2002,6 +2024,7 @@ export function AppDataProvider({ children }) {
       keptStale: keptStale.length,
       pruned,
       coursesAdded: newCourses.length,
+      coursesRemoved,
       contentAdded,
     }
   }
