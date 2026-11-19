@@ -69,6 +69,12 @@ function courseIdForName(courses, name) {
   return (courses || []).find(c => c.course === name)?.id || null
 }
 
+// A Drive timetable file. Extensions are user/OS supplied, so compare the
+// suffix case-insensitively ("Timetable.ICS" is still an .ics import).
+function isIcsSource(source) {
+  return /\.ics$/i.test(String(source || ''))
+}
+
 const AppDataContext = createContext(null)
 
 export function useAppData() {
@@ -1568,7 +1574,7 @@ export function AppDataProvider({ children }) {
     const isUntrackedCourseRow = e =>
       !!e && !e.course
       && !e.personalImport
-      && !(e.source && !String(e.source).endsWith('.ics'))
+      && !(e.source && !isIcsSource(e.source))
       && /\.?\s*\d{6,9}\s*$/.test(e.summary || '')
     const importable = rows.filter(r => !isUntrackedCourseRow(r))
 
@@ -1920,7 +1926,17 @@ export function AppDataProvider({ children }) {
     // re-import can silently drop an event a session, entry or note anchors.
     const mergedIds = new Set(merged.map(r => r && r.id).filter(Boolean))
     const keptStale = existing.filter(e => e && e.id && !mergedIds.has(e.id))
-    const referenced = referencedEventIds(dataRef.current)
+    // History that must survive pruning: a logged session / additional entry,
+    // and a syllabus row a session points at. A content row's own calendar
+    // mirror (content.calendarId → event.id) is NOT history — counting it would
+    // let every imported event protect itself, so a course dropped from the
+    // .ics files could never be pruned.
+    const referenced = new Set()
+    for (const s of dataRef.current?.studyLog || []) if (s.eventId) referenced.add(s.eventId)
+    for (const a of dataRef.current?.additionalLog || []) if (a.eventId) referenced.add(a.eventId)
+    for (const i of dataRef.current?.content || []) {
+      if (i.calendarId && sessionContentRefs.has(i.id)) referenced.add(i.calendarId)
+    }
     // A .ics row is authoritative: if the CURRENT files no longer list it (an
     // old file was removed/replaced, or its course was dropped), it is pruned.
     // Rows the fresh parse still produces are in `merged` and keep their id and
@@ -1928,8 +1944,11 @@ export function AppDataProvider({ children }) {
     // session or note is kept, as are personal/manual (non-.ics) rows. Pruning
     // is skipped when the parse yielded nothing, so a malformed file can never
     // wipe the whole calendar.
-    const isIcsEvent = e => !!e && !e.personalImport && !!e.source && String(e.source).endsWith('.ics')
-    const canPruneStale = importable.length > 0
+    const isIcsEvent = e => !!e && !e.personalImport && !!e.source && isIcsSource(e.source)
+    // Skip pruning only when the files parsed to nothing at all (malformed /
+    // empty), so a bad download cannot wipe the calendar. Rows that resolve to
+    // no tracked course (the deleted-course case) still count as a valid parse.
+    const canPruneStale = rows.length > 0
     const prunedContentIds = new Set()
     const prunedCalIds = new Set()
     const prunedOccurrences = new Set()
@@ -1937,7 +1956,13 @@ export function AppDataProvider({ children }) {
     let calendarFinal = [...merged, ...keptStale].filter(e => {
       // Also drop any already-imported row for a course the user no longer
       // tracks — unless a logged session / note still references it.
-      if (isUntrackedCourseRow(e) && !referenced.has(e.id)) return false
+      if (isUntrackedCourseRow(e) && !referenced.has(e.id)) {
+        pruned++
+        if (e.contentId) prunedContentIds.add(e.contentId)
+        if (e.calId) prunedCalIds.add(e.calId)
+        if (e.course && e.date) prunedOccurrences.add(`${e.course}|${e.date}|${e.startTime || ''}`)
+        return false
+      }
       if (canPruneStale && !mergedIds.has(e.id) && isIcsEvent(e) && !referenced.has(e.id)) {
         pruned++
         if (e.contentId) prunedContentIds.add(e.contentId)
@@ -1983,7 +2008,7 @@ export function AppDataProvider({ children }) {
     )
     let coursesFinal = courses
     let coursesRemoved = 0
-    if (importable.length > 0) {
+    if (rows.length > 0) {
       const prunedCourses = pruneOrphanCourses({
         courses,
         calendarEvents: calendarFinal,
@@ -2261,7 +2286,7 @@ export function AppDataProvider({ children }) {
     // Every item we intend to place on the calendar, so existing events can be
     // listed across the whole span (for adoption AND stale-duplicate cleanup).
     const planned = [
-      ...events.filter(e => isDate(e.date) && !e.personalImport && !(e.source && !String(e.source).endsWith('.ics'))),
+      ...events.filter(e => isDate(e.date) && !e.personalImport && !(e.source && !isIcsSource(e.source))),
       ...deadlines.filter(i => isDate(i.deadline)),
     ]
     const existingByKey = new Map()
@@ -2310,7 +2335,7 @@ export function AppDataProvider({ children }) {
     // sharing the exam component ID) must not create a second copy — skip any
     // exam-type content row that falls on a day the timetable already covers.
     const examEventDays = new Set(
-      events.filter(e => isDate(e.date) && !e.personalImport && !(e.source && !String(e.source).endsWith('.ics'))).map(e => `${e.course || ''}|${e.date}`),
+      events.filter(e => isDate(e.date) && !e.personalImport && !(e.source && !isIcsSource(e.source))).map(e => `${e.course || ''}|${e.date}`),
     )
     // Leftover safety net: a content row that shares an event's Google id
     // would PUT the same resource twice in one batch (400).
@@ -2364,7 +2389,7 @@ export function AppDataProvider({ children }) {
       if (!isDate(ev.date)) continue
       if (ev.personalImport) continue
       // Also skip events imported from Google Calendar (source is calendar name, not .ics file)
-      if (ev.source && !String(ev.source).endsWith('.ics')) continue
+      if (ev.source && !isIcsSource(ev.source)) continue
       if (ev.calId && deadlineCalIds.has(ev.calId) && !sharedDeadlineIsSkippedExam(ev.calId)) continue
       queueOp('event', ev, toGcalEvent(ev, courseColorMap))
     }
@@ -2494,7 +2519,7 @@ export function AppDataProvider({ children }) {
     // visibility, not on the shared calendar.
     // Also catch old imports (before personalImport flag was added) by checking source.
     const personalImportCalIds = new Set(
-      events.filter(e => (e.personalImport || (e.source && !String(e.source).endsWith('.ics'))) && e.calId).map(e => e.calId)
+      events.filter(e => (e.personalImport || (e.source && !isIcsSource(e.source))) && e.calId).map(e => e.calId)
     )
     for (const calId of personalImportCalIds) {
       await deleteCalendarEvent(calId, calendarId)
@@ -2505,7 +2530,7 @@ export function AppDataProvider({ children }) {
     const eventsFinal = dupRefs.size > 0 ? events.filter(e => !dupRefs.has(e)) : events
     // Clear calId from personal import events so they never get re-pushed
     // Also clear for old imports identified by source (not .ics file)
-    const isPersonalImport = e => e.personalImport || (e.source && !String(e.source).endsWith('.ics'))
+    const isPersonalImport = e => e.personalImport || (e.source && !isIcsSource(e.source))
     const eventsFinalClean = eventsFinal.map(e => isPersonalImport(e) && e.calId ? { ...e, calId: null } : e)
     const contentFinal = dupRefs.size > 0 ? (data.content || []).filter(i => !dupRefs.has(i)) : data.content
 
