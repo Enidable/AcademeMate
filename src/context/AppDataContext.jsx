@@ -17,7 +17,7 @@ import { normalizeCourseCode } from '../data/normalize'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows, isPhantomCourse, dropPhantomCourses, pruneOrphanCourses } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows, isPhantomCourse, dropPhantomCourses, pruneOrphanCourses, isContentMirrorEvent } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -1999,6 +1999,30 @@ export function AppDataProvider({ children }) {
         if (i.course && i.date && prunedOccurrences.has(`${i.course}|${i.date}|${i.start || ''}`)) return false
         return true
       })
+    }
+
+    // Content rows whose course is no longer in the Courses tab (and is not in
+    // the current files) are leftovers from a deleted course. Their generated
+    // mirrors (uid "content:…") would otherwise re-materialise the course on
+    // the calendar forever, so drop both — unless a logged session anchors the
+    // syllabus row (history wins).
+    if (canPruneStale) {
+      const trackedCourses = new Set(courses.map(c => c.course).filter(Boolean))
+      const orphanContentIds = new Set()
+      finalContent = finalContent.filter(i => {
+        if (!i || !i.course || trackedCourses.has(i.course)) return true
+        if (sessionContentRefs.has(i.id)) return true
+        orphanContentIds.add(i.id)
+        return false
+      })
+      if (orphanContentIds.size > 0) {
+        calendarFinal = calendarFinal.filter(e => {
+          if (!e) return true
+          if (e.contentId && orphanContentIds.has(e.contentId)) return false
+          if (isContentMirrorEvent(e) && !trackedCourses.has(e.course) && !referenced.has(e.id)) return false
+          return true
+        })
+      }
     }
 
     // Link the imported events to their content rows and make sure any
