@@ -17,7 +17,7 @@ import { normalizeCourseCode } from '../data/normalize'
 import { renameIdBase, typeLetter, nextDeadlineId } from '../utils/ids'
 import { parseCSVRaw } from '../utils/csv'
 import { loadCourseKeywords, matchKeywordCourse } from '../utils/courseKeywords'
-import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows, isPhantomCourse, dropPhantomCourses, pruneOrphanCourses, isContentMirrorEvent } from '../data/relations'
+import { nextId, assignIds, assignEntityIds, syncPlannerFromSessions, backfillPlanLinks, relinkContentCalendar, backfillLectureLinks, cascadeDeleteCourse, cascadeDeleteContent, syncContentCalendarMirror, ensureScheduledContentCalendarLinks, referencedEventIds, syncCommuteRows, isPhantomCourse, dropPhantomCourses, pruneOrphanCourses, isContentMirrorEvent, pruneOrphanContent } from '../data/relations'
 import {
   ensureSpreadsheet,
   ensureTabs,
@@ -497,6 +497,9 @@ function buildState(rowsByTab) {
   ensurePreAugustDone(data)
   ensureLoggedPastSessions(data)
   const coursesSynth = synthCourses(data)
+  // A course row removed from the Courses tab must take its syllabus rows and
+  // their generated calendar mirrors with it, or they keep resurrecting it.
+  const orphanContentPruned = pruneOrphanContent(data)
   linkGradeComponents(data)
   const gradesDeduped = dedupeGradeComponents(data)
   // Stable primary keys for every entity (legacy rows get them backfilled).
@@ -512,7 +515,7 @@ function buildState(rowsByTab) {
   // Overview, Daily Planner and Google push, and prep/notes resolve via the FK.
   const contentCalChanged = ensureScheduledContentCalendarLinks(data)
   const plannerWeeks = ensureDefaultRows(buildPlannerWeeks(data.dailyPlan))
-  return { data, weeklyHours, plannerWeeks, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth }
+  return { data, weeklyHours, plannerWeeks, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth, orphanContentPruned }
 }
 
 // Corruption the parse pass repairs, detected from the RAW tab rows so the
@@ -954,6 +957,10 @@ export function AppDataProvider({ children }) {
   function healContentFromLocal(d, savedLocal) {
     const local = savedLocal?.data?.content
     if (!Array.isArray(local) || local.length === 0) return
+    // Never resurrect syllabus rows for a course that is not in the Courses tab
+    // — that is exactly how content (and its calendar mirrors) for a deleted
+    // course came back on every load.
+    const tracked = new Set((d.courses || []).map(c => c.course).filter(Boolean))
     const driveById = new Map()
     for (const i of d.content || []) {
       if (!i.course) continue
@@ -975,6 +982,7 @@ export function AppDataProvider({ children }) {
           if ((existing[f] == null || existing[f] === '') && l[f] != null && l[f] !== '') existing[f] = l[f]
         }
       } else {
+        if (l.course && !tracked.has(l.course)) continue
         d.content.push({ ...l })
         driveById.set(k, l)
       }
@@ -1182,7 +1190,7 @@ export function AppDataProvider({ children }) {
     setDrive(info)
     driveRef.current = info
     const rowsByTab = await readAllTabs(file.id)
-    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth } = buildState(rowsByTab)
+    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth, orphanContentPruned } = buildState(rowsByTab)
     // Course rows the parse pass had to repair (phantom courses, etc.) are
     // written back so Drive converges and the junk disappears from the sheet.
     const coursesNeedRepair = rawCoursesNeedRepair(rowsByTab)
@@ -1215,6 +1223,7 @@ export function AppDataProvider({ children }) {
     if (healed.weeklyChanged) healedKeys.push('weeklyTotals')
       if (coursesNeedRepair || coursesSynth) healedKeys.push('courses')
     if (contentIdsRepaired) healedKeys.push('content', 'calendarEvents', 'studyLog')
+    if (orphanContentPruned) healedKeys.push('content', 'calendarEvents')
     if (healedKeys.length && driveRef.current) syncTabs(healedKeys)
 
     dataRef.current = d
@@ -1373,7 +1382,7 @@ export function AppDataProvider({ children }) {
     setSyncing(true)
     try {
       const rowsByTab = await readAllTabs(info.fileId)
-    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth } = buildState(rowsByTab)
+    const { data: d, weeklyHours: wt, plannerWeeks: p, contentCalChanged, commuteChanged, gradesDeduped, contentIdsRepaired, coursesSynth, orphanContentPruned } = buildState(rowsByTab)
       const coursesNeedRepair = rawCoursesNeedRepair(rowsByTab)
       const healed = await healCourses(d, loadJSON())
       cleanContent(d)
@@ -1394,7 +1403,8 @@ export function AppDataProvider({ children }) {
     if (coursesNeedRepair || coursesSynth) healedKeys.push('courses')
       if (healed.academicsChanged) healedKeys.push('academicYears')
       if (healed.weeklyChanged) healedKeys.push('weeklyTotals')
-      if (contentIdsRepaired) healedKeys.push('content', 'calendarEvents', 'studyLog')
+    if (contentIdsRepaired) healedKeys.push('content', 'calendarEvents', 'studyLog')
+    if (orphanContentPruned) healedKeys.push('content', 'calendarEvents')
       if (healedKeys.length) syncTabs(healedKeys)
       dataRef.current = d
       plannerRef.current = p

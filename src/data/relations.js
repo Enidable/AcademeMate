@@ -61,6 +61,41 @@ export function dropPhantomCourses(courses) {
   return (courses || []).filter(c => !(isPhantomCourse(c) && c.id && properIds.has(c.id)))
 }
 
+// Drop syllabus rows whose course no longer exists in the Courses table (and
+// that no logged session anchors), plus the "content:…" calendar mirrors those
+// rows generated. Without this, deleting a course's row leaves its syllabus and
+// mirrors behind, and they keep re-creating the course across the calendar.
+export function pruneOrphanContent(data) {
+  if (!data) return false
+  const tracked = new Set((data.courses || []).map(c => c.course).filter(Boolean))
+  const sessionRefs = new Set((data.studyLog || []).map(s => s.lectureContentId).filter(Boolean))
+  const removedIds = new Set()
+  const content = []
+  for (const i of data.content || []) {
+    if (!i) continue
+    if (!i.course || tracked.has(i.course) || (i.id && sessionRefs.has(i.id))) {
+      content.push(i)
+      continue
+    }
+    if (i.id) removedIds.add(i.id)
+  }
+  if (removedIds.size === 0) return false
+  data.content = content
+  const keepIds = new Set(content.map(i => i && i.id).filter(Boolean))
+  const eventHistory = new Set()
+  for (const s of data.studyLog || []) if (s.eventId) eventHistory.add(s.eventId)
+  for (const a of data.additionalLog || []) if (a.eventId) eventHistory.add(a.eventId)
+  data.calendarEvents = (data.calendarEvents || []).filter(e => {
+    if (!e) return true
+    if (e.contentId && removedIds.has(e.contentId)) return false
+    if (isContentMirrorEvent(e) && e.course && !tracked.has(e.course)
+      && !(e.contentId && keepIds.has(e.contentId))
+      && !(e.id && eventHistory.has(e.id))) return false
+    return true
+  })
+  return true
+}
+
 // Courses the timetable import minted on its own have every optional field
 // blank — the Courses form always writes a status + scope. Such a course carries
 // no user intent of its own, so once it has also lost every reference (no
